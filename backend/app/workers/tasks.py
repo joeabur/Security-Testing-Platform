@@ -53,6 +53,7 @@ from app.core.scope.errors import AuthorizationRequiredError, RoEValidationError
 from app.core.scope.kill_switch import KillSwitch
 from app.core.scope.transport import GatedTransport
 from app.db.session import dispose_engine, get_session_factory
+from app.db.tenant_context import set_current_organization
 from app.models.assessment_run import (
     AssessmentRun,
     RunEvent,
@@ -197,6 +198,13 @@ async def execute_assessment_run(
             # Already started, finished, or cancelled before the worker picked
             # it up — never restart a run that has left the queue.
             return run.status
+
+        # Row-Level Security (app/db/tenant_context.py): every query this
+        # task makes from here on, including the ones already issued above
+        # to load `run` itself, needs the organization set for the *next*
+        # transaction this session opens — set as soon as the run's
+        # organization is known.
+        set_current_organization(run.organization_id)
 
         target = run.target
 

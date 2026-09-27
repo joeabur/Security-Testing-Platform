@@ -74,7 +74,18 @@ jobs:
 
       - name: Install
         working-directory: backend
-        run: pip install -e ".[dev]"
+        # Must match ci.yml's install exactly: [dev] alone is missing the
+        # AppSec scanners (semgrep, bandit, checkov, pip-audit,
+        # detect-secrets), which is why a release run of this job failed 10
+        # tests that ci.yml passes on the identical commit — seven directly
+        # (the engines report "not tested" with none of them on PATH), and
+        # three downstream: the advisory-rules and code-scan-e2e tests need
+        # the same engines, and test_mlbom's CycloneDX-version check needs
+        # `cyclonedx-python-lib`, a transitive dependency of checkov, not
+        # its own declared one. A release is the one CI run meant to be at
+        # least as strict as a PR's — this makes it match rather than quietly
+        # test less.
+        run: pip install -e ".[dev,appsec,pdf]"
 
       - name: Migrate
         working-directory: backend

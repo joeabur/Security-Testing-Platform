@@ -19,6 +19,7 @@ from app.core.config import get_settings
 from app.core.revocation import dependency as revocation
 from app.core.revocation.contract import RevocationStoreUnavailable
 from app.db.session import get_db
+from app.db.tenant_context import set_current_organization
 from app.models.api_key import ApiKey, split_token
 from app.models.organization import Membership, Role
 from app.models.user import User
@@ -152,6 +153,13 @@ def require_membership(
     async def dependency(
         organization_id: uuid.UUID, request: Request, current_user: CurrentUser, db: DbSession
     ) -> Membership:
+        # Set before the membership check itself (rather than after it
+        # succeeds) so that every query this request makes from here on,
+        # including this one, runs under the Postgres session variable RLS
+        # policies read — this is what makes forgetting an
+        # `organization_id` filter fail closed instead of silently
+        # succeeding.
+        set_current_organization(organization_id)
         result = await db.execute(
             select(Membership)
             .where(

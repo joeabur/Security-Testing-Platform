@@ -10,6 +10,7 @@ from app.api.v1.routers import (
     organizations,
     remediation,
     reports,
+    repositories,
     runs,
     surface,
     targets,
@@ -23,6 +24,7 @@ api_router.include_router(auth.router)
 api_router.include_router(organizations.router)
 api_router.include_router(api_keys.router)
 api_router.include_router(targets.router)
+api_router.include_router(repositories.router)
 api_router.include_router(surface.router)
 api_router.include_router(runs.router)
 api_router.include_router(reports.router)

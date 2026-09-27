@@ -19,6 +19,31 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}Aegis AI Security{% endblock %}</title>
+{# No icon file is served, and none should be fetched from anywhere else —
+   same reasoning as the missing CDN script tag above. Without this, every
+   browser issues its own GET /favicon.ico, which 404s and surfaces as a
+   console error on every page for no reason. #}
+<link rel="icon" href="data:,">
+{# Applied before first paint, synchronously, so a stored preference never
+   flashes the other theme for one frame while the deferred stylesheet
+   parses — the one place this page needs a blocking inline script rather
+   than the progressive-enhancement pattern the rest of the page follows.
+   Reads localStorage directly rather than a cookie: the theme is a
+   per-browser display preference, not something a request handler or the
+   audit trail has any reason to see. #}
+<script>
+(function () {
+  try {
+    var stored = localStorage.getItem("aegis-theme");
+    if (stored === "light" || stored === "dark") {
+      document.documentElement.setAttribute("data-theme", stored);
+    }
+  } catch (e) { /* localStorage unavailable (private mode, etc.) — falls
+                   back to the OS preference below, same as any other
+                   per-viewer convenience failing closed rather than
+                   breaking the page. */ }
+})();
+</script>
 {% if htmx_available %}<script src="/app/static/htmx.min.js" defer></script>{% endif %}
 <style>
 :root {
@@ -32,6 +57,18 @@
     --bg: #f7f8fa; --panel: #ffffff; --line: #e2e5ec; --text: #16181d;
     --muted: #5d6675; --accent: #2b5fd9;
   }
+}
+/* An explicit choice (the toggle below, restored from localStorage by the
+   inline script in <head>) always wins over the OS preference above —
+   this rule has no @media guard, so it applies whichever way the
+   operating system is set. */
+:root[data-theme="light"] {
+  --bg: #f7f8fa; --panel: #ffffff; --line: #e2e5ec; --text: #16181d;
+  --muted: #5d6675; --accent: #2b5fd9;
+}
+:root[data-theme="dark"] {
+  --bg: #0f1117; --panel: #171a23; --line: #262b38; --text: #e6e8ee;
+  --muted: #9aa3b5; --accent: #5b8cff;
 }
 * { box-sizing: border-box; }
 body {
@@ -85,7 +122,35 @@ button[disabled] {
 .filters a.on { font-weight: 650; text-decoration: underline; }
 .pager { display: flex; align-items: center; gap: 12px; margin-top: 12px; font-size: 13px; }
 .pager .page-num { color: var(--muted); }
-@media (max-width: 640px) { main { padding: 16px; } }
+.theme-toggle {
+  background: transparent; color: var(--text); border: 1px solid var(--line);
+  border-radius: 6px; padding: 4px 10px; font: inherit; font-size: 13px;
+  cursor: pointer; margin-left: auto;
+}
+.theme-toggle:hover { border-color: var(--accent); }
+/* Everything above this point is written mobile-first-compatible (fluid
+   widths, wrapping flex, a `minmax`-based card grid) except the few spots
+   fixed sizing or a wide table assumes a desktop viewport; those are
+   narrowed here rather than redesigned, since the layout itself already
+   reflows. */
+@media (max-width: 640px) {
+  main { padding: 16px; }
+  header { padding: 12px; gap: 10px; }
+  header nav { gap: 10px; font-size: 13.5px; }
+  .theme-toggle { margin-left: 0; order: 10; }
+  h1 { font-size: 19px; }
+  .cards { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; }
+  .card { padding: 10px; }
+  .card .n { font-size: 21px; }
+  table { font-size: 13px; }
+  th, td { padding: 6px 8px; }
+  /* A table wider than the viewport scrolls inside its own panel instead
+     of forcing the whole page to scroll horizontally. */
+  .panel { max-width: 100%; }
+}
+@media (max-width: 420px) {
+  header nav { gap: 8px; font-size: 13px; }
+}
 </style>
 </head>
 <body>
@@ -98,12 +163,53 @@ button[disabled] {
     <a href="/app/organizations/{{ organization_id }}/runs">Runs</a>
     <a href="/app/organizations/{{ organization_id }}/workflows">Workflows</a>
     <a href="/app/organizations/{{ organization_id }}/targets">Targets</a>
+    <a href="/app/organizations/{{ organization_id }}/repositories">Repositories</a>
   </nav>
   {% endif %}
   {% if membership %}<span class="pill">{{ membership.role.value }}</span>{% endif %}
+  <button type="button" class="theme-toggle" id="theme-toggle" aria-label="Toggle dark or light mode">
+    <span id="theme-toggle-label">Theme</span>
+  </button>
 </header>
 <main>
 {% block content %}{% endblock %}
 </main>
+<script>
+(function () {
+  var root = document.documentElement;
+  var button = document.getElementById("theme-toggle");
+  var label = document.getElementById("theme-toggle-label");
+
+  function systemPrefersLight() {
+    return window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches;
+  }
+
+  function effectiveTheme() {
+    var explicit = root.getAttribute("data-theme");
+    if (explicit === "light" || explicit === "dark") return explicit;
+    return systemPrefersLight() ? "light" : "dark";
+  }
+
+  function render() {
+    var theme = effectiveTheme();
+    // The label names the theme a click switches TO, not the current one —
+    // "Dark mode" while viewing light, "Light mode" while viewing dark.
+    label.textContent = theme === "light" ? "Dark mode" : "Light mode";
+    button.setAttribute("aria-pressed", theme === "dark" ? "true" : "false");
+  }
+
+  button.addEventListener("click", function () {
+    var next = effectiveTheme() === "light" ? "dark" : "light";
+    root.setAttribute("data-theme", next);
+    try {
+      localStorage.setItem("aegis-theme", next);
+    } catch (e) { /* private mode / storage disabled — the choice still
+                      applies for this page view, just not remembered. */ }
+    render();
+  });
+
+  render();
+})();
+</script>
 </body>
 </html>

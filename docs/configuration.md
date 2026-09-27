@@ -46,6 +46,7 @@ and the CI gate all work with no provider.
 | `AI_MODEL` | |
 | `AI_API_KEY_ENV_VAR` | The *name* of the variable holding the key |
 | `AI_AUTONOMY_MODE` | `OFF`, `ASSIST`, `RECOMMEND`, `APPROVAL_REQUIRED`, `EXECUTE` |
+| `AI_DAILY_SPEND_CAP_USD` | Default `20.0`. A platform-wide ceiling on cumulative provider spend, on top of the $5.00 per-interaction budget — see `docs/security-model.md` guarantee #27 |
 
 `EXECUTE` does not grant execution of scans, authorization or finding changes.
 No mode does; see `docs/ai-security-testing.md`.

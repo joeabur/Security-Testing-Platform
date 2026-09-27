@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from app.core.config import get_settings
+from app.db.tenant_context import register_tenant_context_listener
 
 _engine: AsyncEngine | None = None
 _session_factory: async_sessionmaker[AsyncSession] | None = None
@@ -17,6 +18,12 @@ def get_engine() -> AsyncEngine:
     global _engine
     if _engine is None:
         _engine = create_async_engine(get_settings().database_url, pool_pre_ping=True)
+        # Row-Level Security (app/db/tenant_context.py) needs the current
+        # organization set as a session variable on every transaction this
+        # engine opens. `dispose_engine` recreates the engine per Celery
+        # task, so each new instance needs its own listener attached here
+        # rather than once at import time.
+        register_tenant_context_listener(_engine)
     return _engine
 
 

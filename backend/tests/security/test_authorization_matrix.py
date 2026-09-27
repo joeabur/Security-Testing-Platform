@@ -33,6 +33,7 @@ from app.api.v1.routers import (
     organizations,
     remediation,
     reports,
+    repositories,
     runs,
     surface,
     targets,
@@ -57,6 +58,7 @@ ROUTERS = (
     organizations,
     remediation,
     reports,
+    repositories,
     runs,
     surface,
     targets,
@@ -153,6 +155,11 @@ async def _call(client: AsyncClient, method: str, url: str, headers: dict[str, s
 # to be changed here too, deliberately, where a reviewer sees it.
 EXPECTED_ROLES: dict[tuple[str, str], Role] = {
     ("DELETE", "/organizations/{organization_id}/targets/{target_id}/accounts/{label}"): Role.ADMIN,
+    # One step above the SECURITY_ENGINEER that adding and scanning a
+    # repository need: disconnecting one is reversible, but by someone who
+    # can revoke access other people may be relying on, not by anyone who
+    # can start a scan.
+    ("DELETE", "/organizations/{organization_id}/repositories/{repository_id}"): Role.ADMIN,
     ("GET", "/organizations/{organization_id}"): Role.VIEWER,
     ("GET", "/organizations/{organization_id}/api-keys"): Role.ADMIN,
     ("GET", "/organizations/{organization_id}/assistant/runs/{run_id}/drafts"): Role.VIEWER,
@@ -161,6 +168,8 @@ EXPECTED_ROLES: dict[tuple[str, str], Role] = {
     ("GET", "/organizations/{organization_id}/findings/{finding_id}"): Role.VIEWER,
     ("GET", "/organizations/{organization_id}/members"): Role.VIEWER,
     ("GET", "/organizations/{organization_id}/remediation"): Role.VIEWER,
+    ("GET", "/organizations/{organization_id}/repositories"): Role.VIEWER,
+    ("GET", "/organizations/{organization_id}/repositories/{repository_id}"): Role.VIEWER,
     ("GET", "/organizations/{organization_id}/runs"): Role.VIEWER,
     ("GET", "/organizations/{organization_id}/runs/{run_id}"): Role.VIEWER,
     ("GET", "/organizations/{organization_id}/runs/{run_id}/events"): Role.VIEWER,
@@ -194,6 +203,14 @@ EXPECTED_ROLES: dict[tuple[str, str], Role] = {
     ("POST", "/organizations/{organization_id}/assistant/runs/{run_id}/drafts"): Role.ANALYST,
     ("POST", "/organizations/{organization_id}/findings/{finding_id}/status"): Role.ANALYST,
     ("POST", "/organizations/{organization_id}/members"): Role.ADMIN,
+    # The whole point of this endpoint: security-engineer, not the admin
+    # `POST /targets` needs, because adding a repository carries its own
+    # self-affirmed consent instead of an operator-granted authorization.
+    ("POST", "/organizations/{organization_id}/repositories"): Role.SECURITY_ENGINEER,
+    (
+        "POST",
+        "/organizations/{organization_id}/repositories/{repository_id}/scan",
+    ): Role.SECURITY_ENGINEER,
     ("POST", "/organizations/{organization_id}/retests"): Role.SECURITY_ENGINEER,
     ("POST", "/organizations/{organization_id}/runs"): Role.SECURITY_ENGINEER,
     ("POST", "/organizations/{organization_id}/runs/{run_id}/cancel"): Role.SECURITY_ENGINEER,

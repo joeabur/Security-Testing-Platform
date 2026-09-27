@@ -54,8 +54,13 @@ pdf = [
 ]
 # The AppSec scanners. Optional at runtime by design (§15): an adapter whose
 # tool is absent reports that it did not run rather than crashing or, worse,
-# returning nothing and looking clean. They are in `dev` as well so CI can
-# actually exercise the engines against the lab fixtures.
+# returning nothing and looking clean. They are a separate extra, not part
+# of `dev` — every workflow that runs the test suite must install this
+# alongside `dev` (`pip install -e ".[dev,appsec]"`) or the AppSec-engine
+# tests fail with "not tested" for all of them. This comment used to claim
+# they were included in `dev` too; they never have been, and that claim is
+# exactly what let .github/workflows/release.yml ship for a release
+# installing `[dev]` alone.
 appsec = [
     "semgrep>=1.90",
     "bandit>=1.7",

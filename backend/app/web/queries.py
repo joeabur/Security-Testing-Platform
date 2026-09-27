@@ -25,7 +25,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.probes.models import Severity
@@ -34,7 +34,7 @@ from app.models.authorization import Authorization
 from app.models.finding import Finding, FindingStatus
 from app.models.integration import DeliveryStatus, NotificationDelivery
 from app.models.rules_of_engagement import RulesOfEngagementRecord
-from app.models.target import Target
+from app.models.target import Target, TargetKind
 from app.models.workflow import Workflow, WorkflowRun
 
 #: Severity order for display: worst first, because that is the reading order
@@ -300,6 +300,7 @@ async def targets_for(
             Authorization.valid_from,
             Authorization.valid_until,
             RulesOfEngagementRecord.allowed_domains,
+            RulesOfEngagementRecord.code_scope,
         )
         .outerjoin(Authorization, Authorization.target_id == Target.id)
         .outerjoin(RulesOfEngagementRecord, RulesOfEngagementRecord.target_id == Target.id)
@@ -319,8 +320,13 @@ async def targets_for(
         valid_from,
         valid_until,
         allowed_domains,
-        *_,
+        # SQLAlchemy's typed `select()` overloads only cover up to ten
+        # positional columns; an eleventh (`code_scope`) makes `result.all()`
+        # a variadic tuple type, which mypy requires a star target to
+        # destructure even though there is exactly one column left.
+        *rest,
     ) in result.all():
+        code_scope = rest[0]
         if valid_from is None or valid_until is None:
             state = "none"
         elif valid_from <= moment <= valid_until:
@@ -331,13 +337,18 @@ async def targets_for(
             # page says the same thing about both: you cannot scan with it.
             state = "expired"
 
-        has_scope = bool(allowed_domains)
+        kind_value = str(getattr(kind, "value", kind))
+        # A `code_repo` target has no network surface at all by design (see
+        # `TargetKind.CODE_REPO`'s docstring) — its Rules of Engagement carry
+        # only `code_scope`, and `allowed_domains` is deliberately empty. Judging
+        # its scope by `allowed_domains`, as every other kind's row does, would
+        # call a correctly-configured repository "missing rules of engagement".
+        has_scope = bool(code_scope) if kind_value == "code_repo" else bool(allowed_domains)
         blockers: list[str] = []
         if state != "valid":
             blockers.append("no valid authorization grant")
         if not has_scope:
             blockers.append("no rules of engagement")
-        kind_value = str(getattr(kind, "value", kind))
         # An LLM target with no adapter has no surface to talk to, so the AI
         # probes would report nothing and the run would look clean. Naming it
         # here is the difference between "nothing found" and "nothing tested".
@@ -355,6 +366,67 @@ async def targets_for(
                 has_scope=has_scope,
                 has_code_repo=bool(code_repo_ref),
                 blockers=tuple(blockers),
+            )
+        )
+    return rows
+
+
+@dataclass(frozen=True)
+class RepositoryRow:
+    """One connected repository and its most recent scan, if any."""
+
+    id: uuid.UUID
+    name: str
+    url: str
+    branch: str | None
+    environment: str
+    latest_run_status: str | None
+    latest_run_at: datetime | None
+
+
+async def repositories_for(db: AsyncSession, organization_id: uuid.UUID) -> Sequence[RepositoryRow]:
+    """Connected repositories with their latest scan, in one pass.
+
+    A `LATERAL` join for "the most recent run per target" rather than a
+    window function over a subquery (`app/core/repositories/service.py`'s
+    `latest_scans` takes that approach for the API): this module selects
+    explicit columns throughout rather than ORM relationships, and a
+    `LATERAL` subquery reads as the direct SQL translation of "for each
+    repository, its newest run" without a second query shape to follow.
+    """
+    latest_run = (
+        select(AssessmentRun.status, AssessmentRun.created_at)
+        .where(AssessmentRun.target_id == Target.id)
+        .order_by(AssessmentRun.created_at.desc())
+        .limit(1)
+        .lateral()
+    )
+    result = await db.execute(
+        select(
+            Target.id,
+            Target.name,
+            Target.code_repo_ref,
+            Target.environment,
+            latest_run.c.status,
+            latest_run.c.created_at,
+        )
+        .outerjoin(latest_run, true())
+        .where(Target.organization_id == organization_id, Target.kind == TargetKind.CODE_REPO)
+        .order_by(Target.created_at.desc())
+    )
+
+    rows: list[RepositoryRow] = []
+    for target_id, name, code_repo_ref, environment, status, created_at in result.all():
+        url, _, branch = (code_repo_ref or "").removeprefix("git+").partition("#")
+        rows.append(
+            RepositoryRow(
+                id=target_id,
+                name=name,
+                url=url,
+                branch=branch or None,
+                environment=str(getattr(environment, "value", environment)),
+                latest_run_status=str(getattr(status, "value", status)) if status else None,
+                latest_run_at=created_at,
             )
         )
     return rows

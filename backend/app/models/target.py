@@ -33,6 +33,13 @@ class TargetKind(enum.StrEnum):
     # Added by Addendum v2.1 §4.2 for classic DAST targets: a web application
     # with no AI layer, tested by crawling and by third-party scanners.
     WEB_APP = "web_app"
+    # A source-code repository with no live network surface at all — the
+    # "add a repository" flow (app/core/repositories/service.py). Deliberately
+    # its own kind rather than reusing WEB_APP: `app/workers/tasks.py` builds
+    # a `DastCheck` for every `WEB_APP` target, and a repository has no
+    # `base_url` to crawl. A `CODE_REPO` target gets no reachability probe,
+    # no DAST, no AI check — only the AppSec engines, over its checkout.
+    CODE_REPO = "code_repo"
 
 
 class Target(UUIDPrimaryKeyMixin, TimestampMixin, Base):

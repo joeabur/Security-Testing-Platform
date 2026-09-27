@@ -2528,3 +2528,50 @@ authorization already covered end to end in `tests/security/test_revocation.py`.
 - **No client (CLI or dashboard) surfaces this yet.** The API is the
   complete answer today, the same stated position `docs/security-review.md`
   took for dashboard pagination before that gap had its own UI built.
+
+## Repositories: a lightweight path onto code scanning
+
+`docs/repositories.md` has the full design. In short: code scanning
+(SAST/SCA/secrets/IaC) previously required the same `Target` →
+`Authorization` → `Rules-of-Engagement` sequence built for a live network
+assessment, even for source code with no network surface at all. This adds
+`aegis-ai repo add|list|show|scan|remove` and the matching
+`/organizations/{id}/repositories` API, which composes the same three rows
+that workflow would eventually produce, from a URL, a branch, and an
+explicit self-affirmed consent — no YAML RoE document, no operator-role
+authorization grant from someone else.
+
+`TargetKind.CODE_REPO` is the mechanism that keeps this safe: it is a
+distinct kind from `WEB_APP` specifically so `app/workers/tasks.py` never
+builds a `DastCheck` for one, and it has no adapter configured so no
+`AiSecurityCheck` either — a connected repository's scan runs only the
+AppSec engines, against its own checkout, with no code path back to the
+network. Verified live: adding, listing, reading, scanning and removing a
+repository through the running API and dashboard, and a dedicated test file
+(`tests/test_repositories_api.py`) covering RBAC, tenant isolation, and
+rejection of an unauthorized-consent or disallowed-scheme/duplicate
+repository, alongside the full existing suite passing unchanged.
+
+Found and fixed along the way: `TargetKind.WEB_APP` had never actually been
+added to the Postgres `target_kind_enum` by any migration — only to the
+Python enum — so a `web_app` target could never be created against a
+database built by running the migrations in order (only against one built
+by `Base.metadata.create_all()`, which regenerates the type fresh each
+time and so never exposed the gap). `CODE_REPO`'s own migration adds both.
+
+### Deferrals
+
+- **No auto-discovery from a connected GitHub org.** Adding a repository is
+  manual — paste a URL — by deliberate choice (the user chose this over
+  extending `VcsConnection` to call GitHub's repo-listing API); the
+  scope decision and the alternative considered are recorded here rather
+  than in the migration.
+- **No per-organization repository quota or cost cap** beyond what already
+  bounds any assessment run.
+- **Findings from a repository scan use the same exposure model every
+  other code-scanned target already uses** (`app/core/findings/service.py`'s
+  `exposure_for`, keyed on `base_url`/`environment`), which was designed for
+  a live target and is an approximation for source code — the same
+  approximation the pre-existing single-repo-per-target code scan already
+  made; this feature does not add a new gap, just more targets that inherit
+  the existing one.

@@ -57,6 +57,17 @@ redacted but real exchanges with a customer's system.
   by-construction guarantee into an enforced one.
 - Migrations are forward and backward tested; run `alembic upgrade head` as a
   deploy step, before the new code serves traffic.
+- **The runtime database role must not be a superuser, and must not own the
+  application's tables without `FORCE ROW LEVEL SECURITY`.** Migration
+  `b2e6f4a91c7d` enables Postgres Row-Level Security (`docs/security-model.md`
+  guarantee #26) on the 14 tenant-scoped tables and sets `FORCE`, which closes
+  the table-owner exemption — but Postgres exempts a **superuser** from RLS
+  unconditionally, with no override available from inside the database. If the
+  role the application connects as is a superuser (true of the default
+  `postgres` role many hosted Postgres quickstarts create), RLS is silently a
+  no-op: no error, no warning, every policy simply never evaluated. Create a
+  dedicated, non-superuser role for the application and grant it only what
+  the schema needs.
 
 ## Configuration
 

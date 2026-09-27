@@ -230,6 +230,164 @@ def test_an_unreachable_platform_is_a_configuration_error(profile: Profile) -> N
     assert cli.main(["findings", "list"]) == int(ExitCode.CONFIG_ERROR)
 
 
+# --- target configuration --------------------------------------------------
+#
+# `target add` only creates the target itself; rules of engagement, the
+# adapter, the code scope and the runtime-protection declaration are each a
+# separate PUT the API exposes as its own resource (docs/cicd.md's own
+# workflow assumes a target is already configured before the CI commands
+# run). Found missing entirely during a live audit: `target add`, `auth
+# grant` and `scope explain/validate` existed, but nothing wrapped these
+# four PUT endpoints, so a security-engineer-scoped CLI/API-key user had no
+# sanctioned way to finish configuring a target short of raw HTTP.
+
+
+@respx.mock
+def test_target_roe_puts_the_yaml_body(profile: Profile, tmp_path: pathlib.Path) -> None:
+    target = "33333333-3333-3333-3333-333333333333"
+    config = tmp_path / "roe.yaml"
+    config.write_text("allowed_domains: ['127.0.0.1']\nsafe_mode: true\n")
+    route = respx.put(f"{BASE_URL}/organizations/{ORG}/targets/{target}/rules-of-engagement").mock(
+        return_value=httpx.Response(200, json={"target_id": target, "safe_mode": True})
+    )
+
+    code = cli.main(["target", "roe", "--target", target, "--file", str(config)])
+
+    assert code == 0
+    assert json.loads(route.calls.last.request.content) == {
+        "allowed_domains": ["127.0.0.1"],
+        "safe_mode": True,
+    }
+
+
+@respx.mock
+def test_target_adapter_puts_the_yaml_body(profile: Profile, tmp_path: pathlib.Path) -> None:
+    target = "33333333-3333-3333-3333-333333333333"
+    config = tmp_path / "adapter.yaml"
+    config.write_text("adapter_kind: chat_http\nadapter_config:\n  endpoint: /api/chat\n")
+    route = respx.put(f"{BASE_URL}/organizations/{ORG}/targets/{target}/adapter").mock(
+        return_value=httpx.Response(200, json={"id": target, "adapter_kind": "chat_http"})
+    )
+
+    code = cli.main(["target", "adapter", "--target", target, "--file", str(config)])
+
+    assert code == 0
+    assert json.loads(route.calls.last.request.content) == {
+        "adapter_kind": "chat_http",
+        "adapter_config": {"endpoint": "/api/chat"},
+    }
+
+
+@respx.mock
+def test_target_code_puts_the_yaml_body(profile: Profile, tmp_path: pathlib.Path) -> None:
+    target = "33333333-3333-3333-3333-333333333333"
+    config = tmp_path / "code.yaml"
+    config.write_text(
+        "repo_ref: git+https://example.test/repo.git#main\n"
+        "code_scope:\n  allowed_paths: ['src/**']\n"
+    )
+    route = respx.put(f"{BASE_URL}/organizations/{ORG}/targets/{target}/code").mock(
+        return_value=httpx.Response(200, json={"id": target})
+    )
+
+    code = cli.main(["target", "code", "--target", target, "--file", str(config)])
+
+    assert code == 0
+    assert route.calls.last.request.method == "PUT"
+
+
+@respx.mock
+def test_target_runtime_protection_puts_the_yaml_body(
+    profile: Profile, tmp_path: pathlib.Path
+) -> None:
+    target = "33333333-3333-3333-3333-333333333333"
+    config = tmp_path / "rp.yaml"
+    config.write_text("controls: []\n")
+    route = respx.put(f"{BASE_URL}/organizations/{ORG}/targets/{target}/runtime-protection").mock(
+        return_value=httpx.Response(200, json={"id": target})
+    )
+
+    code = cli.main(["target", "runtime-protection", "--target", target, "--file", str(config)])
+
+    assert code == 0
+    assert route.calls.last.request.method == "PUT"
+
+
+# --- repositories -----------------------------------------------------------
+#
+# The fast path onto code scanning: `repo add` posts flags as JSON, not a
+# YAML file like `target add` — matching the API's own design decision to
+# skip the Rules-of-Engagement/Authorization workflow for a repository.
+
+
+@respx.mock
+def test_repo_add_posts_the_url_and_authorized_flag(profile: Profile) -> None:
+    route = respx.post(f"{BASE_URL}/organizations/{ORG}/repositories").mock(
+        return_value=httpx.Response(
+            201, json={"id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "name": "Example"}
+        )
+    )
+
+    code = cli.main(
+        [
+            "repo",
+            "add",
+            "--name",
+            "Example",
+            "--url",
+            "https://example.test/org/repo.git",
+            "--branch",
+            "main",
+            "--authorized",
+        ]
+    )
+
+    assert code == 0
+    assert json.loads(route.calls.last.request.content) == {
+        "name": "Example",
+        "url": "https://example.test/org/repo.git",
+        "branch": "main",
+        "authorized": True,
+    }
+
+
+def test_repo_add_without_authorized_refuses_before_any_request(profile: Profile) -> None:
+    """Client-side, before the request is even built: the same requirement
+    the API enforces server-side, checked here so a scripted call fails
+    fast with a clear message rather than a generic 422."""
+    code = cli.main(
+        ["repo", "add", "--name", "Example", "--url", "https://example.test/org/repo.git"]
+    )
+
+    assert code == int(ExitCode.CONFIG_ERROR)
+
+
+@respx.mock
+def test_repo_scan_posts_safe_mode_from_the_unsafe_flag(profile: Profile) -> None:
+    repo = "44444444-4444-4444-4444-444444444444"
+    route = respx.post(f"{BASE_URL}/organizations/{ORG}/repositories/{repo}/scan").mock(
+        return_value=httpx.Response(200, json={"run_id": RUN, "status": "queued"})
+    )
+
+    code = cli.main(["repo", "scan", repo, "--unsafe"])
+
+    assert code == 0
+    assert json.loads(route.calls.last.request.content) == {"safe_mode": False}
+
+
+@respx.mock
+def test_repo_remove_deletes(profile: Profile) -> None:
+    repo = "44444444-4444-4444-4444-444444444444"
+    route = respx.delete(f"{BASE_URL}/organizations/{ORG}/repositories/{repo}").mock(
+        return_value=httpx.Response(204)
+    )
+
+    code = cli.main(["repo", "remove", repo])
+
+    assert code == 0
+    assert route.calls.last.request.method == "DELETE"
+
+
 # --- scope explain --------------------------------------------------------
 
 

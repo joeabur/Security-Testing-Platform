@@ -39,6 +39,8 @@ being true. Most are both.
 | 23 | Authentication endpoints cannot be brute-forced without cost | Login/register are rate limited on both per-identity and per-IP dimensions; throttled (429), never locked out — `docs/rate-limiting.md` |
 | 24 | A cross-site page cannot forge a cookie-authenticated write | CSRF token is an HMAC over the session cookie's own value, enforced as middleware over every route — `docs/csrf.md` |
 | 25 | A logged-out or suspected-leaked token stops working immediately | Per-token deny-list on `/auth/logout`; durable per-user cutoff on `/auth/logout-all`; this control fails *closed* — `docs/revocation.md` |
+| 26 | A query that forgets its `organization_id` filter cannot return another tenant's rows | Postgres Row-Level Security on the 14 tenant-scoped tables, independent of guarantee #12's application-level filtering — `app/db/tenant_context.py`; requires the operator setup in `docs/deployment.md`'s Database section |
+| 27 | Cumulative AI provider spend cannot run away across many calls | A Redis-backed daily counter, checked before every call and charged with a real per-call estimate, on top of the $5.00 per-interaction budget — `app/core/assistant/spend_cap.py`, `app/core/assistant/pricing.py` |
 
 ## The habit behind the tests
 

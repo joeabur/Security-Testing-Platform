@@ -1,0 +1,28 @@
+<div id="repositories-table" class="panel">
+{% if repositories %}
+  <table>
+    <thead>
+      <tr><th>Name</th><th>Repository</th><th>Branch</th><th>Environment</th>
+          <th>Latest scan</th></tr>
+    </thead>
+    <tbody>
+    {% for row in repositories %}
+      <tr>
+        <td>{{ row.name }}</td>
+        <td><code>{{ row.url|truncate(56, true) }}</code></td>
+        <td>{{ row.branch or "default" }}</td>
+        <td><span class="pill">{{ row.environment }}</span></td>
+        <td>
+          {%- if row.latest_run_status -%}
+            <span class="sev sev-{{ 'HIGH' if row.latest_run_status in ('failed', 'cancelled', 'expired') else 'LOW' }}">
+              {{ row.latest_run_status }}</span>
+          {%- else -%}<span class="unknown">never scanned</span>{%- endif -%}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+{% else %}
+  <p class="empty">No repositories connected.</p>
+{% endif %}
+</div>

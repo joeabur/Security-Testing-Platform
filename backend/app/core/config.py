@@ -35,6 +35,13 @@ class Settings(BaseSettings):
     ai_model: str | None = Field(default=None, alias="AI_MODEL")
     ai_api_key_env_var: str | None = Field(default=None, alias="AI_API_KEY_ENV_VAR")
     ai_autonomy_mode: str = Field(default="ASSIST", alias="AI_AUTONOMY_MODE")
+    # A ceiling on top of the $5.00 per-interaction budget
+    # (app/core/assistant/egress.py's PROVIDER_BUDGETS), which is rebuilt
+    # fresh on every call and so cannot by itself stop many small
+    # interactions from adding up to an unbounded bill. This one is
+    # enforced across calls, platform-wide, via a Redis counter that rolls
+    # over daily (app/core/assistant/spend_cap.py).
+    ai_daily_spend_cap_usd: float = Field(default=20.0, alias="AI_DAILY_SPEND_CAP_USD")
 
     jwt_secret: str = Field(default="insecure-local-dev-secret-change-me", alias="JWT_SECRET")
     jwt_algorithm: str = "HS256"

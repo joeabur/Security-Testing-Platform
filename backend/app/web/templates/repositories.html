@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Repositories — Aegis AI Security{% endblock %}
+{% block content %}
+<h1>Repositories</h1>
+<p class="sub">Source code connected for scanning by the SAST, SCA, secrets and
+   IaC engines — the fast path onto those engines that skips the
+   Rules-of-Engagement and Authorization-grant workflow a live network target
+   needs, in exchange for an explicit affirmation, recorded at connection
+   time, that whoever added it has the right to have it scanned. See
+   <code>docs/repositories.md</code>.</p>
+{% include "partials/repositories_table.html" %}
+<h2>Connecting a repository</h2>
+<button disabled>{{ actions.add_repository.label }}</button>
+<p class="why">{{ actions.add_repository.reason }} <code>{{ actions.add_repository.how }}</code></p>
+<h2>Scanning a connected repository</h2>
+<button disabled>{{ actions.scan_repository.label }}</button>
+<p class="why">{{ actions.scan_repository.reason }} <code>{{ actions.scan_repository.how }}</code></p>
+{% endblock %}

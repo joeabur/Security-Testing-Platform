@@ -131,6 +131,43 @@ Scopes:
 Keys record `last_used_at`, so you can find the ones nothing is using and
 revoke them.
 
+## Finishing a target's configuration
+
+`target add` only creates the target row. Rules of engagement, the adapter,
+the code scope and the runtime-protection declaration are each their own
+resource, matching the API:
+
+```bash
+aegis-ai target roe --target "$TARGET_ID" --file roe.yaml                 # admin
+aegis-ai target adapter --target "$TARGET_ID" --file adapter.yaml         # security engineer
+aegis-ai target code --target "$TARGET_ID" --file code.yaml               # admin
+aegis-ai target runtime-protection --target "$TARGET_ID" --file rp.yaml   # admin
+```
+
+`adapter` is the one of the four a CI credential (`scan` scope) can call —
+it configures how the platform talks to the target, not whether testing it
+is authorized. `roe`, `code`, and `runtime-protection` need an admin
+session (`aegis-ai login`), same as `auth grant` above: each is a claim
+someone accountable is making about scope or protection, not a pipeline
+setting.
+
+## Scanning source code without the full target workflow
+
+If all a pipeline needs is SAST/SCA/secrets/IaC over a repository — no live
+target, no adapter, no operator-granted authorization — `aegis-ai repo` is
+the shorter path (`docs/repositories.md` has the full design):
+
+```bash
+aegis-ai repo add --name "$REPO_NAME" --url "$REPO_URL" --branch "$BRANCH" --authorized
+aegis-ai repo scan "$REPOSITORY_ID" --wait   # not yet supported; see below
+```
+
+`repo add`/`repo scan` need `security_engineer` — no admin step, because
+adding a repository is its own consent (`--authorized`) rather than a claim
+someone else has to sign off on. `repo scan` does not yet support `--wait`
+or `--dry-run` the way `scan` does for a full target; poll `aegis-ai runs
+show "$RUN_ID"` for now.
+
 ## Typical pipeline shapes
 
 **Gate an existing run** (the scan runs on a schedule; the pipeline only

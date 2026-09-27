@@ -67,10 +67,14 @@ def create_app() -> FastAPI:
         hits.clear()
         return {"cleared": cleared}
 
-    @app.api_route(
-        "/oob/{path:path}",
-        methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"],
-    )
+    # One route per method rather than a single `api_route(methods=[...])`:
+    # FastAPI derives an operation_id from the function name when none is
+    # given, and a shared handler registered once for six methods produced
+    # the same operation_id for all six in the generated OpenAPI document
+    # (harmless to routing — Starlette dispatches on method regardless —
+    # but a duplicate-operation-id document is malformed, and anything
+    # that keys off operation_id, including this platform's own OpenAPI
+    # parser, would see one endpoint where six exist).
     async def collect(path: str, request: Request) -> PlainTextResponse:
         body = await request.body()
         if len(hits) < MAX_HITS:
@@ -90,5 +94,13 @@ def create_app() -> FastAPI:
         # The same inert answer to everything. A collaborator that returned
         # anything interesting would become a second attack surface.
         return PlainTextResponse("ok\n")
+
+    for method in ("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"):
+        app.add_api_route(
+            "/oob/{path:path}",
+            collect,
+            methods=[method],
+            operation_id=f"collect_oob_{method.lower()}",
+        )
 
     return app

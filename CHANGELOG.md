@@ -6,7 +6,53 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- Postgres Row-Level Security as a second, independent tenant-isolation
+  boundary behind the application's own `organization_id` filters, on the 14
+  tenant-scoped tables (`app/db/tenant_context.py`, migration `b2e6f4a91c7d`).
+  Defense in depth: a query that forgot its `organization_id` filter now fails
+  closed (an empty result) rather than crossing tenants. Requires the runtime
+  database role to be a non-superuser — see `docs/deployment.md`'s Database
+  section.
+- A cumulative, platform-wide daily cap on AI provider spend
+  (`app/core/assistant/spend_cap.py`), on top of the existing $5.00
+  per-interaction budget, plus real per-call cost estimation
+  (`app/core/assistant/pricing.py`) — the per-interaction budget's cost
+  dimension previously never actually moved, because every call passed
+  `estimated_cost_usd=0.0`.
+- Dark/light mode toggle, in both the Jinja2 dashboard and the Next.js
+  frontend, remembered per browser via `localStorage` and applied before
+  first paint to avoid a flash of the wrong theme.
+- Responsive layout pass on the Jinja2 dashboard: header, cards, and tables
+  now reflow at phone width; the Next.js frontend's existing Tailwind
+  breakpoints were left as-is and its top nav made wrap-safe.
+- `aegis-ai repo add|list|show|scan|remove` and
+  `/organizations/{id}/repositories` — a lightweight path onto code scanning
+  (SAST/SCA/secrets/IaC) for a repository someone already has read access
+  to: a URL, a branch, and a self-affirmed consent, skipping the
+  Rules-of-Engagement/Authorization-grant workflow a live network target
+  needs. New `TargetKind.CODE_REPO` keeps it safe — no `DastCheck`, no AI
+  check, only the AppSec engines against a checkout. See
+  `docs/repositories.md`.
+
+### Fixed
+
+- `target_kind_enum` was missing `WEB_APP` on any database built by running
+  the migrations in order — only `Base.metadata.create_all()` (used by the
+  test suite) ever produced it, so a `web_app` target could never actually
+  be created against a properly migrated deployment. Found while adding
+  `CODE_REPO` to the same enum; both are added by migration `c3f8a2e91b4d`.
+
+- `aegis-ai target roe|adapter|code|runtime-protection` — a full audit pass
+  found `target add` and `auth grant` covered by the CLI but the four
+  PUT endpoints that finish configuring a target (rules of engagement, the
+  adapter, the code scope, the runtime-protection declaration) had no CLI
+  command at all, leaving no sanctioned way to complete a target's setup
+  short of raw HTTP calls.
+- The dashboard's base template requested no favicon, so every page load
+  issued an unanswered `GET /favicon.ico` that surfaced as a browser console
+  error; an explicit no-op `<link rel="icon">` suppresses the request.
 
 ## [0.1.0] — 2026-09-25
 

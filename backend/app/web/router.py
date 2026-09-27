@@ -265,6 +265,24 @@ async def targets_page(
     )
 
 
+@router.get("/organizations/{organization_id}/repositories", response_class=HTMLResponse)
+async def repositories_page(
+    request: Request, organization_id: uuid.UUID, db: DbSession, membership: Viewer
+) -> HTMLResponse:
+    repositories = await queries.repositories_for(db, organization_id)
+    return _page(
+        request,
+        "repositories.html",
+        {
+            "membership": membership,
+            "organization_id": organization_id,
+            "repositories": repositories,
+            "actions": _actions(membership),
+        },
+        partial="partials/repositories_table.html",
+    )
+
+
 #: Actions the dashboard displays but does not perform, with the reason and the
 #: thing that does perform them. §27 requires that a visible action either works
 #: or says why it does not; a greyed-out button with no explanation fails that
@@ -316,5 +334,17 @@ def _actions(membership: Membership) -> dict[str, dict[str, str]]:
             "Add a target",
             Role.ADMIN,
             "POST /api/v1/organizations/{organization_id}/targets",
+        ),
+        "add_repository": action(
+            "Connect a repository",
+            Role.SECURITY_ENGINEER,
+            "POST /api/v1/organizations/{organization_id}/repositories "
+            "(or: aegis-ai repo add --name ... --url ... --authorized)",
+        ),
+        "scan_repository": action(
+            "Scan a repository",
+            Role.SECURITY_ENGINEER,
+            "POST /api/v1/organizations/{organization_id}/repositories/{repository_id}/scan "
+            "(or: aegis-ai repo scan <repository>)",
         ),
     }
