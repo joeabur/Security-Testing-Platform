@@ -4,7 +4,13 @@ import { Providers } from "@/components/providers";
 
 import "./globals.css";
 
+// Placeholder until a real production domain exists — swap every occurrence
+// (this file, app/page.tsx, app/sitemap.ts, public/robots.txt) for the real
+// domain before deploying; see docs/seo.md.
+const SITE_URL = "https://YOUR-DOMAIN.com";
+
 export const metadata: Metadata = {
+  metadataBase: new URL(SITE_URL),
   title: "Aegis AI Security",
   description:
     "Authorized security assessment platform for Generative AI applications, agents, and their supporting APIs.",
