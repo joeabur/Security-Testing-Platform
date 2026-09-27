@@ -35,6 +35,13 @@ All notable changes to this project are recorded here. The format follows
   needs. New `TargetKind.CODE_REPO` keeps it safe — no `DastCheck`, no AI
   check, only the AppSec engines against a checkout. See
   `docs/repositories.md`.
+- A public, unauthenticated landing page (`frontend/app/page.tsx`), replacing
+  the previous unconditional redirect to `/login`/`/dashboard`, plus
+  `frontend/app/sitemap.ts`, an updated `frontend/public/robots.txt`, and
+  meta/Open Graph/Twitter/JSON-LD tags targeting "AI security testing" / "AI
+  red teaming". Uses a placeholder domain (`YOUR-DOMAIN.com`) throughout
+  until a real one exists — see `docs/seo.md` for the swap-in checklist and
+  Google Search Console submission steps.
 
 ### Fixed
 

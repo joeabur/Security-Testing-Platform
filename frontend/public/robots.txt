@@ -1,2 +1,9 @@
 User-agent: *
+Allow: /$
 Disallow: /
+Disallow: /login
+Disallow: /register
+Disallow: /dashboard
+Disallow: /organizations
+
+Sitemap: https://YOUR-DOMAIN.com/sitemap.xml
