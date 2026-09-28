@@ -10,6 +10,13 @@ export const SERVER_API_BASE_URL =
 export const PUBLIC_API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
 
+// The same backend, without the `/api/v1` suffix — for linking to the
+// server-rendered dashboard (`/app/...`), which lives on the backend rather
+// than in this app. Its session cookie is host-scoped, not port-scoped, so a
+// visitor already signed in here is already signed in there too; this is
+// just the link, not a second auth flow.
+export const PUBLIC_APP_BASE_URL = PUBLIC_API_BASE_URL.replace(/\/api\/v1\/?$/, "");
+
 export const SESSION_COOKIE_NAME = "aegis_session";
 
 // Must match app/core/csrf/enforce.py's COOKIE_NAME and HEADER_NAME exactly —
