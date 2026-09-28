@@ -27,6 +27,8 @@ from app.core.appsec.checkout import (
 )
 from app.core.appsec.registry import appsec_engines
 from app.core.appsec.workspace import CodeScopeError
+from app.core.cloud.contract import CloudTarget
+from app.core.cloud.service import promote_discovered_buckets
 from app.core.config import get_settings
 from app.core.container.contract import ContainerTarget
 from app.core.container.service import record_tool_invocations
@@ -37,6 +39,7 @@ from app.core.evidence.store import EvidenceError, EvidenceStore
 from app.core.findings.service import promote_run_results
 from app.core.orchestrator.ai_check import AiSecurityCheck
 from app.core.orchestrator.checks import Check, Endpoint, ReachabilityCheck
+from app.core.orchestrator.cloud_check import CloudCheck
 from app.core.orchestrator.code_check import CodeScanCheck
 from app.core.orchestrator.container_check import ContainerCheck
 from app.core.orchestrator.context_builder import (
@@ -55,7 +58,11 @@ from app.core.probes.api.registry import build_api_registry
 from app.core.probes.models import ScanResult, Severity
 from app.core.rasp.contract import RuntimeProtectionProfile, untested_marker
 from app.core.retest.service import record_retest
-from app.core.scope.asset_scope import resolve_container_scope, resolve_domain_scope
+from app.core.scope.asset_scope import (
+    resolve_cloud_scope,
+    resolve_container_scope,
+    resolve_domain_scope,
+)
 from app.core.scope.errors import (
     AssetScopeValidationError,
     AuthorizationRequiredError,
@@ -338,6 +345,39 @@ async def execute_assessment_run(
                 )
                 checks.append(container_check)
 
+        # CLOUD_ACCOUNT runs only for `kind: cloud_account`, and only once
+        # the RoE's asset_scope resolves — same fail-closed-but-do-not-
+        # abort-the-run handling as CONTAINER above. `resolve_cloud_scope`
+        # itself refuses `read_only: false`, so a target that asked for
+        # anything but a read-only assessment skips the check here rather
+        # than the engine attempting a mutating call.
+        cloud_check: CloudCheck | None = None
+        if target.kind is TargetKind.CLOUD_ACCOUNT:
+            try:
+                cloud_scope = resolve_cloud_scope(
+                    target.rules_of_engagement.asset_scope
+                    if target.rules_of_engagement is not None
+                    else None
+                )
+            except AssetScopeValidationError as exc:
+                await _record_event(
+                    db,
+                    run.id,
+                    RunEventKind.CHECK_COMPLETED,
+                    f"Cloud scanning skipped: {exc}",
+                    {"reason": str(exc)},
+                )
+            else:
+                cloud_check = CloudCheck(
+                    target=CloudTarget(
+                        provider=cloud_scope.provider,
+                        account_ref=cloud_scope.account_ref,
+                        credential_env_var=cloud_scope.credential_env_var,
+                        allowed_regions=tuple(cloud_scope.allowed_regions),
+                    )
+                )
+                checks.append(cloud_check)
+
         # The code engines need a checkout. It is created here and removed in
         # the `finally` below whatever happens: a working copy of a client's
         # repository is precisely what must not be left on a worker, since it
@@ -431,6 +471,8 @@ async def execute_assessment_run(
             all_results.extend(domain_check.scan_results)
         if container_check is not None:
             all_results.extend(container_check.scan_results)
+        if cloud_check is not None:
+            all_results.extend(cloud_check.scan_results)
         if plugin_check is not None:
             all_results.extend(plugin_check.scan_results)
 
@@ -474,6 +516,19 @@ async def execute_assessment_run(
                 organization_id=run.organization_id,
                 run_id=run.id,
                 invocations=container_check.tool_invocations,
+            )
+
+        # Same idea for the cloud engine's inventoried buckets, but into the
+        # discovered-asset inventory rather than the findings table — a
+        # bucket is something found, not itself a vulnerability (whether it
+        # is public is what the finding, not the discovery row, says).
+        if cloud_check is not None and cloud_check.discovered:
+            await promote_discovered_buckets(
+                db,
+                organization_id=run.organization_id,
+                parent_target_id=target.id,
+                target=cloud_check.target,
+                exposures=cloud_check.discovered,
             )
 
         run.status = RunStatus(outcome.status.value)

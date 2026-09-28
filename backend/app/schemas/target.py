@@ -91,6 +91,22 @@ class ContainerScopeIn(BaseModel):
     allow_live_pull: bool = False
 
 
+class CloudScopeIn(BaseModel):
+    """What a `CLOUD_ACCOUNT` target's engine may inventory.
+
+    `provider` has no default — declaring a cloud scope always means one
+    specific provider, never "try all three." `read_only` is not a field
+    here at all: `resolve_cloud_scope` refuses anything but a read-only
+    assessment at resolve time, so this schema does not offer a knob that
+    would only be rejected later.
+    """
+
+    provider: Literal["aws", "azure", "gcp"]
+    account_ref: str = Field(min_length=1, max_length=200)
+    credential_env_var: str = Field(min_length=1, max_length=128)
+    allowed_regions: list[str] = Field(default_factory=list, max_length=50)
+
+
 class ClaimedControlIn(BaseModel):
     """One runtime control an operator says is deployed.
 

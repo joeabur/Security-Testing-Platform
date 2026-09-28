@@ -27,6 +27,21 @@ All notable changes to this project are recorded here. The format follows
   static test, and a dynamic secret-redaction test. See `docs/agent.md`,
   `docs/guardrails.md` §1.4, and `docs/security-model.md` guarantees
   #29–#30.
+- Pentest module, Phase 4 (cloud engine): `app/core/cloud/` — read-only
+  object-storage (S3) exposure inventory for a `TargetKind.CLOUD_ACCOUNT`
+  target, gated on `asset_scope.provider`/`account_ref`/
+  `credential_env_var`/`allowed_regions` and on `resolve_cloud_scope`'s hard
+  refusal of anything but a read-only assessment. AWS ships fully
+  implemented — exactly four read-only `boto3` S3 calls (`list_buckets`,
+  `get_bucket_location`, `get_bucket_policy_status`, `get_bucket_acl`),
+  never a write verb, enforced by a static test; Azure and GCP route
+  correctly but report an explicit "not implemented yet" gap rather than a
+  fabricated result. A bucket is judged public from both the bucket policy's
+  `IsPublic` flag and ACL grants to `AllUsers`/`AuthenticatedUsers`;
+  inventoried buckets are promoted to `DiscoveredAsset` rows
+  (upsert-on-rerun). Configurable via `PUT
+  /organizations/{id}/targets/{id}/cloud-scope`; `boto3` ships as an
+  optional `cloud` extra. See `docs/roadmap.md`.
 - Pentest module, Phase 3 (container engine): `app/core/container/` — an
   authorized live registry pull (`docker pull`, with the same
   allowlist-then-resolve-then-block-check pipeline `checkout.py` already

@@ -2797,6 +2797,114 @@ unaffected); and the full backend suite green.
 - **Cloud and VM engines, and the pentest-tool architecture, still do not
   exist** — see the Phase 1 foundation section above.
 
+## Pentest module, Phase 4 — cloud engine (AWS, read-only)
+
+Closes the "Cloud and VM engines... still do not exist" gap the Phase 3
+container-engine section named above. `app/core/cloud/` inventories
+object-storage exposure for a `TargetKind.CLOUD_ACCOUNT` target's declared
+account, gated on `asset_scope.provider`/`account_ref`/`credential_env_var`/
+`allowed_regions` (`CloudScope`, already defined in the Phase 1 foundation)
+and on `resolve_cloud_scope`'s own hard refusal of anything but a
+read-only assessment — a mutating cloud call is a higher authorization tier
+this engine does not grant, and unlike `ContainerScope.allow_live_pull` this
+is not even a caller-settable flag: `read_only` defaults `True` and a `False`
+value is rejected at resolve time, before the engine ever runs.
+
+Delivered: `app/core/cloud/providers/aws.py` — real, correct `boto3` usage
+against exactly four read-only S3 calls (`list_buckets`,
+`get_bucket_location`, `get_bucket_policy_status`, `get_bucket_acl`), never a
+`put_*`/`delete_*`/`create_*` verb, enforced by this phase's own static test
+the same way `docs/security-model.md` guarantee #20 already enforces "no
+write verbs" for `app/core/vcs`'s pull-request layer; `CloudEngine`
+(`engine.py`) dispatching by `provider` through an injectable `providers` map
+— the same reason `ContainerEngine` injects `pull`/`scan`/`remove` rather than
+reaching for a real Docker daemon at call time; `CloudCheck`
+(`app/core/orchestrator/cloud_check.py`), mirroring `ContainerCheck`'s "one
+engine failure must not lose the run" contract; wiring into
+`execute_assessment_run` for `TargetKind.CLOUD_ACCOUNT`, including promoting
+inventoried buckets to `DiscoveredAsset` rows
+(`app/core/cloud/service.py::promote_discovered_buckets`, upsert-on-rerun,
+mirroring `promote_discovered_subdomains`); and a `PUT
+/organizations/{id}/targets/{id}/cloud-scope` endpoint mirroring
+`configure_container_scope`'s shape.
+
+Decisions worth stating:
+
+- **AWS ships fully implemented this phase; Azure and GCP do not.**
+  `resolve_cloud_scope` already validates `provider` against exactly
+  `{"aws", "azure", "gcp"}`, and `CloudEngine`'s dispatch handles all three —
+  but calling either unimplemented provider today produces an explicit
+  `AEGIS-CLOUD-109` "not implemented yet" gap finding rather than a
+  fabricated result. Each needs its own multi-package SDK integration
+  (`azure-identity` + `azure-mgmt-storage` + `azure-storage-blob`;
+  `google-cloud-storage` + service-account credential handling), and shipping
+  either untested against a real account would be exactly the kind of
+  unverified claim this codebase's own discipline refuses to make — the same
+  reasoning Phase 5's SSRF probe and Phase 6's indirect-injection probe were
+  deferred under in the AI engine, rather than stubbed.
+- **The credential a `credential_env_var` resolves to is a JSON object, not
+  a bare token.** S3 access needs an access-key/secret-key pair (plus an
+  optional session token), not the single string `SyntheticAccount`'s bearer
+  header needed — `{"access_key_id": ..., "secret_access_key": ...,
+  "session_token": ...}`. Malformed or incomplete JSON is a
+  `CloudProviderError`, surfaced as a coverage marker, never a crash.
+- **A bucket is judged public from two independent signals** — the bucket
+  policy's own `GetBucketPolicyStatus.IsPublic` flag, and an ACL grant to the
+  `AllUsers`/`AuthenticatedUsers` well-known groups — because an account can
+  restrict read access to one API and not the other; checking only one would
+  under-report. Either surface being unreadable (access denied) is treated
+  as a conservative "not public" rather than fabricating a verdict from a
+  denial.
+- **An out-of-scope region is skipped entirely, not merely reported
+  untested** — the same "discovery never expands what gets tested" rule
+  `DomainEngine` applies to a subdomain outside
+  `allowed_subdomain_patterns`. An empty `allowed_regions` means no
+  restriction, matching the schema's own permissive default.
+- **`boto3` is an optional `cloud` extra** (`pip install -e ".[dev,cloud]"`),
+  the same reasoning `appsec` already established for its scanners: an
+  engine whose SDK is absent reports `AEGIS-CLOUD-109` rather than crashing
+  or, worse, silently reporting nothing. The base test suite never imports
+  it for real — every test exercises the provider through dependency
+  injection.
+
+Verified: `ruff check`/`mypy app` clean (a new `[[tool.mypy.overrides]]`
+entry for `boto3.*`/`botocore.*`, mirroring the existing `celery`/
+`weasyprint` overrides, since neither ships a `py.typed` marker); new tests
+across `test_cloud_aws.py` (credential parsing, public-grant detection via
+both the policy and ACL paths, region filtering, rejected/failed-credential
+handling, missing-SDK handling, and the static read-only-verb check),
+`test_cloud_engine.py` (credential gating, unimplemented-provider gating,
+provider-error gating, the unconditional inventory finding, public-bucket
+findings), `test_cloud_check.py` (check-level failure isolation, the
+DB-backed `promote_discovered_buckets` upsert-on-rerun and
+exposure-change test), and `test_cloud_scope_api.py` (mirroring
+`test_container_scope_api.py`); the RBAC route→role matrix test extended for
+the new route; a regression pass over the container/domain/runs/targets
+clusters this phase touches (81 passed, unaffected); and the full backend
+suite (1736 passed, 2 skipped). Four failures on this run are pre-existing
+and unrelated to this phase — two `checkov` rule-ID mismatches and their
+downstream `test_code_scan_e2e.py` effect (the pinned `checkov` version's
+own IaC rule set drifted, unrelated to any file this phase touches), and
+one CycloneDX SBOM spec-version assertion whose own docstring already
+states its deferral is recorded here rather than papered over — the
+installed `cyclonedx-python-lib` now tops out at 1.7 where §23 pins 1.6.
+Neither failure touches `app/core/cloud/`, `app/core/container/`,
+`app/workers/tasks.py`, the targets router, or the RBAC matrix.
+
+### Deferrals
+
+- **Azure and GCP object-storage inventory** — see above; the engine and API
+  surface already route to either provider correctly, only the SDK
+  integration itself is deferred.
+- **No compute/database/network exposure inventory** — this phase is
+  object-storage only (S3-equivalent). Broader cloud posture (open security
+  groups, public RDS instances, IAM policy analysis) is a later increment.
+- **No dashboard page for cloud assets yet** — same reasoning as the
+  container phase's own deferral: it lands once against a more complete
+  asset surface (VM too) rather than piecemeal.
+- **VM engine and the pentest-tool architecture still do not exist** — see
+  the Phase 1 foundation section above.
+
 ## Agent framework, Phases 1–6 — native AI agent with zero persistence
 
 A structured, permission-gated tool-calling layer on top of the existing AI

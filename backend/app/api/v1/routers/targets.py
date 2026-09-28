@@ -10,7 +10,11 @@ from app.audit.service import record_event
 from app.auth.dependencies import DbSession, require_membership
 from app.core.orchestrator.context_builder import build_run_context
 from app.core.rasp.contract import ClaimedControl, RuntimeProtectionProfile
-from app.core.scope.asset_scope import resolve_container_scope, resolve_domain_scope
+from app.core.scope.asset_scope import (
+    resolve_cloud_scope,
+    resolve_container_scope,
+    resolve_domain_scope,
+)
 from app.core.scope.dns import DnsResolver, SystemDnsResolver
 from app.core.scope.engine import ScopeEngine
 from app.core.scope.errors import (
@@ -32,6 +36,7 @@ from app.schemas.scope import (
     ScopeExplainResponse,
 )
 from app.schemas.target import (
+    CloudScopeIn,
     ContainerScopeIn,
     DomainScopeIn,
     TargetAdapterUpdate,
@@ -563,6 +568,76 @@ async def configure_container_scope(
             "image_ref": payload.image_ref,
             "allowed_registries": len(payload.allowed_registries),
             "allow_live_pull": payload.allow_live_pull,
+        },
+    )
+    await db.commit()
+
+    return target_read(target)
+
+
+@router.put("/{target_id}/cloud-scope", response_model=TargetRead)
+async def configure_cloud_scope(
+    organization_id: uuid.UUID,
+    target_id: uuid.UUID,
+    payload: CloudScopeIn,
+    request: Request,
+    db: DbSession,
+    membership: Membership = Depends(require_membership(Role.ADMIN)),  # noqa: B008
+) -> TargetRead:
+    """Declare what a `CLOUD_ACCOUNT` target's engine may inventory.
+
+    Admin-only, the same reasoning `configure_container_scope` documents:
+    authorizing the engine to read a cloud account, even read-only, is an
+    entitlement decision, not a per-run option. Rules of Engagement must
+    already exist, because `asset_scope` lives on them — the boundary is
+    part of the engagement, not a property of the target.
+    """
+    target = await load_target(organization_id, target_id, db)
+    if target.kind is not TargetKind.CLOUD_ACCOUNT:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail=f"This target is registered as {target.kind.value!r}, not 'cloud_account'.",
+        )
+    if target.rules_of_engagement is None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail=(
+                "Configure Rules of Engagement before declaring a cloud scope: the "
+                "scope is part of the engagement."
+            ),
+        )
+
+    scope = {
+        "provider": payload.provider,
+        "account_ref": payload.account_ref,
+        "credential_env_var": payload.credential_env_var,
+        "allowed_regions": list(payload.allowed_regions),
+    }
+    # Validated through the same resolver the run pipeline uses, so a
+    # malformed document (or a `read_only` an operator tried to disable —
+    # not a field this schema even offers) is rejected here rather than
+    # silently stored and only discovered when a run tries to use it.
+    try:
+        resolve_cloud_scope(scope)
+    except AssetScopeValidationError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+
+    target.rules_of_engagement.asset_scope = scope
+    await db.flush()
+
+    await record_event(
+        db,
+        action="target.cloud_scope.configure",
+        resource_type="target",
+        resource_id=str(target.id),
+        result="allow",
+        organization_id=organization_id,
+        user_id=membership.user_id,
+        ip_address=request.client.host if request.client else None,
+        metadata={
+            "provider": payload.provider,
+            "account_ref": payload.account_ref,
+            "allowed_regions": len(payload.allowed_regions),
         },
     )
     await db.commit()

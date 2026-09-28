@@ -292,6 +292,7 @@ EXPECTED_ROLES: dict[tuple[str, str], Role] = {
     ("PUT", "/organizations/{organization_id}/findings/{finding_id}/remediation"): Role.ANALYST,
     ("PUT", "/organizations/{organization_id}/targets/{target_id}/accounts/{label}"): Role.ADMIN,
     ("PUT", "/organizations/{organization_id}/targets/{target_id}/adapter"): Role.SECURITY_ENGINEER,
+    ("PUT", "/organizations/{organization_id}/targets/{target_id}/cloud-scope"): Role.ADMIN,
     ("PUT", "/organizations/{organization_id}/targets/{target_id}/code"): Role.ADMIN,
     ("PUT", "/organizations/{organization_id}/targets/{target_id}/container-scope"): Role.ADMIN,
     ("PUT", "/organizations/{organization_id}/targets/{target_id}/domain-scope"): Role.ADMIN,
