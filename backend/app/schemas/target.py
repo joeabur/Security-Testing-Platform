@@ -73,6 +73,24 @@ class DomainScopeIn(BaseModel):
     allowed_subdomain_patterns: list[str] = Field(default_factory=list, max_length=50)
 
 
+class ContainerScopeIn(BaseModel):
+    """What a `CONTAINER` target's engine may pull and scan.
+
+    `allowed_registries` has no default — the same "an unstated allowlist is
+    not a permissive one" rule `resolve_container_scope` enforces at run
+    time; this schema does not relax it, it only moves the same refusal
+    earlier, to the point of configuration rather than the point of a run.
+    `allow_live_pull` defaults to `False`: declaring a registry allowlist is
+    not, by itself, authorization to reach the network — an operator opts
+    in to the live pull explicitly, a separate decision from which
+    registries would be acceptable if they did.
+    """
+
+    image_ref: str = Field(min_length=1, max_length=2048)
+    allowed_registries: list[str] = Field(default_factory=list, max_length=20)
+    allow_live_pull: bool = False
+
+
 class ClaimedControlIn(BaseModel):
     """One runtime control an operator says is deployed.
 

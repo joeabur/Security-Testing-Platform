@@ -2710,6 +2710,93 @@ suite green.
 - **Container, cloud, VM, and pentest-tool engines do not exist yet** — see
   the foundation section above.
 
+## Pentest module, Phase 3 — container engine (live registry pulls)
+
+Closes the gap the Aikido-parity container engine (`appsec.container.trivy`,
+this build's earlier work) states plainly rather than fakes: it scans a code
+checkout's filesystem and says outright it "did not pull or examine the base
+image layers", because pulling one means reaching a registry that engine has
+no scope to authorize. `app/core/container/` is that authorization, made
+explicit through `asset_scope.allowed_registries` and
+`asset_scope.allow_live_pull` on a `TargetKind.CONTAINER` target (both
+already defined in the Phase 1 foundation's `ContainerScope`) — never
+assumed, and never on by default.
+
+Delivered: `parse_image_ref`/`check_registry_allowed` (`app/core/container
+/pull.py`) — registry-host extraction and the same allowlist-then-resolve-
+then-block-check pipeline `app/core/appsec/checkout.py` already established
+for `git clone`, since `docker pull` is a subprocess and does not route
+through `GatedTransport` either; `ContainerEngine` (`engine.py`) — pull,
+scan, remove, always, via injectable `pull`/`scan`/`remove` callables the
+same way `DomainEngine` injects its transport and DNS resolver; scanning is
+`trivy image --image-src docker --skip-db-update --offline-scan`, reading
+the image the pull already placed on the local Docker daemon rather than
+letting trivy make its own registry call — a second, unaudited path to the
+same host; `ContainerCheck` (`app/core/orchestrator/container_check.py`),
+mirroring `DomainCheck`'s "one engine failure must not lose the run"
+contract; wiring into `execute_assessment_run` for `TargetKind.CONTAINER`;
+and a `PUT /organizations/{id}/targets/{id}/container-scope` endpoint
+mirroring `configure_domain_scope`'s shape.
+
+The first engine to actually populate `run_tool_invocations`
+(`app/core/container/service.py::record_tool_invocations`) — the table
+Phase 1's foundation added schema-only, "recording exactly which tool ran,
+with which network posture, per assessment run." `docker pull`, `trivy
+image`, and the cleanup `docker rmi` each write their own row; the domain
+engine before this needed none of this machinery because it is pure
+HTTP/DNS, not a subprocess.
+
+Decisions worth stating:
+
+- **A pulled image is removed whatever happened**, in a `finally` around
+  the scan — the same "the checkout is removed whatever happened"
+  discipline `discard_checkout` already follows for a repository clone. A
+  pulled image left on the worker is exactly the kind of artifact that
+  discipline exists to avoid.
+- **An unauthorized live pull is a visible "not tested" gap, never a
+  silent skip.** `allow_live_pull` defaults to `False` even though
+  `resolve_container_scope` permits either value — declaring a registry
+  allowlist is not, by itself, authorization to reach the network; an
+  operator opts in to the live pull as a separate, explicit decision, the
+  same way `PentestScope`'s own `max_depth` requires `approved_modules`
+  before exploitation.
+- **The registry match checks both the qualified host and the port-
+  stripped resolve host.** A wildcard allowlist entry (`*.internal`) has
+  no notion of a port to ignore, so an operator pointing at
+  `registry.internal:5000` would otherwise find a correctly-written
+  wildcard silently fail to match. A bug caught during this phase's own
+  tests, before it shipped.
+- **Docker Hub's own registry host is resolved and checked, not the name
+  "docker.io" a reference actually contains.** `docker.io` in an image
+  reference and the host actually dialed for a pull
+  (`registry-1.docker.io`) are different strings; checking the wrong one
+  would validate nothing.
+
+Verified: `ruff check`/`mypy app` clean; new tests across
+`test_container_pull.py` (reference parsing, registry allowlist, blocked-
+address refusal, the wildcard/port fix above), `test_container_engine.py`
+(gating, cleanup-always including on a raised exception, verified-advisory
+filtering), `test_container_check.py` (check-level failure isolation, the
+DB-backed `RunToolInvocation` write), and `test_container_scope_api.py`
+(mirroring `test_domain_scope_api.py`); the RBAC route→role matrix test
+extended for the new route; a regression pass over the domain/runs/targets/
+workers/security clusters this phase touches (502 passed, 2 skipped,
+unaffected); and the full backend suite green.
+
+### Deferrals
+
+- **No image signature or provenance verification.** Only vulnerability
+  scanning is implemented; Sigstore/cosign verification is a later
+  increment, tracked alongside the pentest-tool architecture phase.
+- **Multi-architecture manifest lists pull whatever the local Docker
+  daemon's own platform default resolves to.** No per-run platform
+  override exists yet.
+- **No dashboard page for container assets yet** — same reasoning as the
+  domain phase's own deferral: it lands once against a more complete asset
+  surface (cloud/VM too) rather than piecemeal.
+- **Cloud and VM engines, and the pentest-tool architecture, still do not
+  exist** — see the Phase 1 foundation section above.
+
 ## Agent framework, Phases 1–6 — native AI agent with zero persistence
 
 A structured, permission-gated tool-calling layer on top of the existing AI

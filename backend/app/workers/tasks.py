@@ -28,6 +28,8 @@ from app.core.appsec.checkout import (
 from app.core.appsec.registry import appsec_engines
 from app.core.appsec.workspace import CodeScopeError
 from app.core.config import get_settings
+from app.core.container.contract import ContainerTarget
+from app.core.container.service import record_tool_invocations
 from app.core.dast.contract import DastTarget
 from app.core.domain.contract import DomainTarget
 from app.core.domain.service import promote_discovered_subdomains
@@ -36,6 +38,7 @@ from app.core.findings.service import promote_run_results
 from app.core.orchestrator.ai_check import AiSecurityCheck
 from app.core.orchestrator.checks import Check, Endpoint, ReachabilityCheck
 from app.core.orchestrator.code_check import CodeScanCheck
+from app.core.orchestrator.container_check import ContainerCheck
 from app.core.orchestrator.context_builder import (
     build_ai_probe_target,
     build_conversational_adapter,
@@ -52,7 +55,7 @@ from app.core.probes.api.registry import build_api_registry
 from app.core.probes.models import ScanResult, Severity
 from app.core.rasp.contract import RuntimeProtectionProfile, untested_marker
 from app.core.retest.service import record_retest
-from app.core.scope.asset_scope import resolve_domain_scope
+from app.core.scope.asset_scope import resolve_container_scope, resolve_domain_scope
 from app.core.scope.errors import (
     AssetScopeValidationError,
     AuthorizationRequiredError,
@@ -303,6 +306,38 @@ async def execute_assessment_run(
                 )
                 checks.append(domain_check)
 
+        # CONTAINER runs only for `kind: container`, and only once the RoE's
+        # asset_scope resolves — same fail-closed-but-do-not-abort-the-run
+        # handling as DOMAIN above. `resolve_container_scope` itself refuses
+        # an empty `allowed_registries`, so a target that never declared one
+        # skips the check here rather than the engine reaching an
+        # unauthorized registry.
+        container_check: ContainerCheck | None = None
+        if target.kind is TargetKind.CONTAINER:
+            try:
+                container_scope = resolve_container_scope(
+                    target.rules_of_engagement.asset_scope
+                    if target.rules_of_engagement is not None
+                    else None
+                )
+            except AssetScopeValidationError as exc:
+                await _record_event(
+                    db,
+                    run.id,
+                    RunEventKind.CHECK_COMPLETED,
+                    f"Container scanning skipped: {exc}",
+                    {"reason": str(exc)},
+                )
+            else:
+                container_check = ContainerCheck(
+                    target=ContainerTarget(
+                        image_ref=container_scope.image_ref,
+                        allowed_registries=tuple(container_scope.allowed_registries),
+                        allow_live_pull=container_scope.allow_live_pull,
+                    )
+                )
+                checks.append(container_check)
+
         # The code engines need a checkout. It is created here and removed in
         # the `finally` below whatever happens: a working copy of a client's
         # repository is precisely what must not be left on a worker, since it
@@ -394,6 +429,8 @@ async def execute_assessment_run(
             all_results.extend(dast_check.scan_results)
         if domain_check is not None:
             all_results.extend(domain_check.scan_results)
+        if container_check is not None:
+            all_results.extend(container_check.scan_results)
         if plugin_check is not None:
             all_results.extend(plugin_check.scan_results)
 
@@ -426,6 +463,17 @@ async def execute_assessment_run(
                 organization_id=run.organization_id,
                 parent_target_id=target.id,
                 subdomains=domain_check.discovered,
+            )
+
+        # Same idea for the container engine's subprocess calls, but into
+        # `run_tool_invocations` — the first engine to actually populate the
+        # table Pentest module Phase 1 added as schema-only foundation.
+        if container_check is not None and container_check.tool_invocations:
+            await record_tool_invocations(
+                db,
+                organization_id=run.organization_id,
+                run_id=run.id,
+                invocations=container_check.tool_invocations,
             )
 
         run.status = RunStatus(outcome.status.value)

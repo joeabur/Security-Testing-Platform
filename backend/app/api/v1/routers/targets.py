@@ -10,7 +10,7 @@ from app.audit.service import record_event
 from app.auth.dependencies import DbSession, require_membership
 from app.core.orchestrator.context_builder import build_run_context
 from app.core.rasp.contract import ClaimedControl, RuntimeProtectionProfile
-from app.core.scope.asset_scope import resolve_domain_scope
+from app.core.scope.asset_scope import resolve_container_scope, resolve_domain_scope
 from app.core.scope.dns import DnsResolver, SystemDnsResolver
 from app.core.scope.engine import ScopeEngine
 from app.core.scope.errors import (
@@ -32,6 +32,7 @@ from app.schemas.scope import (
     ScopeExplainResponse,
 )
 from app.schemas.target import (
+    ContainerScopeIn,
     DomainScopeIn,
     TargetAdapterUpdate,
     TargetCodeUpdate,
@@ -494,6 +495,74 @@ async def configure_domain_scope(
         metadata={
             "root_domain": payload.root_domain,
             "allowed_subdomain_patterns": len(payload.allowed_subdomain_patterns),
+        },
+    )
+    await db.commit()
+
+    return target_read(target)
+
+
+@router.put("/{target_id}/container-scope", response_model=TargetRead)
+async def configure_container_scope(
+    organization_id: uuid.UUID,
+    target_id: uuid.UUID,
+    payload: ContainerScopeIn,
+    request: Request,
+    db: DbSession,
+    membership: Membership = Depends(require_membership(Role.ADMIN)),  # noqa: B008
+) -> TargetRead:
+    """Declare what a `CONTAINER` target's engine may pull and scan.
+
+    Admin-only, the same reasoning `configure_domain_scope` documents:
+    authorizing a live registry pull is an entitlement decision, not a
+    per-run option. Rules of Engagement must already exist, because
+    `asset_scope` lives on them — the boundary is part of the engagement,
+    not a property of the target.
+    """
+    target = await load_target(organization_id, target_id, db)
+    if target.kind is not TargetKind.CONTAINER:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail=f"This target is registered as {target.kind.value!r}, not 'container'.",
+        )
+    if target.rules_of_engagement is None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail=(
+                "Configure Rules of Engagement before declaring a container scope: the "
+                "scope is part of the engagement."
+            ),
+        )
+
+    scope = {
+        "image_ref": payload.image_ref,
+        "allowed_registries": list(payload.allowed_registries),
+        "allow_live_pull": payload.allow_live_pull,
+    }
+    # Validated through the same resolver the run pipeline uses, so a
+    # malformed document is rejected here rather than silently stored and
+    # only discovered when a run tries to use it.
+    try:
+        resolve_container_scope(scope)
+    except AssetScopeValidationError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+
+    target.rules_of_engagement.asset_scope = scope
+    await db.flush()
+
+    await record_event(
+        db,
+        action="target.container_scope.configure",
+        resource_type="target",
+        resource_id=str(target.id),
+        result="allow",
+        organization_id=organization_id,
+        user_id=membership.user_id,
+        ip_address=request.client.host if request.client else None,
+        metadata={
+            "image_ref": payload.image_ref,
+            "allowed_registries": len(payload.allowed_registries),
+            "allow_live_pull": payload.allow_live_pull,
         },
     )
     await db.commit()

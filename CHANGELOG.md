@@ -27,6 +27,22 @@ All notable changes to this project are recorded here. The format follows
   static test, and a dynamic secret-redaction test. See `docs/agent.md`,
   `docs/guardrails.md` §1.4, and `docs/security-model.md` guarantees
   #29–#30.
+- Pentest module, Phase 3 (container engine): `app/core/container/` — an
+  authorized live registry pull (`docker pull`, with the same
+  allowlist-then-resolve-then-block-check pipeline `checkout.py` already
+  applies to `git clone`, since a subprocess does not route through
+  `GatedTransport`), scanned offline (`trivy image --image-src docker
+  --skip-db-update --offline-scan`, reading the local Docker daemon rather
+  than letting trivy make its own registry call), and always removed
+  afterward. Gated on `asset_scope.allowed_registries` and
+  `asset_scope.allow_live_pull` (`allow_live_pull` defaults to `False`), on
+  a `TargetKind.CONTAINER` target, configurable via `PUT
+  /organizations/{id}/targets/{id}/container-scope`. The first engine to
+  actually populate `run_tool_invocations`, the table Phase 1's foundation
+  added schema-only. Closes the gap the existing filesystem-mode
+  `appsec.container.trivy` engine states plainly rather than fakes: that it
+  "did not pull or examine the base image layers" because doing so needs an
+  authorization decision it has no scope to make. See `docs/roadmap.md`.
 - Pentest module, Phase 1 (foundation) and Phase 2 (domain/DNS engine): a
   generalized `asset_scope` column on Rules of Engagement plus four new
   target kinds (`container`, `cloud_account`, `virtual_machine`, `domain`);
