@@ -27,6 +27,21 @@ All notable changes to this project are recorded here. The format follows
   static test, and a dynamic secret-redaction test. See `docs/agent.md`,
   `docs/guardrails.md` §1.4, and `docs/security-model.md` guarantees
   #29–#30.
+- Pentest module, Phase 5 (VM engine): `app/core/vm/` — authorized
+  port/service discovery against a `TargetKind.VIRTUAL_MACHINE` target's
+  declared host, gated on `asset_scope.host`/`allowed_ports`. `nmap -Pn -sV
+  --open`, restricted to exactly the declared ports (never a full range),
+  parsed from XML with the standard library. Declaring a port already is
+  the authorization to probe it — no separate opt-in flag, unlike the
+  container engine's `allow_live_pull`. Emits an unconditional port
+  inventory plus a finding for a small, fixed set of ports whose mere
+  reachability is already noteworthy (Telnet, SMB, Redis, MongoDB, and
+  similar); this engine does not itself judge a service vulnerable — that
+  is the pentest-tool architecture's job. The second engine to populate
+  `run_tool_invocations`, and the first to use `AssetKind.OPEN_SERVICE`.
+  Configurable via `PUT /organizations/{id}/targets/{id}/vm-scope`. This
+  closes the last of the three engine gaps (domain/container/cloud already
+  shipped) the Phase 1 foundation named. See `docs/roadmap.md`.
 - Pentest module, Phase 4 (cloud engine): `app/core/cloud/` — read-only
   object-storage (S3) exposure inventory for a `TargetKind.CLOUD_ACCOUNT`
   target, gated on `asset_scope.provider`/`account_ref`/

@@ -72,7 +72,7 @@ def test_a_json_array_credential_is_refused() -> None:
 @pytest.mark.parametrize(
     "credential",
     [
-        json.dumps({"secret_access_key": "s3cr3t"}),
+        json.dumps({"secret_access_key": "s3cr3t"}),  # pragma: allowlist secret
         json.dumps({"access_key_id": "AKIAEXAMPLE"}),
         json.dumps({}),
     ],

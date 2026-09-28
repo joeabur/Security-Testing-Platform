@@ -54,6 +54,7 @@ from app.core.orchestrator.domain_check import DomainCheck
 from app.core.orchestrator.plugin_check import PluginCheck
 from app.core.orchestrator.probe_check import ProbeCheck
 from app.core.orchestrator.runner import RunEventPayload, execute_run
+from app.core.orchestrator.vm_check import VmCheck
 from app.core.probes.api.registry import build_api_registry
 from app.core.probes.models import ScanResult, Severity
 from app.core.rasp.contract import RuntimeProtectionProfile, untested_marker
@@ -62,6 +63,7 @@ from app.core.scope.asset_scope import (
     resolve_cloud_scope,
     resolve_container_scope,
     resolve_domain_scope,
+    resolve_vm_scope,
 )
 from app.core.scope.errors import (
     AssetScopeValidationError,
@@ -70,6 +72,8 @@ from app.core.scope.errors import (
 )
 from app.core.scope.kill_switch import KillSwitch
 from app.core.scope.transport import GatedTransport
+from app.core.vm import service as vm_service
+from app.core.vm.contract import VmTarget
 from app.db.session import dispose_engine, get_session_factory
 from app.db.tenant_context import set_current_organization
 from app.models.assessment_run import (
@@ -378,6 +382,37 @@ async def execute_assessment_run(
                 )
                 checks.append(cloud_check)
 
+        # VIRTUAL_MACHINE runs only for `kind: virtual_machine`, and only
+        # once the RoE's asset_scope resolves — same fail-closed-but-do-not-
+        # abort-the-run handling as CONTAINER/CLOUD above. `resolve_vm_scope`
+        # itself refuses an empty `allowed_ports`, so a target that never
+        # declared one skips the check here rather than the engine scanning
+        # an unauthorized port range.
+        vm_check: VmCheck | None = None
+        if target.kind is TargetKind.VIRTUAL_MACHINE:
+            try:
+                vm_scope = resolve_vm_scope(
+                    target.rules_of_engagement.asset_scope
+                    if target.rules_of_engagement is not None
+                    else None
+                )
+            except AssetScopeValidationError as exc:
+                await _record_event(
+                    db,
+                    run.id,
+                    RunEventKind.CHECK_COMPLETED,
+                    f"VM scanning skipped: {exc}",
+                    {"reason": str(exc)},
+                )
+            else:
+                vm_check = VmCheck(
+                    target=VmTarget(
+                        host=vm_scope.host,
+                        allowed_ports=tuple(vm_scope.allowed_ports),
+                    )
+                )
+                checks.append(vm_check)
+
         # The code engines need a checkout. It is created here and removed in
         # the `finally` below whatever happens: a working copy of a client's
         # repository is precisely what must not be left on a worker, since it
@@ -473,6 +508,8 @@ async def execute_assessment_run(
             all_results.extend(container_check.scan_results)
         if cloud_check is not None:
             all_results.extend(cloud_check.scan_results)
+        if vm_check is not None:
+            all_results.extend(vm_check.scan_results)
         if plugin_check is not None:
             all_results.extend(plugin_check.scan_results)
 
@@ -529,6 +566,28 @@ async def execute_assessment_run(
                 parent_target_id=target.id,
                 target=cloud_check.target,
                 exposures=cloud_check.discovered,
+            )
+
+        # Same idea for the VM engine's subprocess calls and discovered open
+        # services — `vm_service.record_tool_invocations` mirrors the
+        # container engine's own function of the same name, and
+        # `vm_service.promote_discovered_open_services` mirrors
+        # `promote_discovered_buckets`: an open port is something found, not
+        # itself a vulnerability.
+        if vm_check is not None and vm_check.tool_invocations:
+            await vm_service.record_tool_invocations(
+                db,
+                organization_id=run.organization_id,
+                run_id=run.id,
+                invocations=vm_check.tool_invocations,
+            )
+        if vm_check is not None and vm_check.discovered:
+            await vm_service.promote_discovered_open_services(
+                db,
+                organization_id=run.organization_id,
+                parent_target_id=target.id,
+                target=vm_check.target,
+                open_ports=vm_check.discovered,
             )
 
         run.status = RunStatus(outcome.status.value)

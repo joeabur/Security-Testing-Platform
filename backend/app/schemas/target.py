@@ -1,7 +1,7 @@
 import re
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -105,6 +105,23 @@ class CloudScopeIn(BaseModel):
     account_ref: str = Field(min_length=1, max_length=200)
     credential_env_var: str = Field(min_length=1, max_length=128)
     allowed_regions: list[str] = Field(default_factory=list, max_length=50)
+
+
+class VmScopeIn(BaseModel):
+    """What a `VIRTUAL_MACHINE` target's engine may port-scan.
+
+    `allowed_ports` has no default — the same "an unstated allowlist is not
+    a permissive one" rule `resolve_vm_scope` enforces at run time, and the
+    same rule `ContainerScopeIn.allowed_registries` already applies. Unlike
+    `ContainerScopeIn.allow_live_pull`, there is no separate opt-in flag
+    here: declaring a port already is the explicit authorization to probe
+    it.
+    """
+
+    host: str = Field(min_length=1, max_length=253)
+    allowed_ports: list[Annotated[int, Field(ge=1, le=65535)]] = Field(
+        min_length=1, max_length=1000
+    )
 
 
 class ClaimedControlIn(BaseModel):

@@ -2905,6 +2905,115 @@ Neither failure touches `app/core/cloud/`, `app/core/container/`,
 - **VM engine and the pentest-tool architecture still do not exist** — see
   the Phase 1 foundation section above.
 
+## Pentest module, Phase 5 — VM engine (authorized port/service discovery)
+
+Closes the last of the three engine gaps the Phase 1 foundation named
+(domain, container, cloud already shipped in Phases 2–4). `app/core/vm/`
+port-scans a `TargetKind.VIRTUAL_MACHINE` target's declared host with
+`nmap -sV`, gated on `asset_scope.host`/`allowed_ports` (`VmScope`, already
+defined in the Phase 1 foundation) and on the same blocked-address check
+(`is_blocked_ip`) `check_registry_allowed` already applies to a container
+registry's resolved host.
+
+Delivered: `app/core/vm/nmap.py` — `check_host_allowed` (resolve-then-
+block-check, mirroring `check_registry_allowed`) and `scan_ports`/
+`parse_open_ports` (`nmap -Pn -sV --open -p <declared ports> -oX -`, parsed
+with the stdlib's `xml.etree.ElementTree` rather than a new dependency);
+`VmEngine` (`engine.py`) dispatching through an injectable `scan` callable —
+the same reason `ContainerEngine` injects `pull`/`scan`/`remove` rather than
+reaching for a real `nmap` binary at call time — emitting an unconditional
+port-inventory finding plus a `AEGIS-VM-101` finding for a small, fixed set
+of ports whose mere reachability is already noteworthy (Telnet, SMB, Redis,
+MongoDB, and similar unencrypted or commonly-unauthenticated services);
+`VmCheck` (`app/core/orchestrator/vm_check.py`), mirroring `ContainerCheck`'s
+"one engine failure must not lose the run" contract — the first check to
+carry both `tool_invocations` (like `ContainerCheck`) and `discovered`
+(like `CloudCheck`) at once; wiring into `execute_assessment_run` for
+`TargetKind.VIRTUAL_MACHINE`, including recording `nmap`'s invocation into
+`run_tool_invocations` (the second engine to populate that table, after the
+container engine) and promoting discovered open ports into `DiscoveredAsset`
+rows via `AssetKind.OPEN_SERVICE` — reserved for exactly this in the Phase 1
+foundation's own model docstring ("an open service on a VM") but unused
+until now; and a `PUT /organizations/{id}/targets/{id}/vm-scope` endpoint
+mirroring `configure_container_scope`'s shape.
+
+Decisions worth stating:
+
+- **Declaring a port in `allowed_ports` is itself the authorization to
+  probe it — there is no separate `allow_live_pull`-style opt-in flag.**
+  `VmScope` was defined without one back in the Phase 1 foundation, and this
+  phase respects that: `resolve_vm_scope` already refuses an empty
+  `allowed_ports` list, the same "an unstated allowlist is not a permissive
+  one" rule `resolve_container_scope` enforces for `allowed_registries`.
+  Unlike a container pull (which downloads arbitrary third-party content
+  onto the worker), a port probe's cost and footprint is small and bounded
+  by the declared port list itself, so the extra flag `ContainerScope
+  .allow_live_pull` needs has no equivalent here — the same reasoning
+  `DomainTarget.root_domain`'s mere presence already gives the domain
+  engine's own baseline discovery and TLS/header checks.
+- **This engine does not itself judge a service vulnerable.** `nmap -sV`
+  fingerprints what is listening; deeper, tool-driven vulnerability
+  scanning and validation against a discovered service is the pentest-tool
+  architecture's own job (Phase 6, `PentestScope.max_depth`), layered on top
+  of this baseline the same way a later, deeper probe would build on the
+  domain engine's own TLS/header checks. What this engine flags on its own
+  — a small, fixed, noteworthy-port list — says a surface is reachable,
+  never that it is misconfigured.
+- **No elevated privilege is required.** The scan omits `-sS`; without
+  root, `nmap` already falls back to a TCP connect scan, so this runs the
+  same way any other subprocess-based engine on this platform does.
+- **`nmap`'s XML output (`-oX -`) is parsed with the standard library**
+  (`xml.etree.ElementTree`), not a new dependency — the same reasoning that
+  kept the SBOM/reporting pipeline's XML handling dependency-free
+  elsewhere. `nmap` itself, like `trivy`/`docker`, is expected to already be
+  present on the worker; a missing binary reports `AEGIS-VM-109` rather
+  than crashing, the same graceful-degradation contract every other
+  subprocess-based engine on this platform follows.
+- **`ToolInvocationRecord` and `record_tool_invocations` are duplicated
+  into `app/core/vm/`, not imported from `app.core.container`.** The two
+  engines are conceptually independent; sharing a ~10-line dataclass and
+  persistence function across unrelated engine packages would be a stranger
+  coupling than the small duplication avoids — the same "mirror, don't
+  share" convention every other per-phase `contract.py`/`service.py` in
+  this module already follows.
+
+Verified: `ruff check`/`mypy app` clean; new tests across `test_vm_nmap.py`
+(blocked-address refusal including the cloud-metadata address even when
+allowlisted, an explicitly-allowed private range, unresolvable-host
+handling, missing-`nmap`-binary handling, XML parsing including a closed
+port correctly excluded and malformed XML refused), `test_vm_engine.py`
+(empty-allowlist gating, blocked-address gating, scan-failure gating,
+malformed-output gating, the unconditional inventory finding, noteworthy-
+port findings), `test_vm_check.py` (check-level failure isolation, the
+DB-backed `record_tool_invocations`/`promote_discovered_open_services`
+upsert-on-rerun tests), and `test_vm_scope_api.py` (mirroring
+`test_container_scope_api.py`, plus an out-of-range-port rejection case);
+the RBAC route→role matrix test extended for the new route; a regression
+pass over the container/cloud/domain/runs/targets clusters this phase
+touches (334 passed, 2 skipped, unaffected); and the full backend suite
+(1769 passed, 2 skipped). The same four pre-existing, unrelated failures
+from the Phase 4 run recur here unchanged — two `checkov` rule-ID
+mismatches and their downstream `test_code_scan_e2e.py` effect, and the
+already-documented CycloneDX spec-version deferral — none touching
+`app/core/vm/`, `app/core/orchestrator/vm_check.py`,
+`app/workers/tasks.py`, the targets router, or the RBAC matrix.
+
+### Deferrals
+
+- **No SSH-based authenticated/credentialed scanning.** `VmScope
+  .ssh_credential_env_var` exists in the Phase 1 foundation's schema but is
+  not read by this engine — this phase is unauthenticated network discovery
+  only, the same tier the domain engine's own baseline occupies.
+- **No exploitation or validation against a discovered service** — see the
+  "does not itself judge a service vulnerable" decision above; that is
+  Phase 6's job.
+- **No dashboard page for VM assets yet** — same reasoning as the
+  container/cloud phases' own deferral: it lands once against the complete
+  three-engine asset surface rather than piecemeal, now that all three
+  (domain, container/cloud, VM) exist.
+- **The pentest-tool architecture itself still does not exist** — see the
+  Phase 1 foundation section above; this was its last prerequisite engine.
+
 ## Agent framework, Phases 1–6 — native AI agent with zero persistence
 
 A structured, permission-gated tool-calling layer on top of the existing AI
