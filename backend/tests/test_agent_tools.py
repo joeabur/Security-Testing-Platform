@@ -25,6 +25,7 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.agent.context import AgentContext
+from app.core.agent.tools.analysis import ANALYZE_FINDING
 from app.core.agent.tools.assets import GET_ASSET, SEARCH_ASSETS
 from app.core.agent.tools.contract import ToolExecutionError, ToolNotFoundError
 from app.core.agent.tools.findings import GET_FINDING, SEARCH_FINDINGS
@@ -33,6 +34,7 @@ from app.core.agent.tools.reports import CREATE_REPORT
 from app.core.agent.tools.runs import GET_SCAN_RESULTS, GET_SCAN_STATUS
 from app.core.agent.tools.scans import START_SCAN
 from app.core.agent.tools.workflows import CREATE_WORKFLOW, GET_WORKFLOW_STATUS, RUN_WORKFLOW
+from app.core.assistant.fake import FakeProvider
 from app.core.config import get_settings
 from app.core.csrf import anon as csrf_anon
 from app.core.csrf.enforce import HEADER_NAME
@@ -214,6 +216,7 @@ def _context(
     *,
     role: Role = Role.VIEWER,
     user_id: uuid.UUID | None = None,
+    provider: object | None = None,
 ) -> AgentContext:
     return AgentContext(
         organization_id=organization_id,
@@ -221,6 +224,7 @@ def _context(
         effective_role=role,
         db=db,
         request_id="test-request",
+        provider=provider,  # type: ignore[arg-type]
     )
 
 
@@ -236,6 +240,7 @@ def test_the_registry_lists_every_tool_exactly_once() -> None:
         "get_asset",
         "search_findings",
         "get_finding",
+        "analyze_finding",
         "get_scan_status",
         "get_scan_results",
         "get_workflow_status",
@@ -728,4 +733,90 @@ async def test_start_scan_raises_not_found_for_an_unknown_target(
         await START_SCAN.invoke(
             _context(db_session, org_id, role=Role.SECURITY_ENGINEER),
             {"target_id": str(uuid.uuid4()), "authorization_confirmed": True},
+        )
+
+
+# --- analysis ------------------------------------------------------------
+
+
+async def test_analyze_finding_returns_the_providers_explanation(
+    client: AsyncClient, strong_password: str, db_session: AsyncSession
+) -> None:
+    org_id, target_id, _headers = await _org_and_target(client, strong_password, "af")
+    run = AssessmentRun(organization_id=org_id, target_id=target_id, status=RunStatus.COMPLETED)
+    db_session.add(run)
+    await db_session.flush()
+    finding = Finding(
+        organization_id=org_id,
+        fingerprint="fp-analysis",
+        title="A finding to explain",
+        status=FindingStatus.NEW,
+        first_run_id=run.id,
+        last_run_id=run.id,
+        **_finding_fields(),
+    )
+    db_session.add(finding)
+    await db_session.commit()
+    provider = FakeProvider(name="fake", model="fake-model-1")
+
+    result = await ANALYZE_FINDING.invoke(
+        _context(db_session, org_id, provider=provider), {"finding_id": str(finding.id)}
+    )
+
+    assert result.explanation
+    assert result.provider == "fake"
+    assert result.model == "fake-model-1"
+
+
+async def test_analyze_finding_refuses_without_a_configured_provider(
+    client: AsyncClient, strong_password: str, db_session: AsyncSession
+) -> None:
+    org_id, target_id, _headers = await _org_and_target(client, strong_password, "ag")
+    run = AssessmentRun(organization_id=org_id, target_id=target_id, status=RunStatus.COMPLETED)
+    db_session.add(run)
+    await db_session.flush()
+    finding = Finding(
+        organization_id=org_id,
+        fingerprint="fp-no-provider",
+        title="A finding",
+        status=FindingStatus.NEW,
+        first_run_id=run.id,
+        last_run_id=run.id,
+        **_finding_fields(),
+    )
+    db_session.add(finding)
+    await db_session.commit()
+
+    with pytest.raises(ToolExecutionError):
+        await ANALYZE_FINDING.invoke(
+            _context(db_session, org_id, provider=None), {"finding_id": str(finding.id)}
+        )
+
+
+async def test_analyze_finding_raises_not_found_across_organizations(
+    client: AsyncClient, strong_password: str, db_session: AsyncSession
+) -> None:
+    org_id, target_id, _headers = await _org_and_target(client, strong_password, "ah")
+    other_org_id, _other_target_id, _other_headers = await _org_and_target(
+        client, strong_password, "ai"
+    )
+    run = AssessmentRun(organization_id=org_id, target_id=target_id, status=RunStatus.COMPLETED)
+    db_session.add(run)
+    await db_session.flush()
+    finding = Finding(
+        organization_id=org_id,
+        fingerprint="fp-cross-org",
+        title="A finding",
+        status=FindingStatus.NEW,
+        first_run_id=run.id,
+        last_run_id=run.id,
+        **_finding_fields(),
+    )
+    db_session.add(finding)
+    await db_session.commit()
+
+    with pytest.raises(ToolNotFoundError):
+        await ANALYZE_FINDING.invoke(
+            _context(db_session, other_org_id, provider=FakeProvider()),
+            {"finding_id": str(finding.id)},
         )
