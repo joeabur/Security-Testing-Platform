@@ -8,6 +8,15 @@ All notable changes to this project are recorded here. The format follows
 
 ### Added
 
+- Target, repository, run, and workflow management in the Next.js frontend
+  (`frontend/app/(dashboard)/organizations/[id]/...`) — previously the only
+  way to add a target, connect a repository, set Rules of Engagement, grant
+  authorization, start a run, or trigger a workflow was the API or the CLI;
+  the server-rendered dashboard at `/app` renders these as disabled buttons
+  by design (`app/web/router.py`'s `_actions()`). The Next.js pages call the
+  same existing REST endpoints, with a run's page live-polling its status and
+  events until it reaches a terminal state.
+
 - Postgres Row-Level Security as a second, independent tenant-isolation
   boundary behind the application's own `organization_id` filters, on the 14
   tenant-scoped tables (`app/db/tenant_context.py`, migration `b2e6f4a91c7d`).

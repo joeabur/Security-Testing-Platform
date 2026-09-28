@@ -49,16 +49,23 @@ export default async function DashboardPage() {
               </CardHeader>
               <CardContent className="flex flex-col gap-3">
                 <p className="text-sm text-muted-foreground">
-                  Targets, runs, findings, reports, and repositories for this organization live in the
-                  full dashboard.
+                  Add targets and repositories, start runs, and trigger workflows.
                 </p>
-                <a
-                  href={`${PUBLIC_APP_BASE_URL}/app/organizations/${org.id}`}
-                  className={cn(buttonVariants({ variant: "outline", size: "sm" }), "self-start")}
-                >
-                  Open full dashboard
-                  <ExternalLink className="h-3.5 w-3.5" aria-hidden />
-                </a>
+                <div className="flex flex-wrap gap-2">
+                  <Link
+                    href={`/organizations/${org.id}`}
+                    className={cn(buttonVariants({ size: "sm" }), "self-start")}
+                  >
+                    Manage
+                  </Link>
+                  <a
+                    href={`${PUBLIC_APP_BASE_URL}/app/organizations/${org.id}`}
+                    className={cn(buttonVariants({ variant: "outline", size: "sm" }), "self-start")}
+                  >
+                    Findings &amp; reports
+                    <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+                  </a>
+                </div>
               </CardContent>
             </Card>
           ))}

@@ -29,3 +29,149 @@ export interface ApiErrorBody {
     request_id: string;
   };
 }
+
+export type TargetEnvironment = "staging" | "test" | "dev" | "production";
+
+export type TargetKind =
+  | "llm_app"
+  | "agent"
+  | "rag"
+  | "api"
+  | "mcp_server"
+  | "model_endpoint"
+  | "web_app"
+  | "code_repo";
+
+export interface Target {
+  id: string;
+  organization_id: string;
+  name: string;
+  environment: TargetEnvironment;
+  kind: TargetKind;
+  base_url: string;
+  adapter_kind: string | null;
+  has_authorization: boolean;
+  has_rules_of_engagement: boolean;
+  created_at: string;
+}
+
+export interface RulesOfEngagement {
+  id: string;
+  target_id: string;
+  allowed_domains: string[];
+  excluded_domains: string[];
+  allowed_ip_ranges: string[];
+  allowed_paths: string[];
+  excluded_paths: string[];
+  allowed_methods: string[];
+  forbidden_headers: string[];
+  budgets: Record<string, number>;
+  safe_mode: boolean;
+  allow_state_mutation: boolean;
+  blackout_windows: unknown[];
+}
+
+export interface Authorization {
+  id: string;
+  target_id: string;
+  authorized_by_name: string;
+  authorized_by_role: string;
+  authorized_by_email: string;
+  reference: string;
+  valid_from: string;
+  valid_until: string;
+  accepted_by_user_id: string;
+  accepted_at: string;
+}
+
+export type RunStatus =
+  | "draft"
+  | "queued"
+  | "running"
+  | "completed"
+  | "failed"
+  | "cancelled"
+  | "expired";
+
+export const TERMINAL_RUN_STATUSES: readonly RunStatus[] = [
+  "completed",
+  "failed",
+  "cancelled",
+  "expired",
+];
+
+export interface Run {
+  id: string;
+  organization_id: string;
+  target_id: string;
+  status: RunStatus;
+  profile: string;
+  safe_mode: boolean;
+  checks_total: number;
+  checks_completed: number;
+  requests_used: number;
+  requests_blocked: number;
+  findings_reported: number;
+  halted_reason: string | null;
+  error_message: string | null;
+  queued_at: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  created_at: string;
+}
+
+export interface RunEvent {
+  seq: number;
+  kind: string;
+  message: string;
+  payload: Record<string, unknown> | null;
+  occurred_at: string;
+}
+
+export interface RepositoryScanSummary {
+  run_id: string;
+  status: RunStatus;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  error_message: string | null;
+}
+
+export interface Repository {
+  id: string;
+  organization_id: string;
+  name: string;
+  url: string;
+  branch: string | null;
+  environment: TargetEnvironment;
+  languages: string[];
+  build_manifest_paths: string[];
+  created_at: string;
+  latest_scan: RepositoryScanSummary | null;
+}
+
+export type WorkflowTriggerKind = "repository_change" | "pull_request" | "schedule" | "manual";
+
+export interface Workflow {
+  id: string;
+  organization_id: string;
+  target_id: string;
+  name: string;
+  trigger_kind: string;
+  enabled: boolean;
+  gate_config: Record<string, unknown> | null;
+  created_at: string;
+}
+
+export interface WorkflowRun {
+  id: string;
+  workflow_id: string;
+  assessment_run_id: string | null;
+  status: string;
+  gate_passed: boolean | null;
+  gate_reasons: string[];
+  started_at: string | null;
+  finished_at: string | null;
+  detail: string | null;
+  created_at: string;
+}
