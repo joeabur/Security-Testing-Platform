@@ -86,6 +86,28 @@ live exploitation of downstream systems (insecure-output-handling probes
 stop at a proof-of-reachability marker, never RCE or destructive SQL); and
 every probe declares its `payload_source` and licence.
 
+### 1.4 The native AI *agent* (executes platform tools, under permission gates)
+
+`app/core/agent/` (`docs/agent.md`) is the one place in this codebase the
+AI can act rather than only draft or explain — search assets, investigate
+findings, start an authorized scan, run a workflow, generate a report. It
+is bound by four controls, layered on top of everything §1.1 already
+requires of a provider call (evidence fencing, the gated egress, no AI-side
+memory):
+
+| Control | Mechanism | Source |
+|---|---|---|
+| **Closed tool registry** | A tool exists because `app/core/agent/tools/registry.py` lists it, never because a module happened to define one; the AI has no database session, shell, or HTTP client of its own — only what a registered tool's typed input/output schema exposes. | `tools/contract.py`, `tools/registry.py` |
+| **Three-tier risk classification, checked independently of role** | `READ_ONLY` / `STANDARD` / `SENSITIVE`. `authorize_role()` checks the caller's role ceiling against the tool's minimum; `authorize_sensitive()` separately requires an explicit approval for `SENSITIVE` tools that no role, autonomy setting, or configuration can substitute for — the same "checked independently" shape as `TARGET_TOUCHING` in §1.1. | `app/core/agent/permissions.py` |
+| **A `SENSITIVE` tool pauses rather than executes** | `run_plan()` stops at the first unapproved `SENSITIVE` step (`AWAITING_APPROVAL`); a Security Engineer or above must call a separate approve endpoint naming that exact tool call before it runs. An investigation nobody approves simply expires after 30 minutes and the action never happens. | `app/core/agent/runtime.py`, `docs/agent.md` |
+| **No AI-side memory, extended to tool execution** | Guarantee #28's "single-shot, nothing cached for a later call" now also covers plans and tool results: an `AgentContext` and everything it touches are discarded when the request returns; the only exception is a paused `SENSITIVE` approval, held in Redis for 30 minutes and nowhere else, fail-**closed** (unlike this codebase's other five Redis stores, most of which fail open) — an unreadable or expired session means "not approved," never "proceed." | `app/core/agent/session_store.py`, `docs/security-model.md` guarantees #29–#30 |
+
+An external caller (`backend/mcp_server/`, or any API-key-authenticated
+MCP client) gets no more access than a native UI caller: it is a thin
+client over the identical REST endpoints, with zero imports of
+`app/core/agent` in the MCP package itself — the same RBAC, tenant
+isolation, rate limiting and audit trail, not a parallel, weaker path.
+
 ## 2. Human-in-the-loop checkpoints
 
 Every point below is a place the platform requires a person to decide,
@@ -101,6 +123,7 @@ rather than inferring consent or correctness from configuration.
 | **Granting an API key and its scope ceiling** | Admin or Owner | API keys cap at Security Engineer even if minted by an Owner — a CI credential can never reach the authorization-granting role | `docs/rbac.md` §"API key ceilings" |
 | **Retest evidence review** | Whoever owns the remediation | Before/after evidence pair, not an automatic status flip | A retest produces evidence; closing the finding is still a decision the assignee makes |
 | **Rules of engagement per target** | Admin, alongside the authorization grant | `RoE` record checked by the scope engine at run time | Scope is not just "in/out of bounds" — RoE encodes what kind of testing was actually agreed to |
+| **Approving a `SENSITIVE` native-agent tool call** (`start_scan`, `run_workflow`) | Security Engineer or above | `POST .../agent/investigate/{id}/approve`, checked independently of the role that requested the investigation | The agent can *plan* a sensitive action at Analyst tier; a different, higher-tier act — naming that exact paused call — is what lets it run. `docs/agent.md` |
 
 The common shape: the platform will happily *compute, draft, propose, or
 measure* — the AI assistant above is one instance of this, not the only

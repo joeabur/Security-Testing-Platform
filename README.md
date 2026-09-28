@@ -260,6 +260,9 @@ complete list of what is still deferred.
 - [`docs/guardrails.md`](docs/guardrails.md) — the consolidated map: AI/LLM
   guardrails, human-in-the-loop checkpoints, and the security controls
   already built in, each linked to its full mechanism.
+- [`docs/agent.md`](docs/agent.md) — the native AI agent: multi-provider,
+  permission-gated tool calling with zero persistence, the investigation
+  approval flow, and the external MCP surface.
 - [`docs/rate-limiting.md`](docs/rate-limiting.md),
   [`docs/csrf.md`](docs/csrf.md), and
   [`docs/revocation.md`](docs/revocation.md) — authentication rate limiting,

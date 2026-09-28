@@ -8,6 +8,25 @@ All notable changes to this project are recorded here. The format follows
 
 ### Added
 
+- Native AI agent framework (`app/core/agent/`), a structured,
+  permission-gated tool-calling layer on top of the existing AI assistant:
+  multi-provider support (Anthropic, Gemini, OpenAI, and any
+  local/self-hosted endpoint via `openai_compatible`); a closed registry of
+  twelve typed tools across three risk tiers (`READ_ONLY`/`STANDARD`/
+  `SENSITIVE`), each requiring its own minimum role; an investigation
+  lifecycle that pauses — never silently executes — at an unapproved
+  `SENSITIVE` step, resumed only by a separate, higher-tier approval call;
+  a six-endpoint API (`/organizations/{id}/agent/...`) and a Next.js AI
+  workspace with no persisted conversation; investigation-completed
+  notifications through the existing integrations pipeline; and
+  `backend/mcp_server/`, a hand-rolled JSON-RPC 2.0 MCP server giving
+  external agents the identical, fully-authorized REST surface a native
+  caller uses. **Zero new conversation/prompt/response storage**: five
+  closed tables hold configuration and non-content metrics only, enforced
+  by a closed-table-set pin test, a column-allowlist test, a Redis-TTL
+  static test, and a dynamic secret-redaction test. See `docs/agent.md`,
+  `docs/guardrails.md` §1.4, and `docs/security-model.md` guarantees
+  #29–#30.
 - Pentest module, Phase 1 (foundation) and Phase 2 (domain/DNS engine): a
   generalized `asset_scope` column on Rules of Engagement plus four new
   target kinds (`container`, `cloud_account`, `virtual_machine`, `domain`);

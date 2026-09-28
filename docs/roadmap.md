@@ -2709,3 +2709,120 @@ suite green.
   (container/cloud/VM too) rather than piecemeal.
 - **Container, cloud, VM, and pentest-tool engines do not exist yet** — see
   the foundation section above.
+
+## Agent framework, Phases 1–6 — native AI agent with zero persistence
+
+A structured, permission-gated tool-calling layer on top of the existing AI
+assistant (Phase 16): where the assistant only drafts and explains, the
+agent can search assets, investigate findings, start an authorized scan,
+run a workflow, and generate a report — through a closed registry of typed
+tools, each carrying its own risk tier and minimum role — while adding
+**zero** new persistent storage beyond an explicit, closed allowlist of
+operational configuration and metrics. This also satisfies the pentest
+module's own pending Phase 9, "External API / MCP surface" (task #124),
+built once here rather than twice. Full design in `docs/agent.md`.
+
+Delivered across six phases:
+
+1. **Provider layer + `AgentContext`** — `app/core/agent/provider/`
+   (Anthropic, Gemini, and `openai_compatible` — which also covers any
+   local/self-hosted endpoint speaking the OpenAI wire format, so "support
+   a local model" needed no separate provider implementation); `agents`/
+   `agent_providers` tables; the one-way import-boundary test.
+2. **Tool contract + registry + first `READ_ONLY` tools** — `Tool`
+   (typed input/output, risk tier, minimum role, timeout), the closed
+   registry, and `search_assets`/`get_asset`/`search_findings`/
+   `get_finding`/`get_scan_status`/`get_scan_results`/
+   `get_workflow_status`, each wrapping an existing service-layer function
+   in-process.
+3. **Investigation, permissions, approvals, execution tracking** —
+   `Investigation`'s state machine, the two-layer `authorize_role()`/
+   `authorize_sensitive()` permission model, `STANDARD`/`SENSITIVE` tools
+   (`create_report`, `create_workflow`, `run_workflow`, `start_scan`), the
+   `agent_configurations`/`agent_usage_metadata` tables, and the
+   zero-persistence test cluster in `tests/security/test_agent_boundary.py`
+   (closed-table-set pin, column-name-fragment scan, a stricter exact-set
+   allowlist on `AgentUsageMetadata`, a static Redis-TTL scan, a structural
+   check on `record_tool_call`'s own signature, a dynamic audit-row check,
+   and the import boundary).
+4. **`planner.py` + `runtime.py`** — natural-language request → evidence-
+   fenced `Plan` → executed tool calls, pausing at the first unapproved
+   `SENSITIVE` step rather than failing; `analyze_finding` reusing
+   `AIService.explain_finding` in-process.
+5. **API + frontend** — the six-endpoint router
+   (`GET /tools`, `POST /tools/{name}/call`, `POST /investigate`,
+   `GET /investigate/{id}/status`, `POST /investigate/{id}/approve`,
+   `POST /investigate/{id}/cancel`); the Next.js AI workspace
+   (`frontend/app/(dashboard)/organizations/[id]/agent/`), whose
+   transcript lives in React state only — no persisted conversation,
+   client- or server-side.
+6. **Automation + external API/MCP** — investigation-completed/failed
+   events fanned out through the existing `app.core.integrations`
+   pipeline, and `backend/mcp_server/` — a hand-rolled JSON-RPC 2.0 stdio
+   server (`initialize`/`tools/list`/`tools/call`), a thin client over the
+   same REST endpoints via `aegis_cli`'s own `ApiClient`, with zero
+   imports of `app.core.agent` — a structural proof an external MCP caller
+   gets no more access than the authenticated REST API already grants.
+
+Decisions worth stating:
+
+- **The zero-persistence rule is enforced by tests, not just by design.**
+  A closed-table-set pin test fails a future PR that adds a sixth agent
+  table until someone deliberately edits it; a column-allowlist test
+  forbids any `content`/`text`-shaped column on `AgentUsageMetadata`
+  specifically; a static test greps `session_store.py` for every Redis
+  write and asserts each one carries an explicit expiry; a dynamic test
+  runs a tool with a fake secret and asserts it reaches neither the audit
+  row nor the usage-metadata row.
+- **The investigation session store fails closed, unlike this codebase's
+  other five Redis-backed stores.** An unreadable or expired paused
+  approval must never be read as "proceed" — the opposite trade-off from
+  the rate limiter's fail-open default, made because the failure mode here
+  is a bypassed `SENSITIVE`-tier approval gate, not a temporarily-
+  unlimited request.
+- **A `SENSITIVE` tool cannot be called directly, even by a caller with the
+  role for it.** `POST /tools/{name}/call` (the endpoint `backend/
+  mcp_server/` uses) refuses a `SENSITIVE` tool outright with `409` —
+  every path to running one goes through `POST /investigate` +
+  `POST .../approve`, so an external MCP client gets no shortcut a native
+  caller does not also lack.
+- **`Investigation.resume()` was never wired into the approve endpoint**,
+  a deliberate fix made during design rather than after shipping a bug:
+  `resume()`'s own increment of `plan_step_index` would double-advance
+  past the just-approved step once `run_plan()`'s loop also incremented
+  it, silently skipping execution of the approved action. The approve
+  endpoint instead passes the paused `Investigation` straight back into
+  `run_plan()`, whose loop already re-enters at the correct index.
+- **No official MCP SDK dependency was added.** The server speaks exactly
+  the three methods this platform's tools need
+  (`initialize`/`tools/list`/`tools/call`), hand-rolled the same way CSRF,
+  revocation, and rate-limiting are — a deliberate house-style choice, not
+  an oversight.
+
+Verified: `ruff check`/`mypy app` clean at every phase; the full backend
+suite green (1652 passed, 2 skipped) after Phase 6; the RBAC route→role
+matrix test extended for all six new routes; the zero-persistence test
+cluster re-run standalone as well as inside the full suite.
+
+### Deferrals
+
+- **No live-execution SSE stream.** `investigate` already returns
+  synchronously, so there is no in-flight state an SSE endpoint would have
+  anything to report on until plan execution itself moves to a background
+  worker — a stated future enhancement, not a gap in what shipped.
+- **No `Agent`/`AgentProvider` CRUD endpoints.** The five persistent agent
+  tables exist and are covered by the zero-persistence test cluster, but
+  configuring them today is direct-database/migration-seeded only,
+  faithful to the literal endpoint list in the approved plan rather than
+  expanding scope to a settings UI this phase did not ask for.
+- **`AgentTool.minimum_role_override` is inert.** The column and table
+  exist; the permission check that would read it to raise (never lower) a
+  tool's effective minimum role lands in a later phase.
+- **No per-tool rate-limit policy entries yet.** `Tool.rate_limit_rule`
+  exists on the contract; wiring specific policy names into
+  `app.core.ratelimit.policy.POLICY` per tool is deferred alongside the
+  `AgentTool` override work above.
+- **Scheduled automation is still blocked on Celery Beat**, unchanged from
+  the pentest-module Phase 1 note: `create_workflow` can store a
+  `TriggerKind.SCHEDULE` workflow correctly, but nothing fires it on a
+  schedule until Celery Beat exists (pentest-module Phase 8).
