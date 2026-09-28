@@ -149,6 +149,14 @@ def test_no_module_in_core_outside_assistant_imports_the_assistant() -> None:
         for path in root.rglob("*.py")
         if "core/assistant" not in str(path)
         and "api/" not in str(path)
+        # The native agent framework (app/core/agent/) is a second, later AI
+        # layer that deliberately builds on the assistant's provider
+        # abstraction, egress context and pricing/spend-cap machinery rather
+        # than duplicating them (tests/security/test_agent_boundary.py pins
+        # its own, separate boundary). A reviewed exception, not a gap: the
+        # platform still works with no AI provider configured either way,
+        # since AIService already tolerates that.
+        and "core/agent" not in str(path)
         and pattern.search(path.read_text())
     ]
 

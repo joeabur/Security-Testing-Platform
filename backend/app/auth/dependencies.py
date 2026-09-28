@@ -139,6 +139,20 @@ def _lower_of(first: Role, second: Role) -> Role:
     return first if order.index(first) >= order.index(second) else second
 
 
+def effective_role(membership: Membership, api_key: ApiKey | None) -> Role:
+    """The role a caller actually acts with: the member's own role, capped
+    by an API key's scope-derived role ceiling when the request carries one.
+
+    Factored out of `require_membership`'s dependency so any other code
+    that needs "what may this caller do" — the native AI agent's tool
+    permission check among them — computes it the same way the HTTP
+    boundary does, rather than a second copy that could drift.
+    """
+    if api_key is None:
+        return membership.role
+    return _lower_of(membership.role, api_key.role)
+
+
 def require_membership(
     minimum_role: Role = Role.VIEWER,
 ) -> Callable[[uuid.UUID, Request, User, AsyncSession], Awaitable[Membership]]:
@@ -172,16 +186,12 @@ def require_membership(
         if membership is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Organization not found")
 
-        effective = membership.role
         api_key = getattr(request.state, "api_key", None)
-        if api_key is not None:
-            if api_key.organization_id != organization_id:
-                # A key belongs to one organization. Same 404 as a
-                # non-member, for the same reason.
-                raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Organization not found")
-            # The lower of the two: a key cannot exceed its scopes, and it
-            # cannot exceed what its creator still has.
-            effective = _lower_of(membership.role, api_key.role)
+        if api_key is not None and api_key.organization_id != organization_id:
+            # A key belongs to one organization. Same 404 as a non-member,
+            # for the same reason.
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Organization not found")
+        effective = effective_role(membership, api_key)
 
         if not effective.at_least(minimum_role):
             raise HTTPException(
