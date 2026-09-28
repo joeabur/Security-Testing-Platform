@@ -4,7 +4,7 @@ from collections.abc import Awaitable, Callable
 import structlog
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api.v1.router import api_router
@@ -116,6 +116,14 @@ def create_app() -> FastAPI:
         return JSONResponse(status_code=500, content=body.model_dump())
 
     app.include_router(api_router, prefix=API_VERSION_PREFIX)
+
+    @app.get("/", include_in_schema=False)
+    async def root() -> RedirectResponse:
+        # Bare host with no path — someone typing just the origin they were
+        # given, not an API caller (those always know the versioned path).
+        # Without this, that visit is an unmatched route: a raw
+        # `{"detail":"Not Found"}` with no indication `/app` or `/docs` exists.
+        return RedirectResponse("/app")
 
     # The server-rendered dashboard, on the same application as the API so
     # there is one process, one session cookie and one authorization gate
