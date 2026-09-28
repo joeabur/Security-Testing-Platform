@@ -41,6 +41,16 @@ class ToolNotFoundError(Exception):
     organization) — the tool-call analogue of a 404."""
 
 
+class ToolExecutionError(Exception):
+    """The tool refused to act — the tool-call analogue of a 409.
+
+    For a domain-level refusal a handler expects and can explain (a disabled
+    workflow, an invalid gate, authorization not currently valid): the same
+    shape `HTTPException(409, ...)` gives an HTTP caller, but a plain
+    exception, because a tool handler has no HTTP response to raise into.
+    """
+
+
 # Deliberately loose (`Callable[..., Awaitable[BaseModel]]` rather than a
 # signature parameterised on each tool's own Params/Result types): every
 # concrete handler's real signature is `(AgentContext, SpecificParams) ->

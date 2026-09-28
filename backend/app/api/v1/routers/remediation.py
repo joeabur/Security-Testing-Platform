@@ -20,12 +20,12 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from app.api.v1.routers.runs import queue_run
 from app.api.v1.routers.targets import load_target
 from app.audit.service import record_event
 from app.auth.dependencies import DbSession, require_membership
 from app.core.orchestrator.context_builder import build_run_context
 from app.core.retest.service import baseline_of, mark_awaiting_retest
+from app.core.runs.service import queue_run
 from app.core.scope.errors import AuthorizationRequiredError, RoEValidationError
 from app.models.assessment_run import AssessmentRun, RunKind
 from app.models.finding import Finding
@@ -203,8 +203,8 @@ async def create_retest(
         db,
         organization_id=organization_id,
         target=target,
-        membership=membership,
-        request=request,
+        user_id=membership.user_id,
+        ip_address=request.client.host if request.client else None,
         profile=payload.profile,
         safe_mode=payload.safe_mode,
         confirmed_at=now,

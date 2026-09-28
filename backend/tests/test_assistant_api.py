@@ -46,9 +46,9 @@ def _stub_broker(monkeypatch: pytest.MonkeyPatch) -> None:
     class _AsyncResult:
         id = "stub-task-id"
 
-    from app.api.v1.routers import runs as runs_router
+    from app.core.runs import service as runs_service
 
-    monkeypatch.setattr(runs_router.celery_app, "send_task", lambda *a, **k: _AsyncResult())
+    monkeypatch.setattr(runs_service.celery_app, "send_task", lambda *a, **k: _AsyncResult())
 
 
 def _worker_transport():

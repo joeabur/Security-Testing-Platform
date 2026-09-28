@@ -57,9 +57,9 @@ def _stub_broker(monkeypatch: pytest.MonkeyPatch) -> list[str]:
         queued.append(args[0] if args else name)
         return _AsyncResult()
 
-    from app.api.v1.routers import runs as runs_router
+    from app.core.runs import service as runs_service
 
-    monkeypatch.setattr(runs_router.celery_app, "send_task", _send_task)
+    monkeypatch.setattr(runs_service.celery_app, "send_task", _send_task)
     return queued
 
 
@@ -676,12 +676,12 @@ async def test_a_broker_that_cannot_accept_the_run_fails_it_visibly(
     waiting for a worker that will never see it."""
     org_id, target_id, header = await _ready_target(client, strong_password, "r")
 
-    from app.api.v1.routers import runs as runs_router
+    from app.core.runs import service as runs_service
 
     def _explode(name: str, args: list[str] | None = None, **kwargs: object) -> None:
         raise ConnectionError("broker unreachable")
 
-    monkeypatch.setattr(runs_router.celery_app, "send_task", _explode)
+    monkeypatch.setattr(runs_service.celery_app, "send_task", _explode)
 
     response = await client.post(
         f"/api/v1/organizations/{org_id}/runs",

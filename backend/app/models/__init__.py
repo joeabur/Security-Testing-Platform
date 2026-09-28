@@ -1,4 +1,11 @@
-from app.models.agent import Agent, AgentProvider, AgentProviderKind, AgentTool
+from app.models.agent import (
+    Agent,
+    AgentConfiguration,
+    AgentProvider,
+    AgentProviderKind,
+    AgentTool,
+    AgentUsageMetadata,
+)
 from app.models.ai_draft import AiDraft, DraftField
 from app.models.api_key import ApiKey, ApiKeyScope
 from app.models.api_spec import ApiSpec
@@ -34,9 +41,11 @@ from app.models.workflow import Workflow, WorkflowRun
 
 __all__ = [
     "Agent",
+    "AgentConfiguration",
     "AgentProvider",
     "AgentProviderKind",
     "AgentTool",
+    "AgentUsageMetadata",
     "Workflow",
     "WorkflowRun",
     "PullRequestPost",

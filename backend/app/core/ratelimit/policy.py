@@ -35,6 +35,13 @@ action with its own audit trail, not a guess to forgive. The bound exists
 for a runaway planning loop (Implementation phase 4), not a legitimate
 investigation: sixty reads in five minutes is generous for a person, and a
 loop that would exceed it is the thing worth stopping.
+
+**Agent SENSITIVE tool calls, per identity: 10 per 10 minutes.** A tighter
+budget for the tier that can queue a real scan or trigger a workflow —
+`docs/BUILD_SPEC.md`'s "execution limits" requirement applied specifically
+to the tools that touch the platform or a target, separate from the general
+tool-call budget above so a busy investigation reading findings never
+counts against the much smaller number of sensitive actions it may need.
 """
 
 from __future__ import annotations
@@ -62,6 +69,14 @@ REGISTER_IP = Rule(name="register", dimension=Dimension.IP, limit=10, window_sec
 AGENT_TOOL_CALL_IDENTITY = Rule(
     name="agent_tool_call", dimension=Dimension.IDENTITY, limit=60, window_seconds=5 * 60
 )
+# A separate, tighter budget for SENSITIVE-tier tools (`start_scan`,
+# `run_workflow`): those already carry their own audit trail, approval gate
+# and (for `start_scan`) authorization check, but a tenfold-tighter call
+# budget bounds how much platform-changing activity even an approved
+# investigation loop can drive in one window.
+AGENT_SENSITIVE_TOOL_CALL_IDENTITY = Rule(
+    name="agent_sensitive_tool_call", dimension=Dimension.IDENTITY, limit=10, window_seconds=10 * 60
+)
 
 #: What each protected route consumes. A route absent from here is not limited,
 #: which is why `tests/security/test_rate_limit.py` asserts the set rather than
@@ -70,6 +85,7 @@ POLICY: dict[str, tuple[Rule, ...]] = {
     "login": (LOGIN_IDENTITY, LOGIN_IP),
     "register": (REGISTER_IP,),
     "agent_tool_call": (AGENT_TOOL_CALL_IDENTITY,),
+    "agent_sensitive_tool_call": (AGENT_SENSITIVE_TOOL_CALL_IDENTITY,),
 }
 
 

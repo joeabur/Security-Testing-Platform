@@ -2,10 +2,10 @@
 conversations, prompts, or tool output.
 
 This module is intentionally the **entire**, closed set of tables the agent
-subsystem may ever persist: `Agent`, `AgentProvider`, `AgentTool` here, plus
-`AgentConfiguration`, `AgentUsageMetadata` added in a later phase. Every one
-holds configuration or non-content metrics only — never a conversation,
-prompt, response, or tool-output value.
+subsystem may ever persist: `Agent`, `AgentProvider`, `AgentTool`,
+`AgentConfiguration`, `AgentUsageMetadata`. Every one holds configuration or
+non-content metrics only — never a conversation, prompt, response, or
+tool-output value.
 `tests/security/test_agent_boundary.py` pins this table set (and grep-checks
 every column name) so a future table cannot silently widen it into an AI
 memory store.
@@ -13,8 +13,9 @@ memory store.
 
 import enum
 import uuid
+from typing import Any
 
-from sqlalchemy import Boolean, Enum, ForeignKey, String, UniqueConstraint
+from sqlalchemy import JSON, Boolean, Enum, Float, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -107,3 +108,58 @@ class Agent(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # unreadable value is read as OFF, never as a default, matching that
     # setting's own rule.
     autonomy_mode: Mapped[str] = mapped_column(String(30), nullable=False, default="assist")
+
+
+class AgentConfiguration(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """Fine-grained runtime policy for one `Agent`: which tools it may use
+    and any per-tool rate-limit override — configuration only, read by
+    `permissions.py` and the future planner, never written to from a tool
+    call or a conversation.
+
+    `settings` is a small, schema-validated JSON document
+    (`AgentConfigurationSettings` in a later phase), not free text — it
+    holds structured policy, the same way `Workflow.gate_config` holds a
+    structured gate rather than a prose description of one.
+    """
+
+    __tablename__ = "agent_configurations"
+    __table_args__ = (UniqueConstraint("agent_id", name="uq_agent_configuration_agent"),)
+
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+    )
+    agent_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
+    )
+    settings: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+
+
+class AgentUsageMetadata(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """One append-only row per tool call: what ran, how long it took, what
+    it cost, and whether it succeeded — the observability requirement.
+
+    No `content`/`text`-shaped column exists on this model, and none may
+    ever be added — `tests/security/test_agent_boundary.py`'s
+    column-allowlist test enforces that deliberately, on this table
+    specifically, because a metrics table is exactly where a well-meaning
+    "let's also log the response for debugging" column tends to appear.
+    """
+
+    __tablename__ = "agent_usage_metadata"
+
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+    )
+    agent_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("agents.id", ondelete="SET NULL"), nullable=True
+    )
+    tool_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    provider: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    model: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    tokens_sent: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    tokens_received: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    cost_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    duration_ms: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    error_code: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    request_id: Mapped[str] = mapped_column(String(80), nullable=False)
