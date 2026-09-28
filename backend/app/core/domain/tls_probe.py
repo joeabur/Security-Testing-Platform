@@ -52,6 +52,7 @@ def _connect_and_inspect(
     address: str, hostname: str, port: int, timeout_seconds: float
 ) -> TlsCertificateInfo:
     context = ssl.create_default_context()
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
     with (
         socket.create_connection((address, port), timeout=timeout_seconds) as sock,
         context.wrap_socket(sock, server_hostname=hostname) as tls_sock,
