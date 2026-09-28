@@ -51,10 +51,12 @@ from app.core.orchestrator.context_builder import (
 )
 from app.core.orchestrator.dast_check import DastCheck
 from app.core.orchestrator.domain_check import DomainCheck
+from app.core.orchestrator.pentest_check import PentestCheck
 from app.core.orchestrator.plugin_check import PluginCheck
 from app.core.orchestrator.probe_check import ProbeCheck
 from app.core.orchestrator.runner import RunEventPayload, execute_run
 from app.core.orchestrator.vm_check import VmCheck
+from app.core.pentest import service as pentest_service
 from app.core.probes.api.registry import build_api_registry
 from app.core.probes.models import ScanResult, Severity
 from app.core.rasp.contract import RuntimeProtectionProfile, untested_marker
@@ -63,6 +65,7 @@ from app.core.scope.asset_scope import (
     resolve_cloud_scope,
     resolve_container_scope,
     resolve_domain_scope,
+    resolve_pentest_scope,
     resolve_vm_scope,
 )
 from app.core.scope.errors import (
@@ -413,6 +416,36 @@ async def execute_assessment_run(
                 )
                 checks.append(vm_check)
 
+        # PENTEST tooling is additive on top of whichever asset kind is
+        # already being scanned (Phase 1 foundation's own decision) — this
+        # phase wires it only to a VM target's already-discovered open
+        # services (see app/core/pentest/engine.py's own docstring for why
+        # extending it to other asset kinds later is a caller-side wiring
+        # change, not a change to the engine). It is appended to `checks`
+        # only when `vm_check` is, and always after it — `execute_run`
+        # (app/core/orchestrator/runner.py) runs every check sequentially
+        # in this exact order, so `vm_check.discovered` is already
+        # populated by the time `pentest_check.run()` reads it.
+        pentest_check: PentestCheck | None = None
+        if vm_check is not None:
+            try:
+                pentest_scope = resolve_pentest_scope(
+                    target.rules_of_engagement.asset_scope
+                    if target.rules_of_engagement is not None
+                    else None
+                )
+            except AssetScopeValidationError as exc:
+                await _record_event(
+                    db,
+                    run.id,
+                    RunEventKind.CHECK_COMPLETED,
+                    f"Pentest tooling skipped: {exc}",
+                    {"reason": str(exc)},
+                )
+            else:
+                pentest_check = PentestCheck(vm_check=vm_check, scope=pentest_scope)
+                checks.append(pentest_check)
+
         # The code engines need a checkout. It is created here and removed in
         # the `finally` below whatever happens: a working copy of a client's
         # repository is precisely what must not be left on a worker, since it
@@ -510,6 +543,8 @@ async def execute_assessment_run(
             all_results.extend(cloud_check.scan_results)
         if vm_check is not None:
             all_results.extend(vm_check.scan_results)
+        if pentest_check is not None:
+            all_results.extend(pentest_check.scan_results)
         if plugin_check is not None:
             all_results.extend(plugin_check.scan_results)
 
@@ -588,6 +623,18 @@ async def execute_assessment_run(
                 parent_target_id=target.id,
                 target=vm_check.target,
                 open_ports=vm_check.discovered,
+            )
+
+        # Same idea for the pentest engine's subprocess calls — it has no
+        # discoveries of its own to promote; a script result becomes a
+        # finding (already collected above) or nothing, never a new
+        # DiscoveredAsset.
+        if pentest_check is not None and pentest_check.tool_invocations:
+            await pentest_service.record_tool_invocations(
+                db,
+                organization_id=run.organization_id,
+                run_id=run.id,
+                invocations=pentest_check.tool_invocations,
             )
 
         run.status = RunStatus(outcome.status.value)

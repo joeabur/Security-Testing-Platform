@@ -14,6 +14,7 @@ from app.core.scope.asset_scope import (
     resolve_cloud_scope,
     resolve_container_scope,
     resolve_domain_scope,
+    resolve_pentest_scope,
     resolve_vm_scope,
 )
 from app.core.scope.dns import DnsResolver, SystemDnsResolver
@@ -682,12 +683,19 @@ async def configure_vm_scope(
     scope = {
         "host": payload.host,
         "allowed_ports": list(payload.allowed_ports),
+        # The pentest-tool architecture's own fields live in this same
+        # document (`resolve_pentest_scope` reads them from it directly),
+        # never a separate scope or a separate endpoint — it is additive on
+        # top of whichever asset kind is already being scanned.
+        "max_depth": payload.pentest.max_depth,
+        "approved_modules": list(payload.pentest.approved_modules),
     }
-    # Validated through the same resolver the run pipeline uses, so a
+    # Validated through the same resolvers the run pipeline uses, so a
     # malformed document is rejected here rather than silently stored and
     # only discovered when a run tries to use it.
     try:
         resolve_vm_scope(scope)
+        resolve_pentest_scope(scope)
     except AssetScopeValidationError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
@@ -706,6 +714,8 @@ async def configure_vm_scope(
         metadata={
             "host": payload.host,
             "allowed_ports": len(payload.allowed_ports),
+            "pentest_max_depth": payload.pentest.max_depth,
+            "pentest_approved_modules": len(payload.pentest.approved_modules),
         },
     )
     await db.commit()

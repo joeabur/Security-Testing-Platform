@@ -3014,6 +3014,121 @@ already-documented CycloneDX spec-version deferral — none touching
 - **The pentest-tool architecture itself still does not exist** — see the
   Phase 1 foundation section above; this was its last prerequisite engine.
 
+## Pentest module, Phase 6 — pentest-tool architecture (discovery/vuln-scan/validation)
+
+Closes the last gap the Phase 1 foundation named: `app/core/pentest/`, a
+closed, tier-gated module registry layered on an already-discovered,
+already-authorized service — never a fresh scan of its own. This phase
+wires it only to `app.core.vm`'s discovered open services (see the
+engine's own docstring for why extending it to a domain-discovered HTTP
+endpoint or a cloud resource later is a caller-side wiring change, not a
+change to the engine itself).
+
+Delivered: `app/core/pentest/nmap_scripts.py` — three NSE-script modules,
+each exactly one `nmap --script <category>` invocation against one
+already-open `host:port`, mapping onto `TestDepth`'s tiers by what the
+category actually does rather than by name (nmap has no category literally
+called "validation"): `discovery` (safe information-gathering beyond the
+VM engine's own `-sV`), `vuln` (known-vulnerability checks, read via the
+`vulns` NSE library's own `State: VULNERABLE` convention), and `auth`
+(confirms a service is reachable with no/default/anonymous credentials —
+this platform's validation tier: confirming exploitability-by-lack-of-auth
+without attempting to exploit anything further); `registry.py`, a closed
+tuple of `PentestModule`s mirroring `appsec_engines()`'s closed-set idiom,
+with **no `TestDepth.EXPLOITATION` module registered at all** — real
+exploit execution stays exactly where the Phase 1 foundation put it,
+behind its own tier, last in the plan (Phase 12); `PentestEngine`
+(`engine.py`) gating on `scope.max_depth.at_least(module.tier)` and, when
+non-empty, `scope.approved_modules`, via an injectable `modules` tuple —
+the same reason `VmEngine` injects `scan`; `PentestCheck`
+(`app/core/orchestrator/pentest_check.py`) — the first check on this
+platform to depend on another check's result (`vm_check.discovered`)
+rather than only on the target/scope, safe only because `execute_run`
+(`app/core/orchestrator/runner.py`) runs every check sequentially in the
+exact order `workers/tasks.py` appends them; wiring into
+`execute_assessment_run`, appended only when, and always after,
+`vm_check`; and `PentestScopeIn` nested inside `VmScopeIn` — no separate
+endpoint, since `resolve_pentest_scope` reads its fields from the exact
+same `asset_scope` document `resolve_vm_scope` also reads from.
+
+Decisions worth stating:
+
+- **No separate opt-in flag beyond `max_depth`/`approved_modules`
+  themselves.** Silence resolves to `TestDepth.DISCOVERY` and runs the
+  `discovery`-tier module — never a refusal — the exact "silence means the
+  least invasive tier, not an abort" rule the Phase 1 foundation's own
+  `PentestScope` already documents; declaring a deeper tier is itself the
+  authorization, the same reading `VmScope.allowed_ports` already gets.
+- **A deeper `max_depth` still runs every shallower tier's modules too.**
+  `TestDepth.at_least` is an ordinal comparison, not an exact-tier match —
+  a run authorized for `vulnerability_scan` gets the `discovery`-tier
+  module's output as well, the same way a deeper RoE authorization has
+  always implied the shallower ones on this platform.
+- **`vuln`-tier confidence is `MEDIUM`, not `HIGH`.** `is_vulnerable_state`
+  is a text-match against the `vulns` NSE library's own convention, stated
+  plainly as a heuristic in its own docstring — not a database-verified
+  advisory ID the way `app.core.appsec.identifiers.verified_advisories`
+  confirms a container-engine CVE. `auth`-tier (validation) findings are
+  `HIGH` confidence instead: the script's output exists only because the
+  anonymous/default-credential check itself live-succeeded, a directly
+  observed condition rather than a text heuristic.
+- **`nmap`'s XML output is parsed with `defusedxml`, not the stdlib's
+  `xml.etree.ElementTree`** — caught by this platform's own dogfooded
+  Bandit rule (B314) against `app.core.vm.nmap`'s Phase 5 parser too, fixed
+  in both places together. The XML comes from a subprocess this platform
+  itself invoked, not an external upload, but the same reasoning applies
+  either way: a parser with external-entity resolution enabled is a risk
+  for any XML whose full provenance is not the platform's own code, and a
+  correct drop-in replacement was one import away.
+- **`ToolInvocationRecord`/`record_tool_invocations` are duplicated into
+  `app/core/pentest/`, not imported from `app.core.vm` or
+  `app.core.container`.** Three independent engine packages now carry the
+  same ~10-line shapes — the same "mirror, don't share" convention every
+  per-phase `contract.py`/`service.py` in this module already follows,
+  chosen over a shared cross-engine coupling with no semantic meaning.
+
+Verified: `ruff check`/`mypy app` clean (`defusedxml`/`types-defusedxml`
+added as direct dependencies — the library was already present
+transitively but neither module had imported it directly before); `bandit
+-r app aegis_cli -ll` clean (confirmed the B314 finding this phase's own
+work exposed, and fixed it in both `app/core/vm/nmap.py` and
+`app/core/pentest/nmap_scripts.py`); new tests across
+`test_pentest_nmap_scripts.py` (script parsing across both port- and
+host-scoped results, the `is_vulnerable_state` heuristic, missing-binary
+handling), `test_pentest_engine.py` (tier/approval gating including the
+"deeper implies shallower" ordering, per-tier finding shape, module-failure
+and malformed-output gaps), `test_pentest_check.py` (check-level failure
+isolation, the DB-backed `record_tool_invocations` test, and a dedicated
+test proving the sequential-check-ordering dependency on
+`vm_check.discovered` actually works), and `test_pentest_scope_api.py`
+(declaring `pentest.max_depth`/`approved_modules` through the existing
+`vm-scope` endpoint, the one case `resolve_pentest_scope` itself validates
+— `exploitation` without `approved_modules` — refused with 422); a
+regression pass over the container/cloud/vm/domain/runs/targets clusters
+this phase touches (396 passed, 2 skipped, unaffected); and the full
+backend suite (1801 passed, 2 skipped). The same four pre-existing,
+unrelated failures from the Phase 4/5 runs recur here unchanged — two
+`checkov` rule-ID mismatches and their downstream `test_code_scan_e2e.py`
+effect, and the already-documented CycloneDX spec-version deferral — none
+touching `app/core/pentest/`, `app/core/vm/nmap.py`,
+`app/core/orchestrator/pentest_check.py`, `app/workers/tasks.py`, the
+targets router, or the RBAC matrix.
+
+### Deferrals
+
+- **Only VM-discovered open services are wired in.** The engine itself is
+  asset-kind-agnostic (see its own docstring); extending it to a
+  domain-discovered HTTP endpoint or a cloud resource is a later
+  increment's caller-side wiring change.
+- **No dashboard page for pentest-tool findings specifically** — they
+  report through the existing `Pentest` reporting pillar and findings
+  pipeline like any other engine's output; a dedicated view is a later
+  phase, the same reasoning every earlier engine's own dashboard deferral
+  gives.
+- **`TestDepth.EXPLOITATION` has no registered module, on purpose** — see
+  the "no exploitation module registered" decision above; that tier is
+  Phase 12's own job, behind its own `ExploitationAuthorization` tier.
+
 ## Agent framework, Phases 1–6 — native AI agent with zero persistence
 
 A structured, permission-gated tool-calling layer on top of the existing AI

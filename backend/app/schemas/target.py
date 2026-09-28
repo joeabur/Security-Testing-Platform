@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.core.rasp.contract import ControlKind
+from app.core.scope.asset_scope import TestDepth
 from app.models.target import TargetEnvironment, TargetKind
 
 if TYPE_CHECKING:
@@ -107,6 +108,25 @@ class CloudScopeIn(BaseModel):
     allowed_regions: list[str] = Field(default_factory=list, max_length=50)
 
 
+class PentestScopeIn(BaseModel):
+    """The pentest-tool architecture's own, additive scope
+    (`app/core/pentest/`, Pentest module Phase 6).
+
+    Layered on whichever asset kind's scope it is nested under — `VmScopeIn`
+    today, a later asset kind's scope-in schema in the future — never a
+    scope of its own, mirroring how `resolve_pentest_scope` reads it from
+    the same `asset_scope` document a `VmScope`/etc. also reads from.
+    `max_depth` defaults to the least invasive tier: an operator who never
+    touches this gets the pentest-tool architecture's `discovery`-tier
+    modules and nothing deeper, never a refusal — the same "silence means
+    the least invasive tier, not an abort" rule the Phase 1 foundation's
+    own `PentestScope` already documents.
+    """
+
+    max_depth: TestDepth = TestDepth.DISCOVERY
+    approved_modules: list[str] = Field(default_factory=list, max_length=50)
+
+
 class VmScopeIn(BaseModel):
     """What a `VIRTUAL_MACHINE` target's engine may port-scan.
 
@@ -122,6 +142,7 @@ class VmScopeIn(BaseModel):
     allowed_ports: list[Annotated[int, Field(ge=1, le=65535)]] = Field(
         min_length=1, max_length=1000
     )
+    pentest: PentestScopeIn = Field(default_factory=PentestScopeIn)
 
 
 class ClaimedControlIn(BaseModel):

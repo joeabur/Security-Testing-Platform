@@ -27,11 +27,30 @@ All notable changes to this project are recorded here. The format follows
   static test, and a dynamic secret-redaction test. See `docs/agent.md`,
   `docs/guardrails.md` §1.4, and `docs/security-model.md` guarantees
   #29–#30.
+- Pentest module, Phase 6 (pentest-tool architecture): `app/core/pentest/`
+  — a closed, tier-gated `nmap`-NSE-script module registry layered on an
+  already-discovered, already-authorized service (this phase wires it only
+  to the VM engine's discovered open services). Three modules map onto
+  `TestDepth`'s discovery/vulnerability_scan/validation tiers by what an
+  NSE script category actually does: `discovery` (safe info-gathering),
+  `vuln` (known-vulnerability checks via the `vulns` NSE library's own
+  `State: VULNERABLE` convention), and `auth` (confirms no/default-
+  credential access — this platform's validation tier). No `exploitation`-
+  tier module is registered at all; real exploit execution stays behind
+  its own authorization tier, last in the plan (Phase 12). Gated on
+  `asset_scope.max_depth`/`approved_modules`, configured through the
+  existing `vm-scope` endpoint (`PentestScopeIn` nested in `VmScopeIn` —
+  no separate endpoint, since both read the same `asset_scope` document).
+  The first check on this platform to depend on another check's result
+  (`vm_check.discovered`) rather than only on the target/scope. Also fixes
+  a Bandit B314 (XML XXE) finding this phase's own dogfooded static
+  analysis exposed in both this engine and the Phase 5 VM engine's `nmap`
+  XML parsing — both now use `defusedxml`. See `docs/roadmap.md`.
 - Pentest module, Phase 5 (VM engine): `app/core/vm/` — authorized
   port/service discovery against a `TargetKind.VIRTUAL_MACHINE` target's
   declared host, gated on `asset_scope.host`/`allowed_ports`. `nmap -Pn -sV
   --open`, restricted to exactly the declared ports (never a full range),
-  parsed from XML with the standard library. Declaring a port already is
+  parsed from XML with `defusedxml`. Declaring a port already is
   the authorization to probe it — no separate opt-in flag, unlike the
   container engine's `allow_live_pull`. Emits an unconditional port
   inventory plus a finding for a small, fixed set of ports whose mere

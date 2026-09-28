@@ -30,6 +30,12 @@ dependencies = [
     # transitively through other packages, but the dashboard imports it
     # directly, so it is declared directly.
     "jinja2>=3.1",
+    # `nmap`'s own `-oX` XML output is parsed by the VM and pentest engines
+    # (Pentest module Phases 5-6). Bandit's B314 rule flags the stdlib
+    # `xml.etree.ElementTree.fromstring` as XXE-capable; this is its own
+    # documented drop-in replacement, already present transitively but now
+    # imported directly.
+    "defusedxml>=0.7",
 ]
 
 [project.optional-dependencies]
@@ -45,6 +51,7 @@ dev = [
     "types-PyYAML>=6.0",
     "jsonschema>=4.23",
     "types-jsonschema>=4.23",
+    "types-defusedxml>=0.7",
 ]
 # PDF reporting (§14). Optional because WeasyPrint needs system Pango and
 # Cairo libraries; every other report format works without it, and the PDF

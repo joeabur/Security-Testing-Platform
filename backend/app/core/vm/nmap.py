@@ -18,7 +18,8 @@ for `docker pull`:
 from __future__ import annotations
 
 import ipaddress
-from xml.etree import ElementTree
+
+import defusedxml.ElementTree as ElementTree
 
 from app.core.appsec.checkout import HostResolver, default_host_resolver
 from app.core.appsec.tooling import NetworkUse, ToolInvocation, ToolResult, run_tool
@@ -84,6 +85,12 @@ def parse_open_ports(xml_text: str) -> list[OpenPort]:
     already filters at the tool level, but a defensive re-check here means
     a future flag change can never silently turn a closed port into a
     finding.
+
+    Parsed with `defusedxml`, not the stdlib's `xml.etree.ElementTree`,
+    even though this XML comes from a subprocess this platform itself
+    invoked rather than an external upload — the same reasoning applies
+    either way: a parser with external-entity resolution enabled is a risk
+    for any XML whose full provenance is not the platform's own code.
     """
     try:
         root = ElementTree.fromstring(xml_text)
