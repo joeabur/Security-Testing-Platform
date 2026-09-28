@@ -54,5 +54,13 @@ class RulesOfEngagementRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # model are not the same resource: one scanner run must not be able to
     # spend the token budget an AI assessment was granted.
     appsec_budgets: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    # What a CONTAINER/CLOUD_ACCOUNT/VIRTUAL_MACHINE/DOMAIN target's engine
+    # may touch — one generalized column rather than one per kind, so adding
+    # a fifth asset type later is a new resolver function, not a new
+    # migration. Each kind's engine validates its own sub-shape out of this
+    # (app/core/scope/asset_scope.py) the same way CodeScanCheck validates
+    # `code_scope` — absent or malformed means that engine declines to run,
+    # never "everything is in scope."
+    asset_scope: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
 
     target: Mapped["Target"] = relationship(back_populates="rules_of_engagement")

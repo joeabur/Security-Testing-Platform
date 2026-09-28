@@ -95,6 +95,11 @@ PILLARS: tuple[str, ...] = (
     "Secrets",
     "IaC",
     "RASP",
+    "Container",
+    "Cloud",
+    "VM",
+    "Domain",
+    "Pentest",
 )
 
 
