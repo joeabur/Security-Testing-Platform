@@ -2570,8 +2570,142 @@ time and so never exposed the gap). `CODE_REPO`'s own migration adds both.
   bounds any assessment run.
 - **Findings from a repository scan use the same exposure model every
   other code-scanned target already uses** (`app/core/findings/service.py`'s
-  `exposure_for`, keyed on `base_url`/`environment`), which was designed for
-  a live target and is an approximation for source code — the same
-  approximation the pre-existing single-repo-per-target code scan already
-  made; this feature does not add a new gap, just more targets that inherit
-  the existing one.
+  `exposure_for`, keyed on `base_url`/`environment`), which was
+  designed for a live target and is an approximation for source code — the
+  same approximation the pre-existing single-repo-per-target code scan
+  already made; this feature does not add a new gap, just more targets
+  that inherit the existing one.
+
+## Pentest module, Phase 1 — foundation (schema, migrations, RLS)
+
+The first phase of the AI-powered security-assessment-and-penetration-
+testing module: a much broader platform (containers, cloud accounts, VMs,
+domains; a controlled pentest-tool adapter layer, sequenced up to and
+including authorized exploit execution; multi-vendor AI used throughout;
+scheduling and webhooks; an external API/MCP surface for AI agents; a
+security-operations dashboard) layered on top of the existing AppSec/API/
+AI-red-teaming platform rather than replacing any of it. The full 12-phase
+plan is recorded as this session's own implementation plan, not repeated
+here; this entry and the next cover the two phases actually built so far.
+
+Delivered: a generalized `asset_scope` JSON column on
+`rules_of_engagement` (one column, not one per asset kind — each kind
+validates its own sub-shape via a `resolve_*_scope` function in
+`app/core/scope/asset_scope.py`, the same pattern `code_scope` already
+uses); four new `TargetKind` values (`container`, `cloud_account`,
+`virtual_machine`, `domain`); a `discovered_assets` table for things a scan
+finds but does not itself authorize (`app/models/discovered_asset.py`); a
+`run_tool_invocations` table recording exactly which tool ran, with which
+network posture, per assessment run; and five new reporting pillars
+(Container, Cloud, VM, Domain, Pentest) so coverage stays honest — "not
+tested" — until each engine lands.
+
+Decisions worth stating:
+
+- **`asset_scope` is one column, not five.** A fifth asset kind is a new
+  resolver function and `TargetKind` value, never a migration to this
+  module's structure — the same reasoning `code_scope`'s single-column
+  design already established.
+- **A `DiscoveredAsset` is not a `Target`.** It is something a scan found —
+  a subdomain, eventually a cloud resource or an open port — with no
+  `Authorization`/`RulesOfEngagement` of its own. Promotion to a real,
+  scannable `Target` is a separate, explicit human action
+  (`promoted_to_target_id`), never automatic. This is the concrete
+  mechanism behind "never automatically expand testing to targets outside
+  the approved scope."
+- **Pentest scope reads its own absence as "discovery only," not
+  "refused."** Unlike the four asset-kind scopes, `PentestScope` is an
+  *additive* capability layered on whatever asset kind is already being
+  scanned; a target makes no statement about pentest tooling by default,
+  and that silence means the least invasive tier rather than an abort.
+- **Both new tables joined the existing Row-Level Security policy in the
+  same migration that created them** — a new tenant-scoped table with no
+  RLS policy would be exactly the gap `b2e6f4a91c7d`'s own docstring warns
+  against.
+
+Verified: `ruff check`/`mypy app` clean, 14 new resolver unit tests
+(`tests/security/test_asset_scope.py`), the reporting golden snapshots
+regenerated for the five new pillars, and the full backend suite green —
+including catching and fixing a real gap this phase exposed: the test
+database needs its own independent `alembic upgrade head`, separate from
+the development database, which nothing had previously required.
+
+### Deferrals
+
+- **Container, cloud, VM, and pentest-tool engines do not exist yet.**
+  Only the schema/scope-resolver foundation is built. The domain engine
+  (next section) is the first to actually run.
+- **Real exploit execution is deliberately last in the plan**, behind its
+  own `ExploitationAuthorization` tier, a simulate-then-fire two-step, and
+  named operational-readiness items (incident-response runbook,
+  authorization-artifact format, insurance/liability review) that are the
+  operator's responsibility, not implementation tasks.
+- **No frontend UI for any of the new asset kinds yet.** Configuration is
+  API-only, the same phased approach every earlier module took.
+
+## Pentest module, Phase 2 — domain/DNS engine
+
+Delivered: `app/core/domain/` — subdomain discovery via certificate-
+transparency logs (`crt.sh`, through `GatedTransport` like any other
+outbound request) and a small built-in DNS brute-force wordlist (through
+the same `DnsResolver` every scope check already uses); TLS certificate
+inspection (expiry, protocol version) and missing-security-header checks
+against the root domain and any discovered host matching
+`asset_scope.allowed_subdomain_patterns`; a `DomainCheck` orchestrator
+wrapper mirroring `DastCheck`'s "one engine failure must not lose the run"
+contract; wiring into `execute_assessment_run` for `TargetKind.DOMAIN`; and
+a `PUT /organizations/{id}/targets/{id}/domain-scope` endpoint (mirroring
+`configure_code_scope`'s shape) so an operator can actually declare a
+domain target's scope through the API rather than only through a direct
+database write.
+
+Decisions worth stating:
+
+- **Discovery never expands what gets tested.** Every discovered hostname
+  becomes a `DiscoveredAsset` row; only the root domain and hosts matching
+  `allowed_subdomain_patterns` receive the HTTP/TLS checks. An empty
+  pattern list means "only the root domain itself," never "everything
+  found" — the same fail-closed reading `resolve_domain_scope` already
+  documents.
+- **The TLS probe resolves and blocked-IP-checks a host itself before
+  connecting**, because `httpx`/`GatedTransport` do not expose peer-
+  certificate details and a raw socket connection is therefore its own,
+  separate egress path — one that reuses `is_blocked_ip`/`parse_ip_ranges`
+  directly rather than reimplementing the check, per this module's own
+  rule for any new engine that talks to something that isn't raw `httpx`.
+- **A pure-HTTP/DNS engine does not synthesize a `RunToolInvocation`.**
+  That machinery exists to bound and report on *subprocess* scanners; an
+  HTTP call already gated by `GatedTransport`/`ScopeEngine` does not need a
+  second record of having run.
+- **A malformed `asset_scope` skips the check, not the run.** The same
+  pattern a bad `code_scope` already gets: the event log records why, and
+  every other check still executes.
+
+A real bug found and fixed while writing this phase's tests: crt.sh
+returns wildcard SANs (`*.example.test`) alongside concrete hostnames, and
+the original filter used `str.lstrip("*.")` to strip the wildcard marker —
+which strips *characters*, not a literal prefix, so `"*.example.test"`
+became `"example.test"` and silently passed the root-domain-equality check
+instead of being skipped, folding a wildcard SAN into the root domain
+itself. Fixed by checking for the wildcard prefix before any stripping,
+with a regression test.
+
+Verified: `ruff check`/`mypy app` clean, 12 new engine/resolver tests
+(`tests/test_domain_engine.py`, in-memory fakes for the resolver and
+transport, no real network — mirrors `tests/test_dast.py`'s style) plus 5
+new API tests (`tests/test_domain_scope_api.py`), and the full backend
+suite green.
+
+### Deferrals
+
+- **No live registry/wordlist configuration from the operator.** The DNS
+  brute-force list is a small, static, built-in set of common prefixes —
+  enough to prove the discovery → `DiscoveredAsset` pipeline end to end,
+  not an exhaustive enumeration. An RoE-declared wordlist is a later
+  increment.
+- **No dashboard page for domain assets yet.** The API and the engine are
+  complete and tested; the security-operations dashboard is a later phase
+  in the plan, built once against a more complete asset surface
+  (container/cloud/VM too) rather than piecemeal.
+- **Container, cloud, VM, and pentest-tool engines do not exist yet** — see
+  the foundation section above.

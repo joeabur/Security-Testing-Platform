@@ -56,6 +56,20 @@ class TargetCodeUpdate(BaseModel):
     code_scope: CodeScopeIn
 
 
+class DomainScopeIn(BaseModel):
+    """What a `DOMAIN` target's engine may enumerate and test.
+
+    `root_domain` has no default — the same "an unstated boundary is not
+    permissive" rule `CodeScopeIn.allowed_paths` already enforces.
+    `allowed_subdomain_patterns` defaults to empty, which the domain engine's
+    resolver reads as "probe only the root domain itself," never "every
+    subdomain discovery turns up."
+    """
+
+    root_domain: str = Field(min_length=1, max_length=253)
+    allowed_subdomain_patterns: list[str] = Field(default_factory=list, max_length=50)
+
+
 class ClaimedControlIn(BaseModel):
     """One runtime control an operator says is deployed.
 

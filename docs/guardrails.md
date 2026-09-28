@@ -24,6 +24,7 @@ Where it is configured, four independent controls bound what it can do:
 | **Autonomy ladder, per organization** | `OFF < ASSIST < RECOMMEND < APPROVAL_REQUIRED < EXECUTE`. Every capability has a minimum mode; `permits()`/`require()` enforce it before the assistant runs. Default is `ASSIST`. | `autonomy.py` |
 | **Target-touching actions are refused at every mode, including `EXECUTE`** | `TARGET_TOUCHING` (`execute_scan`, `grant_authorization`, `extend_authorization`, `modify_scope`, `change_finding_status`, `change_finding_severity`, `send_request_to_target`) is checked independently of the mode — raising the mode cannot grant one of these, because they are not "high autonomy," they are actions the AI layer does not have. | `autonomy.py`, `refuse_target_touching()` |
 | **Import-linter boundary** | Nothing in `core` outside `core/assistant/` imports it, so the dependency only runs one way: the assistant can read platform state, but no scan, scope, or authorization code path can be reached *through* it. Enforced statically, not by convention. | `docs/ai-security-testing.md` §"Where the AI layer stops" |
+| **No AI-side memory or data retention** | Every call to `AIService.generate`/`structured_output` is a single, stateless request: nothing the assistant sees is cached, embedded, fine-tuned on, or otherwise kept by the AI layer itself for a *later* call, a different run, or a different organization to draw on. The only things persisted are the platform's own audited rows (`AiDraft`, and evidence bundles) — written for a human to read and explicitly accept, never as a store the model itself queries back. | `app/core/assistant/service.py`, `AiDraft` |
 
 So under any configuration, the assistant can explain a finding, draft a
 remediation, draft a severity rationale, summarise a run, correlate or
@@ -32,6 +33,21 @@ start a scan, grant or extend authorization, touch scope, change a
 finding's real fields, or send a request to a target. Guarantee #17 in
 `docs/security-model.md` states this as a platform guarantee, verified by
 the import-linter rule rather than by trusting every caller to check.
+
+**On "no AI-side memory," concretely:** each request to the configured AI
+provider carries only what that one call needs — the specific finding,
+evidence, or run being drafted about — and the response is written to a
+platform-owned table or discarded, never appended to a running context the
+next unrelated call could see. This holds today because every capability
+is single-shot (there is no conversation state to leak *from*), and it is
+a design constraint on work still to come, not just a description of what
+exists: the pentest module's planned `AiConversation`/`AiMessage` tables
+(multi-turn evidence Q&A) must remain the platform's own record of a
+conversation, scoped and RLS-isolated the same as every other row, and
+must never become a memory the AI layer itself accumulates and reuses
+*across* conversations, runs, or organizations. A future capability that
+wanted cross-run memory would need to say so as its own reviewed control
+here, not inherit one by default.
 
 ### 1.2 The AI security *engine* (attacks the target under test; never harms it)
 

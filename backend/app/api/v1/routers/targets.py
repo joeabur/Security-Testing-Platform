@@ -10,16 +10,21 @@ from app.audit.service import record_event
 from app.auth.dependencies import DbSession, require_membership
 from app.core.orchestrator.context_builder import build_run_context
 from app.core.rasp.contract import ClaimedControl, RuntimeProtectionProfile
+from app.core.scope.asset_scope import resolve_domain_scope
 from app.core.scope.dns import DnsResolver, SystemDnsResolver
 from app.core.scope.engine import ScopeEngine
-from app.core.scope.errors import AuthorizationRequiredError, RoEValidationError
+from app.core.scope.errors import (
+    AssetScopeValidationError,
+    AuthorizationRequiredError,
+    RoEValidationError,
+)
 from app.core.scope.resolve import resolve_rules_of_engagement
 from app.core.targets.chat_http import ChatHttpConfig
 from app.core.targets.openai_compatible import OpenAiCompatibleConfig
 from app.models.authorization import Authorization
 from app.models.organization import Membership, Role
 from app.models.rules_of_engagement import RulesOfEngagementRecord
-from app.models.target import Target
+from app.models.target import Target, TargetKind
 from app.schemas.authorization import AuthorizationGrant, AuthorizationRead
 from app.schemas.scope import (
     RulesOfEngagementRead,
@@ -27,6 +32,7 @@ from app.schemas.scope import (
     ScopeExplainResponse,
 )
 from app.schemas.target import (
+    DomainScopeIn,
     TargetAdapterUpdate,
     TargetCodeUpdate,
     TargetCreate,
@@ -445,6 +451,71 @@ async def configure_code_scope(
             "repo_ref": payload.repo_ref,
             "allowed_paths": len(payload.code_scope.allowed_paths),
             "excluded_paths": len(payload.code_scope.excluded_paths),
+        },
+    )
+    await db.commit()
+
+    return _target_read(target)
+
+
+@router.put("/{target_id}/domain-scope", response_model=TargetRead)
+async def configure_domain_scope(
+    organization_id: uuid.UUID,
+    target_id: uuid.UUID,
+    payload: DomainScopeIn,
+    request: Request,
+    db: DbSession,
+    membership: Membership = Depends(require_membership(Role.ADMIN)),  # noqa: B008
+) -> TargetRead:
+    """Declare what a `DOMAIN` target's engine may enumerate and test.
+
+    Admin-only, the same reasoning `configure_code_scope` documents: pointing
+    an assessment at a domain asserts entitlement to test it. Rules of
+    Engagement must already exist, because `asset_scope` lives on them — the
+    boundary is part of the engagement, not a property of the target.
+    """
+    target = await load_target(organization_id, target_id, db)
+    if target.kind is not TargetKind.DOMAIN:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail=f"This target is registered as {target.kind.value!r}, not 'domain'.",
+        )
+    if target.rules_of_engagement is None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail=(
+                "Configure Rules of Engagement before declaring a domain scope: the "
+                "scope is part of the engagement."
+            ),
+        )
+
+    scope = {
+        "root_domain": payload.root_domain,
+        "allowed_subdomain_patterns": list(payload.allowed_subdomain_patterns),
+    }
+    # Validated through the same resolver the run pipeline uses, so a
+    # malformed document is rejected here rather than silently stored and
+    # only discovered when a run tries to use it.
+    try:
+        resolve_domain_scope(scope)
+    except AssetScopeValidationError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+
+    target.rules_of_engagement.asset_scope = scope
+    await db.flush()
+
+    await record_event(
+        db,
+        action="target.domain_scope.configure",
+        resource_type="target",
+        resource_id=str(target.id),
+        result="allow",
+        organization_id=organization_id,
+        user_id=membership.user_id,
+        ip_address=request.client.host if request.client else None,
+        metadata={
+            "root_domain": payload.root_domain,
+            "allowed_subdomain_patterns": len(payload.allowed_subdomain_patterns),
         },
     )
     await db.commit()

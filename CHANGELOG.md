@@ -8,6 +8,18 @@ All notable changes to this project are recorded here. The format follows
 
 ### Added
 
+- Pentest module, Phase 1 (foundation) and Phase 2 (domain/DNS engine): a
+  generalized `asset_scope` column on Rules of Engagement plus four new
+  target kinds (`container`, `cloud_account`, `virtual_machine`, `domain`);
+  a `discovered_assets` inventory for scan-found-but-not-authorized assets,
+  promoted to a real target only by explicit human action; a
+  `run_tool_invocations` record of exactly which tool ran per assessment;
+  five new reporting pillars (Container, Cloud, VM, Domain, Pentest); and
+  the first working engine — `app/core/domain/` — doing subdomain discovery
+  (certificate-transparency logs + a DNS wordlist), TLS certificate checks,
+  and missing-security-header checks, wired into the run pipeline and
+  configurable via `PUT /organizations/{id}/targets/{id}/domain-scope`. See
+  `docs/roadmap.md`.
 - Target, repository, run, and workflow management in the Next.js frontend
   (`frontend/app/(dashboard)/organizations/[id]/...`) — previously the only
   way to add a target, connect a repository, set Rules of Engagement, grant
