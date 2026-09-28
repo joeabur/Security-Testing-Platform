@@ -51,7 +51,7 @@ jobs:
       - name: Generate SBOMs
         run: |
           mkdir -p sbom
-          cyclonedx-py environment --output-format json --outfile sbom/backend.cdx.json
+          cyclonedx-py environment --output-format json --output-file sbom/backend.cdx.json
           npx --yes @cyclonedx/cyclonedx-npm@latest \
             --output-format json \
             --output-file sbom/frontend.cdx.json \
