@@ -62,6 +62,31 @@ def _evidence_text(finding: Finding) -> str:
     )[:MAX_EVIDENCE_CHARS]
 
 
+async def _load_finding(ctx: AgentContext, finding_id: uuid.UUID) -> Finding:
+    finding = (
+        await ctx.db.execute(
+            select(Finding).where(
+                Finding.id == finding_id, Finding.organization_id == ctx.organization_id
+            )
+        )
+    ).scalar_one_or_none()
+    if finding is None:
+        raise ToolNotFoundError(f"finding {finding_id} not found")
+    return finding
+
+
+def _finding_view(finding: Finding) -> FindingView:
+    return FindingView(
+        probe_id=finding.probe_id,
+        title=finding.title,
+        endpoint=finding.surface,
+        severity=finding.severity.value,
+        description=finding.description,
+        evidence=_evidence_text(finding),
+        remediation=finding.remediation,
+    )
+
+
 class AnalyzeFindingParams(BaseModel):
     finding_id: uuid.UUID
 
@@ -73,34 +98,17 @@ class AnalyzeFindingResult(BaseModel):
 
 
 async def _analyze_finding(ctx: AgentContext, params: AnalyzeFindingParams) -> AnalyzeFindingResult:
-    finding = (
-        await ctx.db.execute(
-            select(Finding).where(
-                Finding.id == params.finding_id, Finding.organization_id == ctx.organization_id
-            )
-        )
-    ).scalar_one_or_none()
-    if finding is None:
-        raise ToolNotFoundError(f"finding {params.finding_id} not found")
+    finding = await _load_finding(ctx, params.finding_id)
 
     if ctx.provider is None:
         raise ToolExecutionError("no AI provider is configured for this organization")
 
-    view = FindingView(
-        probe_id=finding.probe_id,
-        title=finding.title,
-        endpoint=finding.surface,
-        severity=finding.severity.value,
-        description=finding.description,
-        evidence=_evidence_text(finding),
-        remediation=finding.remediation,
-    )
     # ASSIST is EXPLAIN_FINDING's own minimum (see autonomy.py); the agent's
     # tool-level role check above is the real gate for this call, not a
     # second autonomy configuration to keep in sync with it.
     service = AIService(ctx.provider, mode=AutonomyMode.ASSIST)
     try:
-        draft = await service.explain_finding(view)
+        draft = await service.explain_finding(_finding_view(finding))
     except (ProviderNotConfiguredError, ProviderError) as exc:
         raise ToolExecutionError(f"AI provider call failed: {exc}") from exc
 
@@ -120,6 +128,56 @@ ANALYZE_FINDING = Tool(
     risk_level=RiskLevel.READ_ONLY,
     minimum_role=Role.VIEWER,
     handler=_analyze_finding,
+    timeout_seconds=30.0,
+    rate_limit_rule="agent_tool_call",
+)
+
+
+class AnswerEvidenceQuestionParams(BaseModel):
+    finding_id: uuid.UUID
+    question: str
+
+
+class AnswerEvidenceQuestionResult(BaseModel):
+    answer: str
+    model: str
+    provider: str
+
+
+async def _answer_evidence_question(
+    ctx: AgentContext, params: AnswerEvidenceQuestionParams
+) -> AnswerEvidenceQuestionResult:
+    finding = await _load_finding(ctx, params.finding_id)
+
+    if ctx.provider is None:
+        raise ToolExecutionError("no AI provider is configured for this organization")
+
+    # ASSIST is ANSWER_EVIDENCE_QUESTION's own minimum (see autonomy.py); see
+    # the comment on `_analyze_finding` above for why that is not a second
+    # gate to keep in sync with the tool's own role check.
+    service = AIService(ctx.provider, mode=AutonomyMode.ASSIST)
+    try:
+        draft = await service.answer_evidence_question(_finding_view(finding), params.question)
+    except (ProviderNotConfiguredError, ProviderError) as exc:
+        raise ToolExecutionError(f"AI provider call failed: {exc}") from exc
+
+    return AnswerEvidenceQuestionResult(
+        answer=draft.content, model=draft.model, provider=draft.provider
+    )
+
+
+ANSWER_EVIDENCE_QUESTION = Tool(
+    name="answer_evidence_question",
+    description=(
+        "Ask a free-text question about one finding's captured evidence. The answer "
+        "is grounded only in what was captured; the model says so when the evidence "
+        "does not establish an answer."
+    ),
+    input_model=AnswerEvidenceQuestionParams,
+    output_model=AnswerEvidenceQuestionResult,
+    risk_level=RiskLevel.READ_ONLY,
+    minimum_role=Role.VIEWER,
+    handler=_answer_evidence_question,
     timeout_seconds=30.0,
     rate_limit_rule="agent_tool_call",
 )

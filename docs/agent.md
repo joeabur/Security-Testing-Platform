@@ -82,13 +82,24 @@ in-process (the same `queue_run`, `build_report`, `trigger_from`/`start`,
 finding/asset queries the REST API itself calls), never a second HTTP hop
 back into the platform's own API.
 
-Twelve tools exist today, in three risk tiers:
+Fifteen tools exist today, in three risk tiers:
 
 | Tier | Minimum role | Tools |
 |---|---|---|
-| `READ_ONLY` | Viewer | `search_assets`, `get_asset`, `search_findings`, `get_finding`, `analyze_finding`, `get_scan_status`, `get_scan_results`, `get_workflow_status` |
+| `READ_ONLY` | Viewer | `search_assets`, `get_asset`, `search_findings`, `get_finding`, `analyze_finding`, `answer_evidence_question`, `correlate_findings`, `prioritise_findings`, `get_scan_status`, `get_scan_results`, `get_workflow_status` |
 | `STANDARD` | Analyst / Admin | `create_report`, `create_workflow` |
 | `SENSITIVE` | Security Engineer | `run_workflow`, `start_scan` |
+
+`answer_evidence_question`, `correlate_findings`, and `prioritise_findings`
+(Pentest module Phase 7) reuse `AIService.answer_evidence_question`/
+`correlate_findings`/`prioritise_findings` in-process, the same way
+`analyze_finding` reuses `explain_finding` — one prompt template per
+capability, evidence-fenced, gated by `Capability.ANSWER_EVIDENCE_QUESTION`
+(`AutonomyMode.ASSIST`) or `Capability.CORRELATE_FINDINGS`/
+`PRIORITISE_FINDINGS` (`AutonomyMode.RECOMMEND`) in
+`app/core/assistant/autonomy.py`. All three are READ_ONLY: each drafts text
+for a human to weigh, and none writes a finding's stored severity, status,
+or relationships.
 
 The registry (`app/core/agent/tools/registry.py`) is a closed, explicitly
 enumerated list — mirroring `appsec_engines()`'s "registered, not

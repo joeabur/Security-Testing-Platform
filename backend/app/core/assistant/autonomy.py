@@ -52,6 +52,7 @@ class Capability(StrEnum):
     CORRELATE_FINDINGS = "correlate_findings"
     PRIORITISE_FINDINGS = "prioritise_findings"
     PROPOSE_SCAN = "propose_scan"
+    ANSWER_EVIDENCE_QUESTION = "answer_evidence_question"
 
 
 # The minimum mode at which each capability is permitted. Every one produces
@@ -61,6 +62,7 @@ _MINIMUM_MODE = {
     Capability.DRAFT_REMEDIATION: AutonomyMode.ASSIST,
     Capability.DRAFT_SEVERITY_RATIONALE: AutonomyMode.ASSIST,
     Capability.SUMMARISE_RUN: AutonomyMode.ASSIST,
+    Capability.ANSWER_EVIDENCE_QUESTION: AutonomyMode.ASSIST,
     Capability.CORRELATE_FINDINGS: AutonomyMode.RECOMMEND,
     Capability.PRIORITISE_FINDINGS: AutonomyMode.RECOMMEND,
     # Composing a command is a drafting act. *Running* it is the operator's,

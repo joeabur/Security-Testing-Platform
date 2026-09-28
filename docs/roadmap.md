@@ -3129,6 +3129,83 @@ targets router, or the RBAC matrix.
   the "no exploitation module registered" decision above; that tier is
   Phase 12's own job, behind its own `ExploitationAuthorization` tier.
 
+## Pentest module, Phase 7 — AI expansion (correlate/prioritise, evidence Q&A)
+
+Closes the gap `app/core/assistant/autonomy.py` had named since Phase 16:
+`Capability.CORRELATE_FINDINGS`/`PRIORITISE_FINDINGS` were declared at
+`AutonomyMode.RECOMMEND` with no `AIService` method behind either, and the
+module's own docstring already promised a co-pilot that "explains,
+correlates, prioritises and drafts" — only the first and last of those
+existed. This phase adds the missing two, plus a third, previously
+undeclared capability the same brief asked for: answering a free-text
+question about a finding's own captured evidence.
+
+The "multi-provider" half of this phase's brief is already satisfied by
+the native Agent framework (Phases 1–7 above): a tool call resolves an
+org's configured Anthropic/Gemini/OpenAI/`openai_compatible` provider
+(`app/core/agent/provider/factory.py`) before ever constructing an
+`AIService`, so no second provider-resolution path was needed — the same
+"resolve overlap before building" reasoning this module's plan applied to
+the Phase 6/Phase 9 MCP-surface overlap.
+
+Delivered: `Capability.ANSWER_EVIDENCE_QUESTION` (`AutonomyMode.ASSIST`,
+matching `EXPLAIN_FINDING`'s own tier — it explains, it does not
+recommend); three new versioned `PromptTemplate`s
+(`assistant.correlate_findings`, `assistant.prioritise_findings`,
+`assistant.answer_evidence_question`), all carrying the same
+`SYSTEM_PREAMBLE` and observed/inferred/recommended/unknown labelling
+discipline as every earlier template; `AIService.correlate_findings()`,
+`.prioritise_findings()` (each over a capped, evidence-fenced list of
+`FindingView`s via a new `_render_findings_list()` helper — the same
+`MAX_FINDINGS`-style cap `summarise_run`'s own title list already uses,
+because a co-pilot reasoning over too many findings at once produces noise
+rather than a correlation), and `.answer_evidence_question()` (a finding
+plus a free-text question, both evidence-fenced independently — the
+question is fenced too, not just the evidence, since it is equally
+untrusted free text reaching the prompt); and three new READ_ONLY
+native-agent tools (`app/core/agent/tools/analysis.py`'s
+`answer_evidence_question`, and a new `app/core/agent/tools/correlation.py`
+holding `correlate_findings`/`prioritise_findings`), each reusing the
+existing `Tool`/`AgentContext` shape `analyze_finding` already established
+— load `Finding` rows scoped to `ctx.organization_id`, project to
+`FindingView`, call the `AIService` method, return its draft. The two
+multi-finding tools load up to 25 findings by ID and raise
+`ToolNotFoundError` naming every ID not found in the caller's own
+organization, rather than silently dropping them.
+
+Decisions worth stating:
+
+- **All three new tools are `READ_ONLY`, not `STANDARD`.** Each drafts text
+  a human is expected to weigh, exactly like `analyze_finding`; none writes
+  a finding's stored severity, status, or relationships — the same
+  reasoning that keeps `analyze_finding` at `READ_ONLY` applies unchanged.
+- **The tool hardcodes its own minimum autonomy mode when constructing
+  `AIService`**, the same pattern `analyze_finding` already established:
+  the tool's own `risk_level`/`minimum_role` is the real authorization
+  gate for the call, not a second autonomy configuration that would need
+  to be kept in sync with it.
+- **No new provider-resolution code.** `ctx.provider` already arrives
+  pre-resolved by the Agent framework's own multi-provider factory; every
+  new tool simply reuses it, the same way `analyze_finding` already did.
+
+Verified: `ruff check`/`mypy app` clean; targeted run of
+`tests/security/test_assistant_boundary.py`, `tests/test_agent_tools.py`,
+and `tests/security/test_agent_boundary.py` (69 passed) covering the
+updated closed-capability-set pin test, the updated closed-tool-registry
+pin test, evidence-fencing of both a hostile finding inside a correlated
+set and a hostile question, and tenant-isolation for all three new tools
+(including the multi-finding tools' cross-organization `ToolNotFoundError`
+behaviour).
+
+### Deferrals
+
+- **No new prompt-injection surface introduced, but also none newly
+  defended against beyond what `quote_evidence()` already provides** — a
+  free-text question is user-supplied, not scanner-derived, so it is a
+  different threat model than scan evidence; fencing it the same way is a
+  reasonable default, not a claim that every injection vector through a
+  question has been separately analysed.
+
 ## Agent framework, Phases 1–6 — native AI agent with zero persistence
 
 A structured, permission-gated tool-calling layer on top of the existing AI

@@ -25,9 +25,10 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.agent.context import AgentContext
-from app.core.agent.tools.analysis import ANALYZE_FINDING
+from app.core.agent.tools.analysis import ANALYZE_FINDING, ANSWER_EVIDENCE_QUESTION
 from app.core.agent.tools.assets import GET_ASSET, SEARCH_ASSETS
 from app.core.agent.tools.contract import ToolExecutionError, ToolNotFoundError
+from app.core.agent.tools.correlation import CORRELATE_FINDINGS, PRIORITISE_FINDINGS
 from app.core.agent.tools.findings import GET_FINDING, SEARCH_FINDINGS
 from app.core.agent.tools.registry import agent_tools, tools_by_name
 from app.core.agent.tools.reports import CREATE_REPORT
@@ -241,6 +242,9 @@ def test_the_registry_lists_every_tool_exactly_once() -> None:
         "search_findings",
         "get_finding",
         "analyze_finding",
+        "answer_evidence_question",
+        "correlate_findings",
+        "prioritise_findings",
         "get_scan_status",
         "get_scan_results",
         "get_workflow_status",
@@ -819,4 +823,172 @@ async def test_analyze_finding_raises_not_found_across_organizations(
         await ANALYZE_FINDING.invoke(
             _context(db_session, other_org_id, provider=FakeProvider()),
             {"finding_id": str(finding.id)},
+        )
+
+
+async def test_answer_evidence_question_returns_the_providers_answer(
+    client: AsyncClient, strong_password: str, db_session: AsyncSession
+) -> None:
+    org_id, target_id, _headers = await _org_and_target(client, strong_password, "aj")
+    run = AssessmentRun(organization_id=org_id, target_id=target_id, status=RunStatus.COMPLETED)
+    db_session.add(run)
+    await db_session.flush()
+    finding = Finding(
+        organization_id=org_id,
+        fingerprint="fp-question",
+        title="A finding to ask about",
+        status=FindingStatus.NEW,
+        first_run_id=run.id,
+        last_run_id=run.id,
+        **_finding_fields(),
+    )
+    db_session.add(finding)
+    await db_session.commit()
+    provider = FakeProvider(name="fake", model="fake-model-1")
+
+    result = await ANSWER_EVIDENCE_QUESTION.invoke(
+        _context(db_session, org_id, provider=provider),
+        {"finding_id": str(finding.id), "question": "Is this reachable without authentication?"},
+    )
+
+    assert result.answer
+    assert result.provider == "fake"
+    assert result.model == "fake-model-1"
+
+
+async def test_answer_evidence_question_raises_not_found_across_organizations(
+    client: AsyncClient, strong_password: str, db_session: AsyncSession
+) -> None:
+    org_id, target_id, _headers = await _org_and_target(client, strong_password, "ak")
+    other_org_id, _other_target_id, _other_headers = await _org_and_target(
+        client, strong_password, "al"
+    )
+    run = AssessmentRun(organization_id=org_id, target_id=target_id, status=RunStatus.COMPLETED)
+    db_session.add(run)
+    await db_session.flush()
+    finding = Finding(
+        organization_id=org_id,
+        fingerprint="fp-question-cross-org",
+        title="A finding",
+        status=FindingStatus.NEW,
+        first_run_id=run.id,
+        last_run_id=run.id,
+        **_finding_fields(),
+    )
+    db_session.add(finding)
+    await db_session.commit()
+
+    with pytest.raises(ToolNotFoundError):
+        await ANSWER_EVIDENCE_QUESTION.invoke(
+            _context(db_session, other_org_id, provider=FakeProvider()),
+            {"finding_id": str(finding.id), "question": "Anything?"},
+        )
+
+
+# --- correlation -----------------------------------------------------------
+
+
+async def _two_findings(
+    db_session: AsyncSession, org_id: uuid.UUID, target_id: uuid.UUID, prefix: str
+) -> tuple[Finding, Finding]:
+    run = AssessmentRun(organization_id=org_id, target_id=target_id, status=RunStatus.COMPLETED)
+    db_session.add(run)
+    await db_session.flush()
+    first = Finding(
+        organization_id=org_id,
+        fingerprint=f"fp-{prefix}-1",
+        title="First finding",
+        status=FindingStatus.NEW,
+        first_run_id=run.id,
+        last_run_id=run.id,
+        **_finding_fields(),
+    )
+    second = Finding(
+        organization_id=org_id,
+        fingerprint=f"fp-{prefix}-2",
+        title="Second finding",
+        status=FindingStatus.NEW,
+        first_run_id=run.id,
+        last_run_id=run.id,
+        **_finding_fields(),
+    )
+    db_session.add_all([first, second])
+    await db_session.commit()
+    return first, second
+
+
+async def test_correlate_findings_returns_the_providers_analysis(
+    client: AsyncClient, strong_password: str, db_session: AsyncSession
+) -> None:
+    org_id, target_id, _headers = await _org_and_target(client, strong_password, "am")
+    first, second = await _two_findings(db_session, org_id, target_id, "correlate")
+    provider = FakeProvider(name="fake", model="fake-model-1")
+
+    result = await CORRELATE_FINDINGS.invoke(
+        _context(db_session, org_id, provider=provider),
+        {"finding_ids": [str(first.id), str(second.id)]},
+    )
+
+    assert result.analysis
+    assert result.provider == "fake"
+
+
+async def test_correlate_findings_raises_not_found_for_a_missing_id(
+    client: AsyncClient, strong_password: str, db_session: AsyncSession
+) -> None:
+    org_id, target_id, _headers = await _org_and_target(client, strong_password, "an")
+    first, _second = await _two_findings(db_session, org_id, target_id, "correlate-missing")
+
+    with pytest.raises(ToolNotFoundError):
+        await CORRELATE_FINDINGS.invoke(
+            _context(db_session, org_id, provider=FakeProvider()),
+            {"finding_ids": [str(first.id), str(uuid.uuid4())]},
+        )
+
+
+async def test_correlate_findings_cannot_reach_another_organizations_finding(
+    client: AsyncClient, strong_password: str, db_session: AsyncSession
+) -> None:
+    org_id, target_id, _headers = await _org_and_target(client, strong_password, "ao")
+    other_org_id, other_target_id, _other_headers = await _org_and_target(
+        client, strong_password, "ap"
+    )
+    first, _second = await _two_findings(db_session, org_id, target_id, "correlate-cross-org")
+    other_first, _other_second = await _two_findings(
+        db_session, other_org_id, other_target_id, "correlate-cross-org-other"
+    )
+
+    with pytest.raises(ToolNotFoundError):
+        await CORRELATE_FINDINGS.invoke(
+            _context(db_session, org_id, provider=FakeProvider()),
+            {"finding_ids": [str(first.id), str(other_first.id)]},
+        )
+
+
+async def test_prioritise_findings_returns_the_providers_analysis(
+    client: AsyncClient, strong_password: str, db_session: AsyncSession
+) -> None:
+    org_id, target_id, _headers = await _org_and_target(client, strong_password, "aq")
+    first, second = await _two_findings(db_session, org_id, target_id, "prioritise")
+    provider = FakeProvider(name="fake", model="fake-model-1")
+
+    result = await PRIORITISE_FINDINGS.invoke(
+        _context(db_session, org_id, provider=provider),
+        {"finding_ids": [str(first.id), str(second.id)]},
+    )
+
+    assert result.analysis
+    assert result.provider == "fake"
+
+
+async def test_prioritise_findings_refuses_without_a_configured_provider(
+    client: AsyncClient, strong_password: str, db_session: AsyncSession
+) -> None:
+    org_id, target_id, _headers = await _org_and_target(client, strong_password, "ar")
+    first, second = await _two_findings(db_session, org_id, target_id, "prioritise-no-provider")
+
+    with pytest.raises(ToolExecutionError):
+        await PRIORITISE_FINDINGS.invoke(
+            _context(db_session, org_id, provider=None),
+            {"finding_ids": [str(first.id), str(second.id)]},
         )

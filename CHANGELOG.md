@@ -12,7 +12,7 @@ All notable changes to this project are recorded here. The format follows
   permission-gated tool-calling layer on top of the existing AI assistant:
   multi-provider support (Anthropic, Gemini, OpenAI, and any
   local/self-hosted endpoint via `openai_compatible`); a closed registry of
-  twelve typed tools across three risk tiers (`READ_ONLY`/`STANDARD`/
+  fifteen typed tools across three risk tiers (`READ_ONLY`/`STANDARD`/
   `SENSITIVE`), each requiring its own minimum role; an investigation
   lifecycle that pauses — never silently executes — at an unapproved
   `SENSITIVE` step, resumed only by a separate, higher-tier approval call;
@@ -27,6 +27,22 @@ All notable changes to this project are recorded here. The format follows
   static test, and a dynamic secret-redaction test. See `docs/agent.md`,
   `docs/guardrails.md` §1.4, and `docs/security-model.md` guarantees
   #29–#30.
+- Pentest module, Phase 7 (AI expansion): three new AI capabilities —
+  `Capability.ANSWER_EVIDENCE_QUESTION` (`AutonomyMode.ASSIST`) alongside
+  the already-declared `CORRELATE_FINDINGS`/`PRIORITISE_FINDINGS`
+  (`AutonomyMode.RECOMMEND`), which had sat in `app/core/assistant/autonomy.py`
+  with no implementing method until this phase. `AIService` gains
+  `correlate_findings()`, `prioritise_findings()`, and
+  `answer_evidence_question()`, each its own versioned, evidence-fenced
+  prompt template. Exposed as three new READ_ONLY native-agent tools
+  (`answer_evidence_question`, `correlate_findings`, `prioritise_findings`
+  in `app/core/agent/tools/`), reusing the existing per-organization
+  multi-provider infrastructure (`app/core/agent/provider/factory.py`) the
+  Agent framework already built — this phase adds no second provider
+  layer, since one tool call already resolves an org's configured
+  Anthropic/Gemini/OpenAI/`openai_compatible` provider before reaching
+  `AIService`. All three tools are read-only recommendations: none writes a
+  finding's stored severity, status, or relationships. See `docs/agent.md`.
 - Pentest module, Phase 6 (pentest-tool architecture): `app/core/pentest/`
   — a closed, tier-gated `nmap`-NSE-script module registry layered on an
   already-discovered, already-authorized service (this phase wires it only

@@ -94,6 +94,7 @@ def test_the_capability_set_is_closed() -> None:
         "correlate_findings",
         "prioritise_findings",
         "propose_scan",
+        "answer_evidence_question",
     }
 
 
@@ -199,6 +200,44 @@ async def test_evidence_cannot_close_its_own_fence() -> None:
     # The hostile text is still present — it is evidence, and suppressing it
     # would hide what the probe found. It is simply not a prompt.
     assert "DebugBot" in quoted
+
+
+async def test_correlating_findings_fences_every_finding_as_evidence() -> None:
+    """A findings list is still untrusted, scanner-derived text — the same
+    fencing discipline as a single finding's evidence must apply to each one
+    in the set, not just the first."""
+    service, provider = _service(AutonomyMode.RECOMMEND)
+    hostile = FindingView(**{**FINDING.__dict__, "description": HOSTILE_EVIDENCE})
+
+    draft = await service.correlate_findings([FINDING, hostile])
+
+    assert draft.capability is Capability.CORRELATE_FINDINGS
+    _, prompt = provider.calls[0]
+    assert EVIDENCE_OPEN in prompt and EVIDENCE_CLOSE in prompt
+    assert "[removed]" in prompt
+
+
+async def test_prioritising_findings_never_promises_to_change_stored_severity() -> None:
+    service, provider = _service(AutonomyMode.RECOMMEND)
+
+    draft = await service.prioritise_findings([FINDING])
+
+    assert draft.capability is Capability.PRIORITISE_FINDINGS
+    assert provider.calls
+
+
+async def test_answering_an_evidence_question_fences_the_question_too() -> None:
+    """The question is free text supplied by whoever is using the tool — the
+    same injection surface as scan evidence, so it goes through the same
+    `quote_evidence()` fence rather than being interpolated raw."""
+    service, provider = _service(AutonomyMode.ASSIST)
+
+    draft = await service.answer_evidence_question(FINDING, HOSTILE_EVIDENCE)
+
+    assert draft.capability is Capability.ANSWER_EVIDENCE_QUESTION
+    _, prompt = provider.calls[0]
+    assert prompt.count(EVIDENCE_CLOSE) == 2  # once for evidence, once for the question
+    assert "[removed]" in prompt
 
 
 async def test_a_model_that_claims_authority_changes_nothing() -> None:
