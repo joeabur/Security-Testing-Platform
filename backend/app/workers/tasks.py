@@ -29,6 +29,8 @@ from app.core.appsec.registry import appsec_engines
 from app.core.appsec.workspace import CodeScopeError
 from app.core.config import get_settings
 from app.core.dast.contract import DastTarget
+from app.core.domain.contract import DomainTarget
+from app.core.domain.service import promote_discovered_subdomains
 from app.core.evidence.store import EvidenceError, EvidenceStore
 from app.core.findings.service import promote_run_results
 from app.core.orchestrator.ai_check import AiSecurityCheck
@@ -42,6 +44,7 @@ from app.core.orchestrator.context_builder import (
     build_workspace,
 )
 from app.core.orchestrator.dast_check import DastCheck
+from app.core.orchestrator.domain_check import DomainCheck
 from app.core.orchestrator.plugin_check import PluginCheck
 from app.core.orchestrator.probe_check import ProbeCheck
 from app.core.orchestrator.runner import RunEventPayload, execute_run
@@ -49,7 +52,12 @@ from app.core.probes.api.registry import build_api_registry
 from app.core.probes.models import ScanResult, Severity
 from app.core.rasp.contract import RuntimeProtectionProfile, untested_marker
 from app.core.retest.service import record_retest
-from app.core.scope.errors import AuthorizationRequiredError, RoEValidationError
+from app.core.scope.asset_scope import resolve_domain_scope
+from app.core.scope.errors import (
+    AssetScopeValidationError,
+    AuthorizationRequiredError,
+    RoEValidationError,
+)
 from app.core.scope.kill_switch import KillSwitch
 from app.core.scope.transport import GatedTransport
 from app.db.session import dispose_engine, get_session_factory
@@ -266,6 +274,35 @@ async def execute_assessment_run(
             )
             checks.append(dast_check)
 
+        # DOMAIN runs only for `kind: domain`, and only once the RoE's
+        # asset_scope resolves — an unstated or malformed asset_scope skips the
+        # check with a recorded event, the same way a bad code_scope skips code
+        # scanning below, rather than failing the whole run.
+        domain_check: DomainCheck | None = None
+        if target.kind is TargetKind.DOMAIN:
+            try:
+                domain_scope = resolve_domain_scope(
+                    target.rules_of_engagement.asset_scope
+                    if target.rules_of_engagement is not None
+                    else None
+                )
+            except AssetScopeValidationError as exc:
+                await _record_event(
+                    db,
+                    run.id,
+                    RunEventKind.CHECK_COMPLETED,
+                    f"Domain scanning skipped: {exc}",
+                    {"reason": str(exc)},
+                )
+            else:
+                domain_check = DomainCheck(
+                    target=DomainTarget(
+                        root_domain=domain_scope.root_domain,
+                        allowed_subdomain_patterns=tuple(domain_scope.allowed_subdomain_patterns),
+                    )
+                )
+                checks.append(domain_check)
+
         # The code engines need a checkout. It is created here and removed in
         # the `finally` below whatever happens: a working copy of a client's
         # repository is precisely what must not be left on a worker, since it
@@ -355,6 +392,8 @@ async def execute_assessment_run(
             all_results.extend(code_check.scan_results)
         if dast_check is not None:
             all_results.extend(dast_check.scan_results)
+        if domain_check is not None:
+            all_results.extend(domain_check.scan_results)
         if plugin_check is not None:
             all_results.extend(plugin_check.scan_results)
 
@@ -377,6 +416,17 @@ async def execute_assessment_run(
         await promote_run_results(
             db, organization_id=run.organization_id, run_id=run.id, target=target
         )
+
+        # Same idea for the domain engine's discoveries, but into the
+        # discovered-asset inventory rather than the findings table — a
+        # subdomain is something found, not a vulnerability.
+        if domain_check is not None and domain_check.discovered:
+            await promote_discovered_subdomains(
+                db,
+                organization_id=run.organization_id,
+                parent_target_id=target.id,
+                subdomains=domain_check.discovered,
+            )
 
         run.status = RunStatus(outcome.status.value)
         run.findings_reported = sum(

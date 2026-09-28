@@ -61,6 +61,31 @@
         "detail": "No runtime-protection engine exists on this platform. This target declares no runtime protection.",
         "pillar": "RASP",
         "tested": false
+      },
+      {
+        "detail": "This target is registered as 'llm_app'; the container engine runs only against a target registered as 'container'.",
+        "pillar": "Container",
+        "tested": false
+      },
+      {
+        "detail": "This target is registered as 'llm_app'; the cloud engine runs only against a target registered as 'cloud_account'.",
+        "pillar": "Cloud",
+        "tested": false
+      },
+      {
+        "detail": "This target is registered as 'llm_app'; the VM engine runs only against a target registered as 'virtual_machine'.",
+        "pillar": "VM",
+        "tested": false
+      },
+      {
+        "detail": "This target is registered as 'llm_app'; the domain engine runs only against a target registered as 'domain'.",
+        "pillar": "Domain",
+        "tested": false
+      },
+      {
+        "detail": "No pentest tools were configured or authorized for this run's Rules of Engagement (`asset_scope.pentest`).",
+        "pillar": "Pentest",
+        "tested": false
       }
     ],
     "reported_against": {

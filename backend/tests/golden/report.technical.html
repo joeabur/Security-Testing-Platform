@@ -28,7 +28,7 @@
 - Medium: 1
 - Low: 0
 
-**Not tested:** DAST, SCA, Secrets, IaC, RASP. See Framework coverage for why each did not run.
+**Not tested:** DAST, SCA, Secrets, IaC, RASP, Container, Cloud, VM, Domain, Pentest. See Framework coverage for why each did not run.
 
 1 area(s) were **not tested** in this assessment; see Framework coverage for the list and the reasons.
 
@@ -208,6 +208,11 @@ No findings in this category. See Framework coverage for whether appsec findings
 | Secrets | not tested | No source repository is configured. |
 | IaC | not tested | No source repository is configured. |
 | RASP | not tested | No runtime-protection engine exists on this platform. This target declares no runtime protection. |
+| Container | not tested | This target is registered as &#x27;llm_app&#x27;; the container engine runs only against a target registered as &#x27;container&#x27;. |
+| Cloud | not tested | This target is registered as &#x27;llm_app&#x27;; the cloud engine runs only against a target registered as &#x27;cloud_account&#x27;. |
+| VM | not tested | This target is registered as &#x27;llm_app&#x27;; the VM engine runs only against a target registered as &#x27;virtual_machine&#x27;. |
+| Domain | not tested | This target is registered as &#x27;llm_app&#x27;; the domain engine runs only against a target registered as &#x27;domain&#x27;. |
+| Pentest | not tested | No pentest tools were configured or authorized for this run&#x27;s Rules of Engagement (`asset_scope.pentest`). |
 
 ### Not tested
 

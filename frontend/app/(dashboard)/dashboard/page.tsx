@@ -1,10 +1,12 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Building2, Plus } from "lucide-react";
+import { Building2, ExternalLink, Plus } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { PUBLIC_APP_BASE_URL } from "@/lib/config";
 import { serverApiFetch } from "@/lib/api-server";
+import { cn } from "@/lib/cn";
 import type { Organization } from "@/lib/types";
 
 export const metadata: Metadata = { title: "Dashboard — Aegis AI Security" };
@@ -45,12 +47,25 @@ export default async function DashboardPage() {
                 <CardTitle>{org.name}</CardTitle>
                 <CardDescription>Your role: {formatRole(org.role)}</CardDescription>
               </CardHeader>
-              <CardContent>
+              <CardContent className="flex flex-col gap-3">
                 <p className="text-sm text-muted-foreground">
-                  Assets, assessments, and findings for this organization arrive in a later phase of the
-                  build — see{" "}
-                  <code className="rounded bg-muted px-1 py-0.5 text-xs">docs/BUILD_SPEC.md</code>.
+                  Add targets and repositories, start runs, and trigger workflows.
                 </p>
+                <div className="flex flex-wrap gap-2">
+                  <Link
+                    href={`/organizations/${org.id}`}
+                    className={cn(buttonVariants({ size: "sm" }), "self-start")}
+                  >
+                    Manage
+                  </Link>
+                  <a
+                    href={`${PUBLIC_APP_BASE_URL}/app/organizations/${org.id}`}
+                    className={cn(buttonVariants({ variant: "outline", size: "sm" }), "self-start")}
+                  >
+                    Findings &amp; reports
+                    <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+                  </a>
+                </div>
               </CardContent>
             </Card>
           ))}

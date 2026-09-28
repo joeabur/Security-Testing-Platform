@@ -44,6 +44,7 @@ explains how it is enforced rather than merely intended.
 | `app/core/probes/` | API security probes and the `ScanResult` contract |
 | `app/core/measure/` | Trials, baselines, Wilson-interval attack success rates |
 | `app/core/appsec/` | SAST, SCA, secrets, IaC, supply-chain and container engines |
+| `app/core/domain/` | Domain/DNS engine (pentest module) — subdomain discovery via certificate-transparency logs and a DNS wordlist, TLS/header checks against RoE-authorized hosts only |
 | `app/core/risk/` | Ordinal scoring, banding, generated rationale |
 | `app/core/findings/` | `ScanResult` → `Finding`: normalization, fingerprinting, lifecycle |
 | `app/core/evidence/` | Redaction-before-write, content addressing, hash chain |

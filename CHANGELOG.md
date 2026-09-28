@@ -8,6 +8,27 @@ All notable changes to this project are recorded here. The format follows
 
 ### Added
 
+- Pentest module, Phase 1 (foundation) and Phase 2 (domain/DNS engine): a
+  generalized `asset_scope` column on Rules of Engagement plus four new
+  target kinds (`container`, `cloud_account`, `virtual_machine`, `domain`);
+  a `discovered_assets` inventory for scan-found-but-not-authorized assets,
+  promoted to a real target only by explicit human action; a
+  `run_tool_invocations` record of exactly which tool ran per assessment;
+  five new reporting pillars (Container, Cloud, VM, Domain, Pentest); and
+  the first working engine — `app/core/domain/` — doing subdomain discovery
+  (certificate-transparency logs + a DNS wordlist), TLS certificate checks,
+  and missing-security-header checks, wired into the run pipeline and
+  configurable via `PUT /organizations/{id}/targets/{id}/domain-scope`. See
+  `docs/roadmap.md`.
+- Target, repository, run, and workflow management in the Next.js frontend
+  (`frontend/app/(dashboard)/organizations/[id]/...`) — previously the only
+  way to add a target, connect a repository, set Rules of Engagement, grant
+  authorization, start a run, or trigger a workflow was the API or the CLI;
+  the server-rendered dashboard at `/app` renders these as disabled buttons
+  by design (`app/web/router.py`'s `_actions()`). The Next.js pages call the
+  same existing REST endpoints, with a run's page live-polling its status and
+  events until it reaches a terminal state.
+
 - Postgres Row-Level Security as a second, independent tenant-isolation
   boundary behind the application's own `organization_id` filters, on the 14
   tenant-scoped tables (`app/db/tenant_context.py`, migration `b2e6f4a91c7d`).

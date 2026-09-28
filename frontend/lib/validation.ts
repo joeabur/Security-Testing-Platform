@@ -20,3 +20,87 @@ export const createOrganizationSchema = z.object({
   name: z.string().min(1, "Organization name is required").max(200),
 });
 export type CreateOrganizationInput = z.infer<typeof createOrganizationSchema>;
+
+export const createTargetSchema = z.object({
+  name: z.string().min(1, "Name is required").max(200),
+  environment: z.enum(["staging", "test", "dev", "production"]),
+  kind: z.enum([
+    "llm_app",
+    "agent",
+    "rag",
+    "api",
+    "mcp_server",
+    "model_endpoint",
+    "web_app",
+  ]),
+  base_url: z
+    .string()
+    .min(1, "Base URL is required")
+    .max(2048)
+    .url("Enter a valid URL, e.g. https://staging.example.test"),
+});
+export type CreateTargetInput = z.infer<typeof createTargetSchema>;
+
+export const createRepositorySchema = z.object({
+  name: z.string().min(1, "Name is required").max(200),
+  url: z.string().min(1, "Repository URL is required").max(2048),
+  branch: z.string().max(200).optional(),
+  authorized: z.literal(true, {
+    errorMap: () => ({ message: "You must affirm you have the right to have this repository scanned" }),
+  }),
+});
+export type CreateRepositoryInput = z.infer<typeof createRepositorySchema>;
+
+// Comma-separated lists, e.g. "example.test, api.example.test" — the RoE
+// form's essential fields; budgets use fixed sane defaults (see
+// components/targets/rules-of-engagement-form.tsx) rather than a dozen more
+// numeric inputs nobody will tune on their first run. Kept as plain strings
+// here (not split into arrays) so the field's input and output types match —
+// splitting happens in the form's submit handler instead.
+export const rulesOfEngagementSchema = z.object({
+  allowed_domains: z.string().optional(),
+  allowed_ip_ranges: z.string().optional(),
+  allowed_paths: z.string().optional(),
+  allowed_methods: z.string().optional(),
+  safe_mode: z.boolean(),
+});
+export type RulesOfEngagementInput = z.infer<typeof rulesOfEngagementSchema>;
+
+export function splitCsv(value: string | undefined): string[] {
+  return (value ?? "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+export const authorizationGrantSchema = z
+  .object({
+    authorized_by_name: z.string().min(1, "Required").max(200),
+    authorized_by_role: z.string().min(1, "Required").max(100),
+    authorized_by_email: z.string().min(1, "Required").email("Enter a valid email address"),
+    reference: z.string().min(1, "Required").max(500),
+    valid_from: z.string().min(1, "Required"),
+    valid_until: z.string().min(1, "Required"),
+  })
+  .refine((value) => new Date(value.valid_until) > new Date(value.valid_from), {
+    message: "Valid until must be after valid from",
+    path: ["valid_until"],
+  });
+export type AuthorizationGrantInput = z.infer<typeof authorizationGrantSchema>;
+
+export const startRunSchema = z.object({
+  profile: z.enum(["connectivity", "quick", "full"]),
+  safe_mode: z.boolean(),
+  authorization_confirmed: z.literal(true, {
+    errorMap: () => ({ message: "You must confirm you are authorized to run this assessment" }),
+  }),
+});
+export type StartRunInput = z.infer<typeof startRunSchema>;
+
+export const createWorkflowSchema = z.object({
+  name: z.string().min(1, "Name is required").max(120),
+  target_id: z.string().min(1, "Choose a target"),
+  trigger_kind: z.enum(["repository_change", "pull_request", "schedule", "manual"]),
+  enabled: z.boolean(),
+});
+export type CreateWorkflowInput = z.infer<typeof createWorkflowSchema>;

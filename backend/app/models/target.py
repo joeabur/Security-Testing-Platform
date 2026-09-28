@@ -40,6 +40,18 @@ class TargetKind(enum.StrEnum):
     # `base_url` to crawl. A `CODE_REPO` target gets no reachability probe,
     # no DAST, no AI check — only the AppSec engines, over its checkout.
     CODE_REPO = "code_repo"
+    # The security-assessment-and-pentest module (docs/roadmap.md "AI-powered
+    # security assessment"). Each repurposes `base_url` the same way
+    # `CODE_REPO` does: an image reference, a cloud account ARN/subscription/
+    # project id, a VM hostname, or a root domain, respectively — the kind's
+    # own engine (app/core/container/, app/core/cloud/, app/core/vm/,
+    # app/core/domain/) knows how to read it. What each may touch is declared
+    # in `RulesOfEngagementRecord.asset_scope`, validated by that engine's own
+    # resolver, the same fail-closed pattern `code_scope` already uses.
+    CONTAINER = "container"
+    CLOUD_ACCOUNT = "cloud_account"
+    VIRTUAL_MACHINE = "virtual_machine"
+    DOMAIN = "domain"
 
 
 class Target(UUIDPrimaryKeyMixin, TimestampMixin, Base):

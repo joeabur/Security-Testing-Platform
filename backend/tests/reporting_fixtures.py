@@ -203,6 +203,46 @@ def sample_report() -> ReportData:
                     "declares no runtime protection."
                 ),
             ),
+            PillarCoverage(
+                pillar="Container",
+                tested=False,
+                detail=(
+                    "This target is registered as 'llm_app'; the container engine runs "
+                    "only against a target registered as 'container'."
+                ),
+            ),
+            PillarCoverage(
+                pillar="Cloud",
+                tested=False,
+                detail=(
+                    "This target is registered as 'llm_app'; the cloud engine runs only "
+                    "against a target registered as 'cloud_account'."
+                ),
+            ),
+            PillarCoverage(
+                pillar="VM",
+                tested=False,
+                detail=(
+                    "This target is registered as 'llm_app'; the VM engine runs only "
+                    "against a target registered as 'virtual_machine'."
+                ),
+            ),
+            PillarCoverage(
+                pillar="Domain",
+                tested=False,
+                detail=(
+                    "This target is registered as 'llm_app'; the domain engine runs only "
+                    "against a target registered as 'domain'."
+                ),
+            ),
+            PillarCoverage(
+                pillar="Pentest",
+                tested=False,
+                detail=(
+                    "No pentest tools were configured or authorized for this run's "
+                    "Rules of Engagement (`asset_scope.pentest`)."
+                ),
+            ),
         ],
         checks_completed=4,
         checks_total=5,

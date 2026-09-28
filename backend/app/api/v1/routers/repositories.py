@@ -12,7 +12,6 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
-from app.api.v1.routers.runs import queue_run
 from app.audit.service import record_event
 from app.auth.dependencies import CurrentUser, DbSession, require_membership
 from app.core.repositories.service import (
@@ -27,6 +26,7 @@ from app.core.repositories.service import (
     open_findings_by_severity,
     recent_scans,
 )
+from app.core.runs.service import queue_run
 from app.models.assessment_run import AssessmentRun, RunKind
 from app.models.organization import Membership, Role
 from app.models.target import Target
@@ -181,8 +181,8 @@ async def scan_repository(
         db,
         organization_id=organization_id,
         target=target,
-        membership=membership,
-        request=request,
+        user_id=membership.user_id,
+        ip_address=request.client.host if request.client else None,
         profile="code_scan",
         safe_mode=payload.safe_mode,
         confirmed_at=datetime.now(UTC),

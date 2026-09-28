@@ -119,6 +119,11 @@ _PILLAR_PREFIXES: dict[str, tuple[str, ...]] = {
     "Secrets": ("appsec.secrets.",),
     "IaC": ("appsec.iac.",),
     "RASP": ("rasp.",),
+    "Container": ("container.",),
+    "Cloud": ("cloud.",),
+    "VM": ("vm.",),
+    "Domain": ("domain.",),
+    "Pentest": ("pentest.",),
 }
 
 
@@ -183,6 +188,26 @@ def _pillar_coverage(results: list[ScanResultRecord], target: Target) -> list[Pi
                 if declares_runtime_protection
                 else "This target declares no runtime protection."
             )
+        ),
+        "Container": (
+            f"This target is registered as {kind!r}; the container engine runs only "
+            "against a target registered as 'container'."
+        ),
+        "Cloud": (
+            f"This target is registered as {kind!r}; the cloud engine runs only "
+            "against a target registered as 'cloud_account'."
+        ),
+        "VM": (
+            f"This target is registered as {kind!r}; the VM engine runs only "
+            "against a target registered as 'virtual_machine'."
+        ),
+        "Domain": (
+            f"This target is registered as {kind!r}; the domain engine runs only "
+            "against a target registered as 'domain'."
+        ),
+        "Pentest": (
+            "No pentest tools were configured or authorized for this run's "
+            "Rules of Engagement (`asset_scope.pentest`)."
         ),
     }
     if has_repo:

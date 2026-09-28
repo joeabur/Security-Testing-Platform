@@ -5,7 +5,6 @@ import json
 import uuid
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
-from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
@@ -16,6 +15,7 @@ from app.audit.service import record_event
 from app.auth.dependencies import DbSession, require_membership
 from app.core.orchestrator.context_builder import build_run_context
 from app.core.probes.models import Severity
+from app.core.runs.service import queue_run
 from app.core.scope.errors import AuthorizationRequiredError, RoEValidationError
 from app.db.session import get_session_factory
 from app.models.assessment_run import (
@@ -23,15 +23,12 @@ from app.models.assessment_run import (
     AssessmentRun,
     RunEvent,
     RunEventKind,
-    RunKind,
     RunStatus,
 )
 from app.models.organization import Membership, Role
 from app.models.scan_result import ScanResultRecord
-from app.models.target import Target
 from app.schemas.run import RunCreate, RunEventRead, RunRead, ScanResultRead
 from app.workers.cancellation import request_cancellation
-from app.workers.celery_app import celery_app
 
 router = APIRouter(prefix="/organizations/{organization_id}/runs", tags=["runs"])
 
@@ -95,94 +92,13 @@ async def create_run(
         db,
         organization_id=organization_id,
         target=target,
-        membership=membership,
-        request=request,
+        user_id=membership.user_id,
+        ip_address=request.client.host if request.client else None,
         profile=payload.profile,
         safe_mode=payload.safe_mode,
         confirmed_at=now,
     )
     return RunRead.model_validate(run)
-
-
-async def queue_run(
-    db: DbSession,
-    *,
-    organization_id: uuid.UUID,
-    target: Target,
-    membership: Membership,
-    request: Request,
-    profile: str,
-    safe_mode: bool,
-    confirmed_at: datetime,
-    kind: RunKind = RunKind.ASSESSMENT,
-    retest_of_run_id: uuid.UUID | None = None,
-    retest_baseline: list[dict[str, Any]] | None = None,
-) -> AssessmentRun:
-    """Persist a queued run, audit it, and hand it to the worker.
-
-    Shared by assessments and retests on purpose. A retest is a scan, so it
-    goes through the same authorization record, the same audit event and the
-    same queue rather than a parallel path that would have to re-earn each of
-    those properties — and could quietly diverge from them later.
-    """
-    run = AssessmentRun(
-        organization_id=organization_id,
-        target_id=target.id,
-        status=RunStatus.QUEUED,
-        kind=kind,
-        retest_of_run_id=retest_of_run_id,
-        retest_baseline=retest_baseline or [],
-        profile=profile,
-        safe_mode=safe_mode,
-        created_by_user_id=membership.user_id,
-        authorization_confirmed_by_user_id=membership.user_id,
-        authorization_confirmed_at=confirmed_at,
-        queued_at=confirmed_at,
-    )
-    db.add(run)
-    await db.flush()
-
-    db.add(
-        RunEvent(
-            run_id=run.id,
-            kind=RunEventKind.QUEUED,
-            message=f"{kind.value.capitalize()} queued for target {target.name}",
-            payload={
-                "profile": profile,
-                "safe_mode": safe_mode,
-                "kind": kind.value,
-                "findings_checked": len(retest_baseline or []),
-            },
-        )
-    )
-    await record_event(
-        db,
-        action=f"{kind.value}.create",
-        resource_type="assessment_run",
-        resource_id=str(run.id),
-        result="allow",
-        organization_id=organization_id,
-        user_id=membership.user_id,
-        ip_address=request.client.host if request.client else None,
-        metadata={
-            "target_id": str(target.id),
-            "profile": profile,
-            "kind": kind.value,
-            "findings_checked": len(retest_baseline or []),
-        },
-    )
-    await db.commit()
-
-    try:
-        async_result = celery_app.send_task("aegis.run_assessment", args=[str(run.id)])
-        run.celery_task_id = async_result.id
-        await db.commit()
-    except Exception as exc:  # noqa: BLE001 - broker down is an operator problem, reported as such
-        run.status = RunStatus.FAILED
-        run.error_message = f"could not queue run: {exc}"
-        run.finished_at = datetime.now(UTC)
-        await db.commit()
-    return run
 
 
 @router.get("", response_model=list[RunRead])

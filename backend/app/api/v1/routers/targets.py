@@ -10,16 +10,21 @@ from app.audit.service import record_event
 from app.auth.dependencies import DbSession, require_membership
 from app.core.orchestrator.context_builder import build_run_context
 from app.core.rasp.contract import ClaimedControl, RuntimeProtectionProfile
+from app.core.scope.asset_scope import resolve_domain_scope
 from app.core.scope.dns import DnsResolver, SystemDnsResolver
 from app.core.scope.engine import ScopeEngine
-from app.core.scope.errors import AuthorizationRequiredError, RoEValidationError
+from app.core.scope.errors import (
+    AssetScopeValidationError,
+    AuthorizationRequiredError,
+    RoEValidationError,
+)
 from app.core.scope.resolve import resolve_rules_of_engagement
 from app.core.targets.chat_http import ChatHttpConfig
 from app.core.targets.openai_compatible import OpenAiCompatibleConfig
 from app.models.authorization import Authorization
 from app.models.organization import Membership, Role
 from app.models.rules_of_engagement import RulesOfEngagementRecord
-from app.models.target import Target
+from app.models.target import Target, TargetKind
 from app.schemas.authorization import AuthorizationGrant, AuthorizationRead
 from app.schemas.scope import (
     RulesOfEngagementRead,
@@ -27,11 +32,13 @@ from app.schemas.scope import (
     ScopeExplainResponse,
 )
 from app.schemas.target import (
+    DomainScopeIn,
     TargetAdapterUpdate,
     TargetCodeUpdate,
     TargetCreate,
     TargetRead,
     TargetRuntimeProtectionUpdate,
+    target_read,
 )
 
 router = APIRouter(prefix="/organizations/{organization_id}/targets", tags=["targets"])
@@ -45,29 +52,6 @@ def get_dns_resolver() -> DnsResolver:
     lookups for synthetic test hostnames like `ai.example.test` would
     otherwise fail or hit the network."""
     return SystemDnsResolver()
-
-
-def _target_read(target: Target) -> TargetRead:
-    return TargetRead(
-        id=target.id,
-        organization_id=target.organization_id,
-        name=target.name,
-        environment=target.environment,
-        kind=target.kind,
-        base_url=target.base_url,
-        adapter_kind=target.adapter_kind,
-        code_repo_ref=target.code_repo_ref,
-        code_languages=[str(item) for item in (target.code_languages or [])],
-        code_build_manifest_paths=[str(item) for item in (target.code_build_manifest_paths or [])],
-        adapter_config=dict(target.adapter_config or {}),
-        declared_tools=list(target.declared_tools or []),
-        runtime_protection=[
-            dict(item) for item in (target.runtime_protection or []) if isinstance(item, dict)
-        ],
-        has_authorization=target.authorization is not None,
-        has_rules_of_engagement=target.rules_of_engagement is not None,
-        created_at=target.created_at,
-    )
 
 
 async def load_target(organization_id: uuid.UUID, target_id: uuid.UUID, db: DbSession) -> Target:
@@ -125,7 +109,7 @@ async def create_target(
     )
     await db.commit()
 
-    return _target_read(target)
+    return target_read(target)
 
 
 @router.get("", response_model=list[TargetRead])
@@ -140,7 +124,7 @@ async def list_targets(
         .options(selectinload(Target.authorization), selectinload(Target.rules_of_engagement))
         .order_by(Target.created_at)
     )
-    return [_target_read(t) for t in result.scalars().all()]
+    return [target_read(t) for t in result.scalars().all()]
 
 
 @router.get("/{target_id}", response_model=TargetRead)
@@ -151,7 +135,7 @@ async def get_target(
     membership: Membership = Depends(require_membership(Role.VIEWER)),  # noqa: B008
 ) -> TargetRead:
     target = await load_target(organization_id, target_id, db)
-    return _target_read(target)
+    return target_read(target)
 
 
 @router.put("/{target_id}/rules-of-engagement", response_model=RulesOfEngagementRead)
@@ -391,7 +375,7 @@ async def configure_adapter(
     )
     await db.commit()
 
-    return _target_read(target)
+    return target_read(target)
 
 
 @router.put("/{target_id}/code", response_model=TargetRead)
@@ -449,7 +433,72 @@ async def configure_code_scope(
     )
     await db.commit()
 
-    return _target_read(target)
+    return target_read(target)
+
+
+@router.put("/{target_id}/domain-scope", response_model=TargetRead)
+async def configure_domain_scope(
+    organization_id: uuid.UUID,
+    target_id: uuid.UUID,
+    payload: DomainScopeIn,
+    request: Request,
+    db: DbSession,
+    membership: Membership = Depends(require_membership(Role.ADMIN)),  # noqa: B008
+) -> TargetRead:
+    """Declare what a `DOMAIN` target's engine may enumerate and test.
+
+    Admin-only, the same reasoning `configure_code_scope` documents: pointing
+    an assessment at a domain asserts entitlement to test it. Rules of
+    Engagement must already exist, because `asset_scope` lives on them — the
+    boundary is part of the engagement, not a property of the target.
+    """
+    target = await load_target(organization_id, target_id, db)
+    if target.kind is not TargetKind.DOMAIN:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail=f"This target is registered as {target.kind.value!r}, not 'domain'.",
+        )
+    if target.rules_of_engagement is None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail=(
+                "Configure Rules of Engagement before declaring a domain scope: the "
+                "scope is part of the engagement."
+            ),
+        )
+
+    scope = {
+        "root_domain": payload.root_domain,
+        "allowed_subdomain_patterns": list(payload.allowed_subdomain_patterns),
+    }
+    # Validated through the same resolver the run pipeline uses, so a
+    # malformed document is rejected here rather than silently stored and
+    # only discovered when a run tries to use it.
+    try:
+        resolve_domain_scope(scope)
+    except AssetScopeValidationError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+
+    target.rules_of_engagement.asset_scope = scope
+    await db.flush()
+
+    await record_event(
+        db,
+        action="target.domain_scope.configure",
+        resource_type="target",
+        resource_id=str(target.id),
+        result="allow",
+        organization_id=organization_id,
+        user_id=membership.user_id,
+        ip_address=request.client.host if request.client else None,
+        metadata={
+            "root_domain": payload.root_domain,
+            "allowed_subdomain_patterns": len(payload.allowed_subdomain_patterns),
+        },
+    )
+    await db.commit()
+
+    return target_read(target)
 
 
 @router.put("/{target_id}/runtime-protection", response_model=TargetRead)
@@ -517,4 +566,4 @@ async def declare_runtime_protection(
     )
     await db.commit()
     await db.refresh(target)
-    return _target_read(target)
+    return target_read(target)

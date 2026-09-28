@@ -11,6 +11,7 @@
 | An OpenAPI document | for API probes | the attack surface. Without it the API engine has almost nothing to test |
 | Synthetic accounts | for authorization probes | BOLA and function-level authz need two identities |
 | A code scope | for AppSec engines | refuses to run if absent or ambiguous |
+| An asset scope (`root_domain`) | for a `domain` target's engine | refuses to run if absent or malformed; `allowed_subdomain_patterns` bounds which discovered hosts get probed, defaulting to the root domain only |
 
 Skipping an optional input does not fail the run. It narrows coverage, and the
 report's coverage section names what was not tested — silence would read as

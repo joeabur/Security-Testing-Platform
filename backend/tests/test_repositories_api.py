@@ -41,9 +41,9 @@ def _stub_broker(monkeypatch: pytest.MonkeyPatch) -> list[str]:
         queued.append(args[0] if args else name)
         return _AsyncResult()
 
-    from app.api.v1.routers import runs as runs_router
+    from app.core.runs import service as runs_service
 
-    monkeypatch.setattr(runs_router.celery_app, "send_task", _send_task)
+    monkeypatch.setattr(runs_service.celery_app, "send_task", _send_task)
     return queued
 
 
