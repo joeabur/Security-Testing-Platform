@@ -94,15 +94,15 @@ jobs:
       - name: Lint, types, tests
         working-directory: backend
         run: |
-          ruff check app aegis_cli tests scripts
-          ruff format --check app aegis_cli tests scripts
-          mypy app aegis_cli
+          ruff check app aegis_cli mcp_server tests scripts
+          ruff format --check app aegis_cli mcp_server tests scripts
+          mypy app aegis_cli mcp_server
           pytest -q
 
       - name: Security scanners
         working-directory: backend
         run: |
-          bandit -r app aegis_cli -ll
+          bandit -r app aegis_cli mcp_server -ll
           semgrep --config app/core/appsec/sast/rules --error --metrics=off app aegis_cli
 
   build:

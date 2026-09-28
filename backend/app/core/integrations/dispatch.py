@@ -328,6 +328,46 @@ def event_for_run(
     )
 
 
+def event_for_investigation(
+    *,
+    organization_id: uuid.UUID,
+    investigation_id: uuid.UUID,
+    status: str,
+    tool_count: int,
+    failed_tool_name: str | None = None,
+    occurred_at: datetime | None = None,
+) -> IntegrationEvent:
+    """`agent_investigation.completed` / `.failed`, fired once per
+    investigation that reaches a terminal state (never while it is still
+    awaiting approval — that is not "done" yet).
+
+    `facts` carries only a step count and, on failure, the tool's own fixed
+    name — never the natural-language request, a tool's arguments, or any
+    tool's result, per the agent framework's zero-persistence rule. A
+    channel that renders this sees "an investigation ran three tools and
+    completed," not what it asked or what it found.
+    """
+    when = occurred_at or datetime.now(UTC)
+    completed = status.lower() == "completed"
+    facts: dict[str, str | int | float] = {"steps": tool_count}
+    if failed_tool_name:
+        facts["failed_tool"] = failed_tool_name
+    return IntegrationEvent(
+        event_type=(
+            EventType.AGENT_INVESTIGATION_COMPLETED
+            if completed
+            else EventType.AGENT_INVESTIGATION_FAILED
+        ),
+        organization_id=organization_id,
+        occurred_at_iso=when.isoformat(),
+        title=f"AI agent investigation {status}",
+        resource_type="agent_investigation",
+        resource_id=str(investigation_id),
+        facts=facts,
+        link_path=f"agent/investigate/{investigation_id}/status",
+    )
+
+
 def event_for_finding(
     *,
     organization_id: uuid.UUID,

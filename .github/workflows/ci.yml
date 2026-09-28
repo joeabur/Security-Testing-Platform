@@ -87,7 +87,7 @@ jobs:
         # floors (core/ and core/scope/) are checked by the step below, because
         # an overall number can stay healthy while the part that matters most
         # rots.
-        run: python -m pytest -q --cov=app --cov=aegis_cli --cov-report=term-missing
+        run: python -m pytest -q --cov=app --cov=aegis_cli --cov=mcp_server --cov-report=term-missing
              --cov-report=json:coverage.json --cov-fail-under=80
 
       - name: Per-package coverage floors

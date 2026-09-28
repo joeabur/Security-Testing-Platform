@@ -63,6 +63,12 @@ class EventType(StrEnum):
     FINDING_CRITICAL = "finding.critical"
     RETEST_COMPLETED = "retest.completed"
     GATE_FAILED = "gate.failed"
+    # The native AI agent (Agent Phase 6). Fired once an investigation
+    # reaches a terminal state — never while awaiting approval, and never
+    # carrying the request text or any tool's output; see
+    # `event_for_investigation`.
+    AGENT_INVESTIGATION_COMPLETED = "agent_investigation.completed"
+    AGENT_INVESTIGATION_FAILED = "agent_investigation.failed"
 
 
 #: Severity order, lowest first, for `min_severity` comparisons. Kept local

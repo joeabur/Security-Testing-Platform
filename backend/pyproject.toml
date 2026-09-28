@@ -71,13 +71,14 @@ appsec = [
 
 [project.scripts]
 aegis-ai = "aegis_cli.main:main"
+aegis-mcp = "mcp_server.main:main"
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["app*", "aegis_cli*"]
+include = ["app*", "aegis_cli*", "mcp_server*"]
 
 [tool.ruff]
 line-length = 100

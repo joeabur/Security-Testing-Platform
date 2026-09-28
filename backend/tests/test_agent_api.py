@@ -1,6 +1,8 @@
-"""The native agent's HTTP surface (`app/api/v1/routers/agent.py`,
-Agent Phase 5): tool discovery, a synchronous READ_ONLY investigation, a
-SENSITIVE investigation that pauses for approval and resumes, and cancel.
+"""The native agent's HTTP surface (`app/api/v1/routers/agent.py`, Agent
+Phases 5-6): tool discovery, a synchronous READ_ONLY investigation, a
+SENSITIVE investigation that pauses for approval and resumes, cancel, the
+direct single-tool call surface `backend/mcp_server/` uses, and the
+notification fan-out a terminal investigation triggers.
 
 `build_provider` is monkeypatched to a `FakeProvider` (Implementation
 Specification §20) so these tests never call a live AI provider; the
@@ -16,6 +18,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.agent.planner import PLAN_PROMPT
@@ -24,6 +27,7 @@ from app.core.config import get_settings
 from app.core.csrf import anon as csrf_anon
 from app.core.csrf.enforce import HEADER_NAME
 from app.models.agent import Agent, AgentProvider, AgentProviderKind
+from app.models.integration import NotificationChannel, NotificationDelivery
 
 
 @pytest.fixture
@@ -378,3 +382,192 @@ async def test_status_does_not_leak_another_organizations_paused_investigation(
         headers=other_headers,
     )
     assert cross_org.status_code == 404
+
+
+# --- direct tool calls (backend/mcp_server/'s surface) ----------------------
+
+
+async def test_list_tools_includes_each_tools_input_schema(
+    client: AsyncClient, strong_password: str
+) -> None:
+    org_id, _target_id, headers = await _org_and_target(client, strong_password, "i")
+
+    response = await client.get(f"/api/v1/organizations/{org_id}/agent/tools", headers=headers)
+
+    entries = {entry["name"]: entry for entry in response.json()}
+    assert entries["get_asset"]["input_schema"]["properties"]["target_id"]
+
+
+async def test_call_tool_invokes_a_read_only_tool_directly(
+    client: AsyncClient, strong_password: str
+) -> None:
+    org_id, target_id, headers = await _org_and_target(client, strong_password, "j")
+
+    response = await client.post(
+        f"/api/v1/organizations/{org_id}/agent/tools/get_asset/call",
+        json={"params": {"target_id": str(target_id)}},
+        headers=headers,
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["status"] == "ok"
+    assert body["result"]["target"]["id"] == str(target_id)
+
+
+async def test_call_tool_refuses_a_sensitive_tool_directly(
+    client: AsyncClient, strong_password: str
+) -> None:
+    org_id, target_id, headers = await _org_and_target(
+        client, strong_password, "k", authorized=True
+    )
+
+    response = await client.post(
+        f"/api/v1/organizations/{org_id}/agent/tools/start_scan/call",
+        json={"params": {"target_id": str(target_id), "authorization_confirmed": True}},
+        headers=headers,
+    )
+
+    assert response.status_code == 409
+
+
+async def test_call_tool_404_for_an_unknown_tool_name(
+    client: AsyncClient, strong_password: str
+) -> None:
+    org_id, _target_id, headers = await _org_and_target(client, strong_password, "l")
+
+    response = await client.post(
+        f"/api/v1/organizations/{org_id}/agent/tools/does_not_exist/call",
+        json={"params": {}},
+        headers=headers,
+    )
+
+    assert response.status_code == 404
+
+
+async def test_call_tool_404_when_the_tool_itself_cannot_find_its_target(
+    client: AsyncClient, strong_password: str
+) -> None:
+    org_id, _target_id, headers = await _org_and_target(client, strong_password, "m")
+
+    response = await client.post(
+        f"/api/v1/organizations/{org_id}/agent/tools/get_asset/call",
+        json={"params": {"target_id": str(uuid.uuid4())}},
+        headers=headers,
+    )
+
+    assert response.status_code == 404
+
+
+async def test_call_tool_422_for_invalid_params(client: AsyncClient, strong_password: str) -> None:
+    org_id, _target_id, headers = await _org_and_target(client, strong_password, "n")
+
+    response = await client.post(
+        f"/api/v1/organizations/{org_id}/agent/tools/get_asset/call",
+        json={"params": {}},
+        headers=headers,
+    )
+
+    assert response.status_code == 422
+
+
+# --- notification fan-out ---------------------------------------------------
+
+
+async def test_a_completed_investigation_notifies_a_subscribed_channel(
+    client: AsyncClient,
+    strong_password: str,
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+    _stub_broker: list[str],
+) -> None:
+    org_id, target_id, headers = await _org_and_target(client, strong_password, "o")
+    await _enable_agent(db_session, org_id)
+    db_session.add(
+        NotificationChannel(
+            organization_id=org_id,
+            name="ops-webhook",
+            kind="generic_webhook",
+            events=["agent_investigation.completed"],
+            enabled=True,
+        )
+    )
+    await db_session.commit()
+    _fake_provider(
+        monkeypatch,
+        _plan_responder([{"tool_name": "get_asset", "params": {"target_id": str(target_id)}}]),
+    )
+
+    response = await client.post(
+        f"/api/v1/organizations/{org_id}/agent/investigate",
+        json={"request": "look up the target"},
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+
+    deliveries = (
+        (
+            await db_session.execute(
+                select(NotificationDelivery).where(NotificationDelivery.organization_id == org_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(deliveries) == 1
+    assert deliveries[0].event_type == "agent_investigation.completed"
+    assert "aegis.deliver_notifications" in _stub_broker
+
+
+async def test_a_paused_investigation_does_not_notify_yet(
+    client: AsyncClient,
+    strong_password: str,
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    org_id, target_id, headers = await _org_and_target(
+        client, strong_password, "p", authorized=True
+    )
+    await _enable_agent(db_session, org_id)
+    db_session.add(
+        NotificationChannel(
+            organization_id=org_id,
+            name="ops-webhook",
+            kind="generic_webhook",
+            events=["agent_investigation.completed", "agent_investigation.failed"],
+            enabled=True,
+        )
+    )
+    await db_session.commit()
+    _fake_provider(
+        monkeypatch,
+        _plan_responder(
+            [
+                {
+                    "tool_name": "start_scan",
+                    "params": {
+                        "target_id": str(target_id),
+                        "authorization_confirmed": True,
+                    },
+                }
+            ]
+        ),
+    )
+
+    response = await client.post(
+        f"/api/v1/organizations/{org_id}/agent/investigate",
+        json={"request": "scan the target"},
+        headers=headers,
+    )
+    assert response.status_code == 202, response.text
+
+    deliveries = (
+        (
+            await db_session.execute(
+                select(NotificationDelivery).where(NotificationDelivery.organization_id == org_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert deliveries == []

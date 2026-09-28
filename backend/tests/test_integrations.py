@@ -30,6 +30,7 @@ from app.core.integrations.dispatch import (
     backoff_for,
     deliver_once,
     event_for_finding,
+    event_for_investigation,
     event_for_run,
     event_from_snapshot,
     event_snapshot,
@@ -489,6 +490,37 @@ def test_a_critical_finding_is_its_own_event_type() -> None:
     )
     assert critical.event_type is EventType.FINDING_CRITICAL
     assert high.event_type is EventType.FINDING_CREATED
+
+
+def test_a_completed_investigation_is_its_own_event_type() -> None:
+    event = event_for_investigation(
+        organization_id=ORG,
+        investigation_id=uuid.uuid4(),
+        status="completed",
+        tool_count=3,
+    )
+    assert event.event_type is EventType.AGENT_INVESTIGATION_COMPLETED
+    assert event.facts == {"steps": 3}
+
+
+def test_a_failed_investigation_names_the_tool_that_failed() -> None:
+    event = event_for_investigation(
+        organization_id=ORG,
+        investigation_id=uuid.uuid4(),
+        status="failed",
+        tool_count=2,
+        failed_tool_name="start_scan",
+    )
+    assert event.event_type is EventType.AGENT_INVESTIGATION_FAILED
+    assert event.facts == {"steps": 2, "failed_tool": "start_scan"}
+
+
+def test_an_investigation_event_round_trips_through_its_snapshot() -> None:
+    event = event_for_investigation(
+        organization_id=ORG, investigation_id=uuid.uuid4(), status="completed", tool_count=1
+    )
+    rebuilt = event_from_snapshot(ORG, event_snapshot(event))
+    assert event_snapshot(rebuilt) == event_snapshot(event)
 
 
 def test_an_event_round_trips_through_its_snapshot() -> None:

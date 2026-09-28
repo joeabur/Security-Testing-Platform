@@ -27,11 +27,23 @@ class ApproveRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class CallToolRequest(BaseModel):
+    """The body for `POST .../tools/{tool_name}/call` — the direct,
+    single-tool surface `backend/mcp_server/` calls. `params` is validated
+    against that specific tool's own input model inside `Tool.invoke`, not
+    here, so this schema stays the same for every tool."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    params: dict[str, Any] = Field(default_factory=dict)
+
+
 class ToolCatalogEntry(BaseModel):
     name: str
     description: str
     risk_level: Literal["read_only", "standard", "sensitive"]
     minimum_role: str
+    input_schema: dict[str, Any] = Field(default_factory=dict)
 
 
 class PendingApprovalRead(BaseModel):

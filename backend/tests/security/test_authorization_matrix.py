@@ -247,6 +247,11 @@ EXPECTED_ROLES: dict[tuple[str, str], Role] = {
     # tier POST /runs and POST .../workflows/{id}/runs require directly —
     # an approval must not be a cheaper way to authorize one of those.
     ("GET", "/organizations/{organization_id}/agent/tools"): Role.VIEWER,
+    # The route dependency is only a membership floor; each tool's own
+    # (possibly higher) minimum role is enforced inside the handler, the
+    # same two-layer pattern POST .../investigate already uses for its
+    # per-step tool authorization.
+    ("POST", "/organizations/{organization_id}/agent/tools/{tool_name}/call"): Role.VIEWER,
     ("POST", "/organizations/{organization_id}/agent/investigate"): Role.ANALYST,
     (
         "GET",
