@@ -1,12 +1,15 @@
 import re
 import uuid
 from datetime import datetime
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.core.rasp.contract import ControlKind
 from app.models.target import TargetEnvironment, TargetKind
+
+if TYPE_CHECKING:
+    from app.models.target import Target
 
 
 class DeclaredToolIn(BaseModel):
@@ -139,3 +142,35 @@ class TargetRead(BaseModel):
     has_authorization: bool
     has_rules_of_engagement: bool
     created_at: datetime
+
+
+def target_read(target: "Target") -> TargetRead:
+    """The canonical `Target` -> `TargetRead` conversion.
+
+    Not a plain `TargetRead.model_validate(target, from_attributes=True)`:
+    `has_authorization`/`has_rules_of_engagement` are derived from the
+    relationships, not an ORM attribute of the same name, so every reader
+    of a target — the targets router and the native agent's `get_asset`/
+    `search_assets` tools alike — goes through this one function rather
+    than each recomputing the derivation and risking the two drifting.
+    """
+    return TargetRead(
+        id=target.id,
+        organization_id=target.organization_id,
+        name=target.name,
+        environment=target.environment,
+        kind=target.kind,
+        base_url=target.base_url,
+        adapter_kind=target.adapter_kind,
+        code_repo_ref=target.code_repo_ref,
+        code_languages=[str(item) for item in (target.code_languages or [])],
+        code_build_manifest_paths=[str(item) for item in (target.code_build_manifest_paths or [])],
+        adapter_config=dict(target.adapter_config or {}),
+        declared_tools=list(target.declared_tools or []),
+        runtime_protection=[
+            dict(item) for item in (target.runtime_protection or []) if isinstance(item, dict)
+        ],
+        has_authorization=target.authorization is not None,
+        has_rules_of_engagement=target.rules_of_engagement is not None,
+        created_at=target.created_at,
+    )

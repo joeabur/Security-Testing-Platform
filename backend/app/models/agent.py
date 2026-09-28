@@ -2,8 +2,8 @@
 conversations, prompts, or tool output.
 
 This module is intentionally the **entire**, closed set of tables the agent
-subsystem may ever persist: `Agent`, `AgentProvider` here, plus `AgentTool`,
-`AgentConfiguration`, `AgentUsageMetadata` added in later phases. Every one
+subsystem may ever persist: `Agent`, `AgentProvider`, `AgentTool` here, plus
+`AgentConfiguration`, `AgentUsageMetadata` added in a later phase. Every one
 holds configuration or non-content metrics only — never a conversation,
 prompt, response, or tool-output value.
 `tests/security/test_agent_boundary.py` pins this table set (and grep-checks
@@ -19,6 +19,32 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
+
+
+class AgentTool(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """Per-organization enable/disable (and, optionally, a tighter role
+    requirement) for a tool the *code* registry
+    (`app/core/agent/tools/registry.py`) defines. Code is the source of
+    truth for a tool's input/output schema, risk level, and logic — this
+    table is configuration only, the same relationship `Workflow.enabled`
+    has to the workflow engine's own fixed `ActionKind` set.
+
+    `minimum_role_override` is inert until the permission check that will
+    read it exists (a later phase); when it does, it may only ever raise a
+    tool's effective minimum role above the code default, never lower it.
+    """
+
+    __tablename__ = "agent_tools"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "tool_name", name="uq_agent_tool_org_name"),
+    )
+
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+    )
+    tool_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    minimum_role_override: Mapped[str | None] = mapped_column(String(30), nullable=True)
 
 
 class AgentProviderKind(enum.StrEnum):

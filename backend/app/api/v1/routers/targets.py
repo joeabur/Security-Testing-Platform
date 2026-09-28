@@ -38,6 +38,7 @@ from app.schemas.target import (
     TargetCreate,
     TargetRead,
     TargetRuntimeProtectionUpdate,
+    target_read,
 )
 
 router = APIRouter(prefix="/organizations/{organization_id}/targets", tags=["targets"])
@@ -51,29 +52,6 @@ def get_dns_resolver() -> DnsResolver:
     lookups for synthetic test hostnames like `ai.example.test` would
     otherwise fail or hit the network."""
     return SystemDnsResolver()
-
-
-def _target_read(target: Target) -> TargetRead:
-    return TargetRead(
-        id=target.id,
-        organization_id=target.organization_id,
-        name=target.name,
-        environment=target.environment,
-        kind=target.kind,
-        base_url=target.base_url,
-        adapter_kind=target.adapter_kind,
-        code_repo_ref=target.code_repo_ref,
-        code_languages=[str(item) for item in (target.code_languages or [])],
-        code_build_manifest_paths=[str(item) for item in (target.code_build_manifest_paths or [])],
-        adapter_config=dict(target.adapter_config or {}),
-        declared_tools=list(target.declared_tools or []),
-        runtime_protection=[
-            dict(item) for item in (target.runtime_protection or []) if isinstance(item, dict)
-        ],
-        has_authorization=target.authorization is not None,
-        has_rules_of_engagement=target.rules_of_engagement is not None,
-        created_at=target.created_at,
-    )
 
 
 async def load_target(organization_id: uuid.UUID, target_id: uuid.UUID, db: DbSession) -> Target:
@@ -131,7 +109,7 @@ async def create_target(
     )
     await db.commit()
 
-    return _target_read(target)
+    return target_read(target)
 
 
 @router.get("", response_model=list[TargetRead])
@@ -146,7 +124,7 @@ async def list_targets(
         .options(selectinload(Target.authorization), selectinload(Target.rules_of_engagement))
         .order_by(Target.created_at)
     )
-    return [_target_read(t) for t in result.scalars().all()]
+    return [target_read(t) for t in result.scalars().all()]
 
 
 @router.get("/{target_id}", response_model=TargetRead)
@@ -157,7 +135,7 @@ async def get_target(
     membership: Membership = Depends(require_membership(Role.VIEWER)),  # noqa: B008
 ) -> TargetRead:
     target = await load_target(organization_id, target_id, db)
-    return _target_read(target)
+    return target_read(target)
 
 
 @router.put("/{target_id}/rules-of-engagement", response_model=RulesOfEngagementRead)
@@ -397,7 +375,7 @@ async def configure_adapter(
     )
     await db.commit()
 
-    return _target_read(target)
+    return target_read(target)
 
 
 @router.put("/{target_id}/code", response_model=TargetRead)
@@ -455,7 +433,7 @@ async def configure_code_scope(
     )
     await db.commit()
 
-    return _target_read(target)
+    return target_read(target)
 
 
 @router.put("/{target_id}/domain-scope", response_model=TargetRead)
@@ -520,7 +498,7 @@ async def configure_domain_scope(
     )
     await db.commit()
 
-    return _target_read(target)
+    return target_read(target)
 
 
 @router.put("/{target_id}/runtime-protection", response_model=TargetRead)
@@ -588,4 +566,4 @@ async def declare_runtime_protection(
     )
     await db.commit()
     await db.refresh(target)
-    return _target_read(target)
+    return target_read(target)

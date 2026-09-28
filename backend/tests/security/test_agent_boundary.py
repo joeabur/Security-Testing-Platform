@@ -17,9 +17,9 @@ import re
 
 from app.db.base import Base
 
-# Imported explicitly (not via a wildcard) so both tables are registered on
+# Imported explicitly (not via a wildcard) so every table is registered on
 # `Base.metadata` before this module's tests inspect it.
-from app.models.agent import Agent, AgentProvider  # noqa: F401
+from app.models.agent import Agent, AgentProvider, AgentTool  # noqa: F401
 
 # The complete, closed set of tables the native AI agent subsystem may ever
 # create. A future table must be added here deliberately — the same "added
