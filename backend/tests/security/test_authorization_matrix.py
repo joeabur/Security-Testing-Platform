@@ -26,6 +26,7 @@ from fastapi.routing import APIRoute
 from httpx import AsyncClient
 
 from app.api.v1.routers import (
+    agent,
     api_keys,
     assistant,
     findings,
@@ -51,6 +52,7 @@ PREFIX = "/api/v1"
 # deliberately absent: they have no organization in their path, which is the
 # property the enumeration below filters on anyway.
 ROUTERS = (
+    agent,
     api_keys,
     assistant,
     findings,
@@ -238,6 +240,26 @@ EXPECTED_ROLES: dict[tuple[str, str], Role] = {
         "/organizations/{organization_id}/workflows/{workflow_id}/runs",
     ): Role.SECURITY_ENGINEER,
     ("GET", "/organizations/{organization_id}/workflows/{workflow_id}/runs"): Role.ANALYST,
+    # Agent Phase 5. Discovery and reading a paused investigation's status
+    # are viewer-tier; planning and running tools against the platform is
+    # the same analyst tier requesting an AI draft already requires;
+    # approving a paused SENSITIVE tool call is the same security-engineer
+    # tier POST /runs and POST .../workflows/{id}/runs require directly —
+    # an approval must not be a cheaper way to authorize one of those.
+    ("GET", "/organizations/{organization_id}/agent/tools"): Role.VIEWER,
+    ("POST", "/organizations/{organization_id}/agent/investigate"): Role.ANALYST,
+    (
+        "GET",
+        "/organizations/{organization_id}/agent/investigate/{investigation_id}/status",
+    ): Role.VIEWER,
+    (
+        "POST",
+        "/organizations/{organization_id}/agent/investigate/{investigation_id}/approve",
+    ): Role.SECURITY_ENGINEER,
+    (
+        "POST",
+        "/organizations/{organization_id}/agent/investigate/{investigation_id}/cancel",
+    ): Role.SECURITY_ENGINEER,
     ("DELETE", "/organizations/{organization_id}/notification-channels/{channel_id}"): Role.ADMIN,
     ("GET", "/organizations/{organization_id}/notification-channels"): Role.ANALYST,
     (

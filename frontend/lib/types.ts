@@ -175,3 +175,55 @@ export interface WorkflowRun {
   detail: string | null;
   created_at: string;
 }
+
+// --- Native AI agent (Agent Phase 5) ---------------------------------------
+//
+// Deliberately no "conversation" or "history" type here: an investigation's
+// transcript lives only in this page's React state, for the current
+// investigation, never written to localStorage or any store — the frontend
+// side of the platform's zero-persistence rule for AI interactions.
+
+export type AgentToolRiskLevel = "read_only" | "standard" | "sensitive";
+
+export interface AgentToolCatalogEntry {
+  name: string;
+  description: string;
+  risk_level: AgentToolRiskLevel;
+  minimum_role: string;
+}
+
+export type InvestigationStatus =
+  | "running"
+  | "awaiting_approval"
+  | "completed"
+  | "cancelled"
+  | "failed";
+
+export type StepOutcomeStatus =
+  | "ok"
+  | "tool_not_found"
+  | "permission_denied"
+  | "approval_required"
+  | "execution_error";
+
+export interface StepOutcome {
+  tool_name: string;
+  status: StepOutcomeStatus;
+  result: Record<string, unknown> | null;
+  error: string | null;
+  duration_ms: number;
+}
+
+export interface PendingApproval {
+  tool_name: string;
+  risk_level: AgentToolRiskLevel;
+  description: string;
+}
+
+export interface Investigation {
+  investigation_id: string;
+  status: InvestigationStatus;
+  outcomes: StepOutcome[];
+  summary: string | null;
+  pending_approval: PendingApproval | null;
+}

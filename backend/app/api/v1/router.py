@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from app.api.v1.routers import (
+    agent,
     api_keys,
     assistant,
     auth,
@@ -34,3 +35,4 @@ api_router.include_router(integrations.router)
 api_router.include_router(vcs.router)
 api_router.include_router(assistant.router)
 api_router.include_router(workflows.router)
+api_router.include_router(agent.router)

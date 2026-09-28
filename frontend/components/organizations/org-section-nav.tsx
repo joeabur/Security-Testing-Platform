@@ -10,6 +10,7 @@ const SECTIONS = [
   { slug: "repositories", label: "Repositories" },
   { slug: "workflows", label: "Workflows" },
   { slug: "runs", label: "Runs" },
+  { slug: "agent", label: "Agent" },
 ];
 
 export function OrgSectionNav({ organizationId }: { organizationId: string }) {

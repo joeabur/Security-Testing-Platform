@@ -21,6 +21,7 @@ audit trail, and the model's own final answer.
 from __future__ import annotations
 
 import json
+import time
 from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
@@ -66,6 +67,7 @@ class StepOutcome:
     status: StepStatus
     result: BaseModel | None = None
     error: str | None = None
+    duration_ms: int = 0
 
 
 @dataclass
@@ -134,14 +136,23 @@ async def run_plan(
             outcomes.append(StepOutcome(tool.name, StepStatus.APPROVAL_REQUIRED))
             return ExecutionResult(investigation, outcomes)
 
+        started = time.monotonic()
         try:
             result = await tool.invoke(ctx, step.params)
         except (ToolNotFoundError, ToolExecutionError) as exc:
-            outcomes.append(StepOutcome(tool.name, StepStatus.EXECUTION_ERROR, error=str(exc)))
+            duration_ms = int((time.monotonic() - started) * 1000)
+            outcomes.append(
+                StepOutcome(
+                    tool.name, StepStatus.EXECUTION_ERROR, error=str(exc), duration_ms=duration_ms
+                )
+            )
             investigation.fail()
             return ExecutionResult(investigation, outcomes)
+        duration_ms = int((time.monotonic() - started) * 1000)
 
-        outcomes.append(StepOutcome(tool.name, StepStatus.OK, result=result))
+        outcomes.append(
+            StepOutcome(tool.name, StepStatus.OK, result=result, duration_ms=duration_ms)
+        )
         investigation.plan_step_index = index + 1
 
     investigation.complete()

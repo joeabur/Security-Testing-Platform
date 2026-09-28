@@ -11,8 +11,19 @@ import uuid
 import pytest
 
 from app.core.agent.investigation import Investigation, InvestigationStatus, PendingApproval
+from app.core.agent.planner import Plan, PlanStep
 from app.core.agent.session_store import TTL_SECONDS, InvestigationSessionStore, _key
 from app.core.agent.tools.contract import RiskLevel
+
+_PLAN = Plan(
+    steps=(
+        PlanStep(tool_name="get_asset", params={"target_id": "abc"}),
+        PlanStep(
+            tool_name="start_scan",
+            params={"target_id": "abc", "authorization_confirmed": True},
+        ),
+    )
+)
 
 
 @pytest.fixture
@@ -22,7 +33,9 @@ async def store() -> InvestigationSessionStore:
     # Best-effort cleanup; individual tests also delete what they create.
 
 
-async def test_a_saved_investigation_round_trips(store: InvestigationSessionStore) -> None:
+async def test_a_saved_investigation_and_plan_round_trip(
+    store: InvestigationSessionStore,
+) -> None:
     investigation = Investigation.start(organization_id=uuid.uuid4(), user_id=uuid.uuid4())
     investigation.await_approval(
         PendingApproval(
@@ -30,15 +43,16 @@ async def test_a_saved_investigation_round_trips(store: InvestigationSessionStor
         )
     )
 
-    await store.save(investigation)
-    loaded = await store.load(investigation.id, organization_id=investigation.organization_id)
+    await store.save(investigation, _PLAN)
+    paused = await store.load(investigation.id, organization_id=investigation.organization_id)
 
-    assert loaded is not None
-    assert loaded.id == investigation.id
-    assert loaded.organization_id == investigation.organization_id
-    assert loaded.user_id == investigation.user_id
-    assert loaded.status is InvestigationStatus.AWAITING_APPROVAL
-    assert loaded.pending_approval == investigation.pending_approval
+    assert paused is not None
+    assert paused.investigation.id == investigation.id
+    assert paused.investigation.organization_id == investigation.organization_id
+    assert paused.investigation.user_id == investigation.user_id
+    assert paused.investigation.status is InvestigationStatus.AWAITING_APPROVAL
+    assert paused.investigation.pending_approval == investigation.pending_approval
+    assert paused.plan == _PLAN
 
     await store.delete(investigation.id)
 
@@ -54,7 +68,7 @@ async def test_loading_with_the_wrong_organization_returns_none(
     an investigation started by one organization must never resume under
     another's id, even if that id were somehow guessed."""
     investigation = Investigation.start(organization_id=uuid.uuid4(), user_id=uuid.uuid4())
-    await store.save(investigation)
+    await store.save(investigation, _PLAN)
 
     wrong_org = await store.load(investigation.id, organization_id=uuid.uuid4())
     assert wrong_org is None
@@ -67,7 +81,7 @@ async def test_loading_with_the_wrong_organization_returns_none(
 
 async def test_delete_removes_the_saved_investigation(store: InvestigationSessionStore) -> None:
     investigation = Investigation.start(organization_id=uuid.uuid4(), user_id=uuid.uuid4())
-    await store.save(investigation)
+    await store.save(investigation, _PLAN)
 
     await store.delete(investigation.id)
 
@@ -77,7 +91,7 @@ async def test_delete_removes_the_saved_investigation(store: InvestigationSessio
 async def test_save_sets_the_documented_ttl(store: InvestigationSessionStore) -> None:
     investigation = Investigation.start(organization_id=uuid.uuid4(), user_id=uuid.uuid4())
 
-    await store.save(investigation)
+    await store.save(investigation, _PLAN)
     client = store._connect()  # noqa: SLF001 - test needs the raw client to read the TTL
     ttl = await client.ttl(_key(investigation.id))
 
