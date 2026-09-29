@@ -13,7 +13,12 @@ dependencies = [
     "asyncpg>=0.30",
     "alembic>=1.13",
     "argon2-cffi>=23.1",
-    "pyjwt>=2.9",
+    # >=2.14 fixes GHSA-w6j9-cwv2-h6wq: a malformed RSA JWK inside a JWK Set
+    # raised a plain ValueError instead of being skipped, aborting
+    # PyJWKSet's parsing of the whole set. This platform doesn't call
+    # PyJWKClient/PyJWKSet today, but the fix is a clean version bump with
+    # no other behavior change, so there's no reason to carry the CVE.
+    "pyjwt>=2.14",
     # AES-256-GCM for evidence at rest (app/core/evidence/crypto.py). Already
     # present transitively via pyjwt's crypto extra; pinned directly because
     # this project now imports it on its own, not just through pyjwt.
@@ -79,6 +84,19 @@ appsec = [
     "pip-audit>=2.7",
     "checkov>=3.2",
     "detect-secrets>=1.5",
+    # checkov (through 3.3.20, the latest release as of this pin) hard-pins
+    # asteval==1.0.6, which GHSA-9w56-46f6-3qhx rates critical: with numpy
+    # enabled and import disabled (asteval's own default config), an
+    # attacker-controlled expression gets an arbitrary process-memory
+    # read/write primitive with no sandbox escape needed via import/eval/
+    # getattr. checkov never evaluates attacker-controlled expressions in
+    # this platform's own usage (it scans this repo's and the appsec lab
+    # fixtures' own IaC files, not untrusted input), but the fix is a
+    # same-1.0.x patch release with no known incompatibility, so it is
+    # pinned directly here to override checkov's own unpatched exact pin
+    # rather than carrying a known-critical CVE in the dependency tree
+    # while waiting on an upstream checkov release.
+    "asteval>=1.0.9",
 ]
 # Pentest module cloud engine providers (Phase 4). Optional for the same
 # reason as `appsec`: the AWS provider reports "not tested" rather than
