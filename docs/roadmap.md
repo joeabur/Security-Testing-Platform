@@ -3206,6 +3206,113 @@ behaviour).
   reasonable default, not a claim that every injection vector through a
   question has been separately analysed.
 
+## Pentest module, Phase 8 — automation (Celery Beat, webhooks, approval gates)
+
+Closes the three gaps `docs/workflows.md`'s "What is not built" section and
+the Phase 17/Agent-framework deferrals both named explicitly: no scheduler,
+no inbound webhook endpoint, and — the gap those two expose once built — no
+approval gate for a trigger with no human present at all.
+
+**The insight that ties the three together**: `queue_run()`
+(`app/core/runs/service.py`) takes a *required* `user_id`; every scan this
+platform has ever queued is attributed to a real human. An unattended
+trigger has no human in the request, so the approval step is not a safety
+feature bolted on top — it is what supplies a real `user_id` to attribute
+the resulting scan to, the same way a human calling `POST /runs` supplies
+their own. This is why `approve()` (not the scheduler or the webhook
+directly) is the one place that calls `queue_scan_for_workflow_run`.
+
+Delivered: `Trigger.unattended: bool` (not a new `TriggerKind` — an inbound
+webhook still produces `REPOSITORY_CHANGE`/`PULL_REQUEST`, what's new is the
+authenticated acceptance endpoint, not the trigger vocabulary; a human
+manually re-running a `SCHEDULE`-kind workflow through the existing API
+must not pause, which ruled out keying the gate off `trigger.kind` itself);
+`WorkflowStatus.AWAITING_APPROVAL` and `UNATTENDED_APPROVAL_ACTIONS`
+(`APPSEC_SCAN`/`API_SCAN`/`AI_SCAN`/`DAST_SCAN`/`PUBLISH_PR` — mirrors
+`app.core.assistant.autonomy.TARGET_TOUCHING`'s "no mode can grant this"
+idiom, no opt-out column); `Workflow.schedule_interval_minutes`/
+`next_run_at` (a 60-minute floor, validated at the schema level — a stated
+safety rail against unattended, high-frequency scanning of a live target,
+not cron-expression support, matching `TriggerKind`'s own "not a general
+workflow engine" stance) and `Workflow.webhook_enabled`/
+`webhook_secret_encrypted`; three new Celery tasks
+(`dispatch_scheduled_workflows` ticking every 60s, advancing `next_run_at`
+*before* the run task executes so a slow run never double-dispatches;
+`run_scheduled_workflow`; and `gate_workflow_run_if_linked`, hooked into
+`run_assessment`'s existing `notify_run_finished.delay(...)` follow-up
+call site the same decoupled way); `service.queue_scan_for_workflow_run`/
+`start_and_maybe_pause`/`approve`/`reject`; a new top-level
+`app/api/v1/routers/webhooks.py` (`POST /api/v1/webhooks/workflows/{id}`)
+and three new endpoints on the existing workflows router
+(`webhook-secret` admin, `approve`/`reject` security engineer — the same
+tier `RUN_WORKFLOW`/`START_SCAN` already require, since approving *is*
+authorizing a scan); `app/core/workflow/webhook_secret.py` (secret
+generation/AES-256-GCM encryption, reusing `app/core/evidence/crypto.py`
+directly rather than a second implementation, keyed by a new *required-
+when-used* `AEGIS_WEBHOOK_SECRET_ENCRYPTION_KEY` — unlike the evidence key,
+not optional encryption, since a webhook secret must never sit in Postgres
+in cleartext) and `app/core/workflow/replay_guard.py` (a 7th Redis-backed
+store, dedup-by-signature, **fails closed** — the opposite of the rate
+limiter's own deliberate fail-open, because replay protection exists
+specifically to refuse something that looks legitimate); a new `beat`
+Docker Compose service (no `lab_net`, no evidence volume — it only ever
+enqueues tasks, it never itself reaches a target).
+
+Decisions worth stating:
+
+- **The inbound webhook route is deliberately outside the
+  `/organizations/{organization_id}/...` prefix.**
+  `test_every_organization_scoped_route_declares_a_minimum_role` correctly
+  asserts every route under that prefix has a role dependency — the
+  webhook's caller has no session for any organization at all, so nesting
+  it there would need a special-cased exemption to an otherwise-clean
+  invariant. `workflow_id` alone (unguessable) plus the HMAC signature is
+  the authentication; the workflow row's own `organization_id` column
+  supplies the tenant.
+- **HMAC verification is reused, not reimplemented.**
+  `app/core/integrations/signing.py`'s own docstring already called
+  `verify()` "the reference a receiver is written against" — this phase
+  is the first thing in the codebase to actually call it as one.
+- **No opt-out from the approval gate.** An earlier draft of this phase
+  considered a `Workflow.requires_approval` column an operator could
+  disable; dropped in favour of the closed rule above, both because it
+  removes an edge case (whose `user_id` would an opted-out unattended scan
+  even be attributed to?) and because it matches this platform's general
+  preference for a small closed rule over a configurable exception.
+- **Celery Beat's own healthcheck is disabled**, not inherited from
+  `Dockerfile.worker`'s image default — that default pings a worker's own
+  queue, which a Beat process never runs one of, and would otherwise
+  always report the container unhealthy.
+
+Verified: `ruff check`/`mypy app` clean; new `tests/test_workflow_automation.py`
+(21 tests: schedule validation/dispatch/advance-on-tick, the approval
+gate's pause/approve/reject over both a plan that would and would not
+queue a scan, the async gate-once-linked-scan-finishes path, and the
+webhook's signature success/missing-headers/bad-signature/expired-
+timestamp/replay/wrong-kind/tenant-isolation cases); `EXPECTED_ROLES`
+extended for the three new authenticated endpoints
+(`tests/security/test_authorization_matrix.py`); full regression pass over
+`test_workflow.py`/`test_workflows_api.py` (unaffected — every existing
+manual-trigger call site defaults `unattended=False`); `docker compose
+config` validates the new `beat` service.
+
+### Deferrals
+
+- **No vendor-specific webhook translators.** The inbound endpoint accepts
+  this platform's own minimal, HMAC-signed shape only; translating GitHub's
+  or GitLab's own webhook payload into it is a separate, later increment.
+- **No CLI for any workflow operation**, scheduling and webhooks included —
+  `aegis-ai` has no `workflow` subcommand group at all yet, confirmed
+  absent before this phase; adding CLI support only for the new pieces
+  while base workflow CRUD has none would be inconsistent scope creep.
+- **No dashboard UI** for schedule/webhook/approval configuration — matches
+  every earlier pentest-module phase's "API-only, dashboard is a later
+  phase" precedent (Phase 10, task #125, is the dashboard phase).
+- **No rate limit on the inbound webhook** — `app.core.ratelimit`'s
+  policies are each a route's own deliberate choice of window/key/fail-
+  direction; adding one without that same review would be exactly the
+  kind of half-built control this codebase avoids.
+
 ## Agent framework, Phases 1–6 — native AI agent with zero persistence
 
 A structured, permission-gated tool-calling layer on top of the existing AI

@@ -8,7 +8,7 @@ import asyncio
 import hashlib
 import json
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -77,6 +77,8 @@ from app.core.scope.kill_switch import KillSwitch
 from app.core.scope.transport import GatedTransport
 from app.core.vm import service as vm_service
 from app.core.vm.contract import VmTarget
+from app.core.workflow import service as workflow_service
+from app.core.workflow.contract import WorkflowStatus
 from app.db.session import dispose_engine, get_session_factory
 from app.db.tenant_context import set_current_organization
 from app.models.assessment_run import (
@@ -91,6 +93,7 @@ from app.models.scan_result import ScanResultRecord
 from app.models.surface_endpoint import SurfaceEndpoint
 from app.models.synthetic_account import SyntheticAccount
 from app.models.target import Target, TargetKind
+from app.models.workflow import Workflow, WorkflowRun
 from app.plugins.allowlist import policy_from_settings
 from app.plugins.contract import PluginKind
 from app.plugins.registry import discover
@@ -700,7 +703,145 @@ def run_assessment(run_id: str) -> str:
     from app.workers.notifications import notify_run_finished
 
     notify_run_finished.delay(run_id)
+    # Same reasoning, a second decoupled follow-up: if this assessment run
+    # was queued on a workflow run's behalf (pentest-module Phase 8), gate
+    # it now that it has reached a terminal state. A no-op for the
+    # overwhelming majority of assessment runs, which have no linked
+    # workflow run at all.
+    gate_workflow_run_if_linked.delay(run_id)
     return status.value
+
+
+async def gate_workflow_run_if_linked_async(run_id: str) -> None:
+    """The async implementation `gate_workflow_run_if_linked` (the Celery
+    task below) delegates to — tests call this directly, the same way
+    `execute_assessment_run` is called directly rather than through
+    `run_assessment`.
+
+    If `run_id` is the assessment run a `WorkflowRun` queued
+    (`app.core.workflow.service.queue_scan_for_workflow_run`), gate it now
+    over the findings that scan just produced — the same `finish()` a
+    manual trigger's synchronous call already uses. Nothing to do, and
+    nothing recorded, when no workflow run references this assessment run.
+    """
+    session_factory = get_session_factory()
+    async with session_factory() as db:
+        workflow_run = (
+            await db.execute(
+                select(WorkflowRun).where(WorkflowRun.assessment_run_id == uuid.UUID(run_id))
+            )
+        ).scalar_one_or_none()
+        if workflow_run is None:
+            return
+        set_current_organization(workflow_run.organization_id)
+        workflow = await db.get(Workflow, workflow_run.workflow_id)
+        if workflow is None:
+            logger.warning(
+                "workflow_run_gate_skipped_missing_workflow",
+                workflow_run_id=str(workflow_run.id),
+            )
+            return
+        await workflow_service.gate_run_once_scan_finished(db, workflow_run, workflow)
+        await db.commit()
+
+
+@celery_app.task(name="aegis.gate_workflow_run_if_linked")
+def gate_workflow_run_if_linked(run_id: str) -> None:
+    async def _run() -> None:
+        try:
+            await gate_workflow_run_if_linked_async(run_id)
+        finally:
+            await dispose_engine()
+
+    asyncio.run(_run())
+
+
+async def dispatch_scheduled_workflows_async() -> int:
+    """The async implementation `dispatch_scheduled_workflows` delegates
+    to. Celery Beat's own entry point (pentest-module Phase 8), ticked
+    every 60 seconds (`app/workers/celery_app.py`) against a ≥60-minute-
+    interval floor — ample headroom, not a tight race. Advances each due
+    workflow's `next_run_at` immediately, before its run task executes, so
+    a slow or stuck run never causes a duplicate dispatch on the next
+    tick. Returns the number of workflows dispatched.
+    """
+    session_factory = get_session_factory()
+    dispatched = 0
+    async with session_factory() as db:
+        due = (
+            (
+                await db.execute(
+                    select(Workflow).where(
+                        Workflow.enabled.is_(True),
+                        Workflow.trigger_kind == "schedule",
+                        Workflow.schedule_interval_minutes.is_not(None),
+                        Workflow.next_run_at.is_not(None),
+                        Workflow.next_run_at <= datetime.now(UTC),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for workflow in due:
+            assert workflow.schedule_interval_minutes is not None
+            workflow.next_run_at = datetime.now(UTC) + timedelta(
+                minutes=workflow.schedule_interval_minutes
+            )
+            dispatched += 1
+        await db.commit()
+        for workflow in due:
+            run_scheduled_workflow.delay(str(workflow.id))
+    return dispatched
+
+
+@celery_app.task(name="aegis.dispatch_scheduled_workflows")
+def dispatch_scheduled_workflows() -> int:
+    async def _run() -> int:
+        try:
+            return await dispatch_scheduled_workflows_async()
+        finally:
+            await dispose_engine()
+
+    return asyncio.run(_run())
+
+
+async def run_scheduled_workflow_async(workflow_id: str) -> None:
+    """The async implementation `run_scheduled_workflow` delegates to.
+    Fires one `SCHEDULE`-kind workflow. No human is present for this call,
+    so `unattended=True` — a plan that would queue a scan-touching action
+    pauses for approval (`start_and_maybe_pause`) rather than proceeding;
+    a plan that would not (only correlating/notifying over findings that
+    already exist) completes exactly as a manual trigger's synchronous
+    call already does.
+    """
+    session_factory = get_session_factory()
+    async with session_factory() as db:
+        workflow = await db.get(Workflow, uuid.UUID(workflow_id))
+        if workflow is None or not workflow.enabled:
+            logger.warning("scheduled_workflow_not_runnable", workflow_id=workflow_id)
+            return
+        set_current_organization(workflow.organization_id)
+        trigger = workflow_service.trigger_from(
+            workflow, actor="system:celery-beat", unattended=True
+        )
+        run, outcome = await workflow_service.start_and_maybe_pause(db, workflow, trigger)
+        if run.status != WorkflowStatus.AWAITING_APPROVAL.value:
+            await workflow_service.finish(
+                db, run, workflow, outcome, actions_detail="triggered by Celery Beat"
+            )
+        await db.commit()
+
+
+@celery_app.task(name="aegis.run_scheduled_workflow")
+def run_scheduled_workflow(workflow_id: str) -> None:
+    async def _run() -> None:
+        try:
+            await run_scheduled_workflow_async(workflow_id)
+        finally:
+            await dispose_engine()
+
+    asyncio.run(_run())
 
 
 async def _prepare_code_check(target: Target, checkout_dir: "Path") -> CodeScanCheck:

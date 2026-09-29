@@ -11,24 +11,35 @@ without being able to change the gate that failed it.
 """
 
 import uuid
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 
 from app.audit.service import record_event
 from app.auth.dependencies import DbSession, require_membership
+from app.core.config import get_settings
 from app.core.gate.model import GateConfigError
+from app.core.workflow import service as workflow_service
 from app.core.workflow.contract import WorkflowStatus
 from app.core.workflow.service import finish, start, trigger_from
+from app.core.workflow.webhook_secret import (
+    WebhookEncryptionNotConfigured,
+    encrypt_secret,
+    generate_secret,
+)
 from app.models.organization import Membership, Role
 from app.models.target import Target
 from app.models.workflow import Workflow, WorkflowRun
 from app.schemas.workflow import (
     WorkflowCreate,
     WorkflowRead,
+    WorkflowRunApprovalRequest,
     WorkflowRunRead,
+    WorkflowRunRejectionRequest,
     WorkflowRunRequest,
     WorkflowUpdate,
+    WorkflowWebhookSecretRead,
 )
 
 router = APIRouter(prefix="/organizations/{organization_id}/workflows", tags=["workflows"])
@@ -89,6 +100,12 @@ async def create_workflow(
         enabled=payload.enabled,
         gate_config=payload.gate_config,
         created_by_user_id=membership.user_id,
+        schedule_interval_minutes=payload.schedule_interval_minutes,
+        next_run_at=(
+            datetime.now(UTC) + timedelta(minutes=payload.schedule_interval_minutes)
+            if payload.schedule_interval_minutes is not None
+            else None
+        ),
     )
     db.add(workflow)
     await db.flush()
@@ -141,6 +158,16 @@ async def update_workflow(
     fields = payload.model_dump(exclude_unset=True)
     for field, value in fields.items():
         setattr(workflow, field, value)
+    if "schedule_interval_minutes" in fields:
+        # Re-arms the schedule from now, whether an interval was set for the
+        # first time or changed to a different one. `None` (turning
+        # scheduling off) clears `next_run_at` too, so a disabled schedule
+        # is not silently still due.
+        workflow.next_run_at = (
+            datetime.now(UTC) + timedelta(minutes=workflow.schedule_interval_minutes)
+            if workflow.schedule_interval_minutes is not None
+            else None
+        )
     await record_event(
         db,
         action="workflow.updated",
@@ -254,3 +281,110 @@ async def list_workflow_runs(
         .limit(max(1, min(limit, 200)))
     )
     return list(result.scalars().all())
+
+
+async def _load_run(
+    db: DbSession, organization_id: uuid.UUID, workflow_id: uuid.UUID, run_id: uuid.UUID
+) -> WorkflowRun:
+    run = (
+        await db.execute(
+            select(WorkflowRun).where(
+                WorkflowRun.id == run_id,
+                WorkflowRun.workflow_id == workflow_id,
+                WorkflowRun.organization_id == organization_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if run is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="workflow run not found")
+    return run
+
+
+@router.post("/{workflow_id}/webhook-secret", response_model=WorkflowWebhookSecretRead)
+async def rotate_webhook_secret(
+    organization_id: uuid.UUID,
+    workflow_id: uuid.UUID,
+    db: DbSession,
+    membership: Membership = Depends(_ADMIN),  # noqa: B008
+) -> WorkflowWebhookSecretRead:
+    """Generate a fresh webhook secret and enable inbound acceptance for
+    this workflow. Same role tier as `create_workflow`/`update_workflow` —
+    enabling inbound automation is a configuration change. The secret is
+    returned in plaintext exactly once; it is never stored or shown again.
+    """
+    workflow = await _load(db, organization_id, workflow_id)
+    settings = get_settings()
+    secret = generate_secret()
+    try:
+        workflow.webhook_secret_encrypted = encrypt_secret(
+            secret, key=settings.webhook_secret_encryption_key_bytes
+        )
+    except WebhookEncryptionNotConfigured as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+    workflow.webhook_enabled = True
+    await record_event(
+        db,
+        action="workflow.webhook_secret_rotated",
+        resource_type="workflow",
+        resource_id=str(workflow.id),
+        result="allow",
+        organization_id=organization_id,
+        user_id=membership.user_id,
+        metadata={"name": workflow.name},
+    )
+    await db.commit()
+    base = (get_settings().public_base_url or "").rstrip("/")
+    return WorkflowWebhookSecretRead(
+        secret=secret, webhook_url=f"{base}/api/v1/webhooks/workflows/{workflow.id}"
+    )
+
+
+@router.post("/{workflow_id}/runs/{run_id}/approve", response_model=WorkflowRunRead)
+async def approve_workflow_run(
+    organization_id: uuid.UUID,
+    workflow_id: uuid.UUID,
+    run_id: uuid.UUID,
+    _payload: WorkflowRunApprovalRequest,
+    db: DbSession,
+    membership: Membership = Depends(_RUNNER),  # noqa: B008
+) -> WorkflowRun:
+    """Resume a run paused by an unattended trigger (Celery Beat or the
+    inbound webhook) whose plan would queue a scan-touching action. Same
+    role tier as `run_workflow`/the agent's `start_scan`/`run_workflow`
+    tools — approving *is* authorizing a scan.
+    """
+    workflow = await _load(db, organization_id, workflow_id)
+    run = await _load_run(db, organization_id, workflow_id, run_id)
+    try:
+        run = await workflow_service.approve(
+            db, run, workflow, approved_by_user_id=membership.user_id
+        )
+    except ValueError as exc:
+        await db.rollback()
+        raise HTTPException(status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    await db.commit()
+    await db.refresh(run)
+    return run
+
+
+@router.post("/{workflow_id}/runs/{run_id}/reject", response_model=WorkflowRunRead)
+async def reject_workflow_run(
+    organization_id: uuid.UUID,
+    workflow_id: uuid.UUID,
+    run_id: uuid.UUID,
+    payload: WorkflowRunRejectionRequest,
+    db: DbSession,
+    membership: Membership = Depends(_RUNNER),  # noqa: B008
+) -> WorkflowRun:
+    workflow = await _load(db, organization_id, workflow_id)
+    run = await _load_run(db, organization_id, workflow_id, run_id)
+    try:
+        run = await workflow_service.reject(
+            db, run, workflow, rejected_by_user_id=membership.user_id, reason=payload.reason
+        )
+    except ValueError as exc:
+        await db.rollback()
+        raise HTTPException(status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    await db.commit()
+    await db.refresh(run)
+    return run

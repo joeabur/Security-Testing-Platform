@@ -20,6 +20,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Integer,
+    LargeBinary,
     String,
     UniqueConstraint,
 )
@@ -51,6 +52,24 @@ class Workflow(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
+
+    #: Only meaningful when `trigger_kind == "schedule"`. Null means this
+    #: workflow is never picked up by `dispatch_scheduled_workflows` — the
+    #: same "silence is the inert state, not an error" rule
+    #: `PentestScope`'s own absence already follows.
+    schedule_interval_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    #: Server-computed and advanced by the dispatcher; never client-settable
+    #: beyond the initial value set when a schedule is first configured.
+    next_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    #: Inbound webhook acceptance (pentest-module Phase 8). Opt-in — a
+    #: secure default, matching every other "opt in to a new capability"
+    #: column in this codebase.
+    webhook_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    #: AES-256-GCM ciphertext (nonce-prefixed), never plaintext — see
+    #: `app/core/workflow/webhook_secret.py`. Shown to the operator once, at
+    #: generation time, the same way an API key's token is.
+    webhook_secret_encrypted: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
 
 
 class WorkflowRun(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -90,3 +109,12 @@ class WorkflowRun(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     detail: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    #: Set only by `approve()`, only on a run that was `awaiting_approval` —
+    #: the human who supplied the `user_id` `queue_scan_for_workflow_run`
+    #: attributes the resulting scan to. A rejected run is recorded via the
+    #: existing `status`/`detail` columns above, not a new pair of columns.
+    approved_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

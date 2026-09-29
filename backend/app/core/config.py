@@ -153,6 +153,31 @@ class Settings(BaseSettings):
             )
         return key
 
+    # --- workflow automation (pentest-module Phase 8) ---------------------
+    #: Unlike `evidence_encryption_key` above, this one is not "optional
+    #: encryption" — a webhook secret must never sit in Postgres in
+    #: cleartext. Absent means webhook automation cannot be enabled at all
+    #: (`app/core/workflow/webhook_secret.py` refuses rather than storing one
+    #: unencrypted); present, it is validated eagerly the same way.
+    webhook_secret_encryption_key: str | None = Field(
+        default=None, alias="AEGIS_WEBHOOK_SECRET_ENCRYPTION_KEY"
+    )
+
+    @property
+    def webhook_secret_encryption_key_bytes(self) -> bytes | None:
+        if not self.webhook_secret_encryption_key:
+            return None
+        try:
+            key = base64.b64decode(self.webhook_secret_encryption_key, validate=True)
+        except (binascii.Error, ValueError) as exc:
+            raise ValueError("AEGIS_WEBHOOK_SECRET_ENCRYPTION_KEY must be valid base64") from exc
+        if len(key) != 32:
+            raise ValueError(
+                "AEGIS_WEBHOOK_SECRET_ENCRYPTION_KEY must decode to exactly 32 bytes "
+                f"(AES-256); got {len(key)}"
+            )
+        return key
+
     def model_post_init(self, __context: object) -> None:
         if (
             self.environment == "production"
@@ -165,6 +190,7 @@ class Settings(BaseSettings):
         # Accessed for its side effect: raises now, at startup, rather than
         # on the first evidence write during a run.
         _ = self.evidence_encryption_key_bytes
+        _ = self.webhook_secret_encryption_key_bytes
 
 
 @lru_cache

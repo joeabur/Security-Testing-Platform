@@ -240,6 +240,23 @@ EXPECTED_ROLES: dict[tuple[str, str], Role] = {
         "/organizations/{organization_id}/workflows/{workflow_id}/runs",
     ): Role.SECURITY_ENGINEER,
     ("GET", "/organizations/{organization_id}/workflows/{workflow_id}/runs"): Role.ANALYST,
+    # Pentest module Phase 8 (automation). Generating a webhook secret is a
+    # configuration change, the same admin tier as create/update; approving
+    # or rejecting a run an unattended trigger paused is the same
+    # security-engineer tier triggering one directly already requires —
+    # approving *is* authorizing a scan, not a lesser action.
+    (
+        "POST",
+        "/organizations/{organization_id}/workflows/{workflow_id}/webhook-secret",
+    ): Role.ADMIN,
+    (
+        "POST",
+        "/organizations/{organization_id}/workflows/{workflow_id}/runs/{run_id}/approve",
+    ): Role.SECURITY_ENGINEER,
+    (
+        "POST",
+        "/organizations/{organization_id}/workflows/{workflow_id}/runs/{run_id}/reject",
+    ): Role.SECURITY_ENGINEER,
     # Agent Phase 5. Discovery and reading a paused investigation's status
     # are viewer-tier; planning and running tools against the platform is
     # the same analyst tier requesting an AI draft already requires;

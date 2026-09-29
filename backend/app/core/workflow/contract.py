@@ -47,9 +47,14 @@ class TriggerKind(StrEnum):
     """What can start a workflow.
 
     `REPOSITORY_CHANGE` is the one §26 Phase 17 names explicitly. `MANUAL` is
-    how a human re-runs one. There is deliberately no `WEBHOOK`: accepting an
-    inbound event from a code host needs an authenticated endpoint and replay
-    protection, which is recorded as not built rather than half-built.
+    how a human re-runs one. `SCHEDULE` is fired by Celery Beat
+    (pentest-module Phase 8; `app/workers/tasks.py::dispatch_scheduled_workflows`).
+    There is no separate `WEBHOOK` kind: an inbound webhook produces a
+    `REPOSITORY_CHANGE` or `PULL_REQUEST` trigger, the same as always — what
+    Phase 8 added is the authenticated, replay-protected acceptance endpoint
+    (`app/api/v1/routers/webhooks.py`), not a new trigger vocabulary. See
+    `Trigger.unattended` for how a trigger with no human present at the call
+    is distinguished from one where a human is.
     """
 
     REPOSITORY_CHANGE = "repository_change"
@@ -77,12 +82,33 @@ class ActionKind(StrEnum):
     PUBLISH_PR = "publish_pr"
 
 
+# The actions an *unattended* trigger (Celery Beat, the inbound webhook) may
+# never queue without a human's explicit approval first — they touch a
+# target or write externally. `NOTIFY`/`CORRELATE`/`GATE`/`NORMALIZE` never
+# gate, even when unattended: they act only on findings that already exist.
+# Mirrors `app.core.assistant.autonomy.TARGET_TOUCHING`'s idiom: a closed set
+# checked independently of any configuration, so no setting can grant it.
+UNATTENDED_APPROVAL_ACTIONS = frozenset(
+    {
+        ActionKind.APPSEC_SCAN,
+        ActionKind.API_SCAN,
+        ActionKind.AI_SCAN,
+        ActionKind.DAST_SCAN,
+        ActionKind.PUBLISH_PR,
+    }
+)
+
+
 class WorkflowStatus(StrEnum):
     PENDING = "pending"
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
     REFUSED = "refused"
+    #: An unattended trigger (Celery Beat or the inbound webhook) whose plan
+    #: would queue a scan-touching action. Never reached by a trigger a human
+    #: made themselves — see `Trigger.unattended` and `UNATTENDED_APPROVAL_ACTIONS`.
+    AWAITING_APPROVAL = "awaiting_approval"
 
 
 @dataclass(frozen=True)
@@ -100,6 +126,12 @@ class Trigger:
     commit: str | None = None
     pull_number: int | None = None
     actor: str = "system"
+    #: True when no human was present at the moment of this specific call —
+    #: Celery Beat or the inbound webhook, never a manual API/CLI/agent-tool
+    #: call (even one that re-runs a `SCHEDULE`-kind workflow: a human
+    #: calling the API *is* present for that call). This, not `kind`, is
+    #: what `start_and_maybe_pause` checks before queuing a scan.
+    unattended: bool = False
 
     def as_record(self) -> dict[str, object]:
         return {
@@ -109,6 +141,7 @@ class Trigger:
             "commit": self.commit,
             "pull_number": self.pull_number,
             "actor": self.actor,
+            "unattended": self.unattended,
         }
 
 

@@ -89,6 +89,33 @@ services:
       redis:
         condition: service_healthy
 
+  # Celery Beat (pentest-module Phase 8): fires `dispatch_scheduled_workflows`
+  # every 60s. It only ever enqueues a task for `worker` to pick up — it never
+  # itself reaches a target or touches evidence — so, unlike `worker`, it
+  # joins no `lab_net` and mounts no evidence volume.
+  beat:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    command:
+      ["celery", "-A", "app.workers.celery_app.celery_app", "beat", "--loglevel=info"]
+    # `Dockerfile.worker`'s own HEALTHCHECK pings a *worker*'s queue, which
+    # this process never runs one of — disabled rather than inherited and
+    # always reporting unhealthy.
+    healthcheck:
+      disable: true
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://aegis:aegis-dev-only-change-me@postgres:5432/aegis}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
   frontend:
     build:
       context: .

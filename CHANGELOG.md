@@ -8,6 +8,19 @@ All notable changes to this project are recorded here. The format follows
 
 ### Added
 
+- Pentest module, Phase 8 (automation): Celery Beat scheduling
+  (`Workflow.schedule_interval_minutes`/`next_run_at`, a 60-minute floor),
+  an authenticated, replay-protected inbound webhook
+  (`POST /api/v1/webhooks/workflows/{id}`, HMAC-SHA256 reusing
+  `app/core/integrations/signing.py`'s own scheme as a receiver for the
+  first time), and an approval gate for both: any run triggered
+  unattended (Beat or the webhook) whose plan would queue a scan-touching
+  action pauses (`awaiting_approval`) until a security engineer approves
+  or rejects it — approving queues the scan through the exact same
+  `queue_run()` `POST /runs` already uses, attributed to the approver. A
+  manually-triggered run never pauses. Replay protection is a new
+  Redis-backed store that fails closed (the opposite of the rate
+  limiter's own fail-open). See `docs/workflows.md`.
 - Native AI agent framework (`app/core/agent/`), a structured,
   permission-gated tool-calling layer on top of the existing AI assistant:
   multi-provider support (Anthropic, Gemini, OpenAI, and any
