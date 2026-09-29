@@ -79,9 +79,17 @@ EXEMPT_PATHS = frozenset(
 #: ordinary token to here, so these two routes are checked against the
 #: pre-session anonymous token from `app/core/csrf/anon.py` instead of being
 #: waved through.
+#:
+#: `login/2fa` is the same exposure one step later: its `challenge` and
+#: `code` are both attacker-controlled if the attacker supplies their own
+#: (from their own 2FA-protected account), so forging this request signs
+#: the victim's browser into the attacker's account exactly the same way a
+#: forged `/login` would — the second factor narrows who can complete a
+#: *particular* login, not who is allowed to attempt the CSRF.
 ANONYMOUS_CSRF_PATHS = frozenset(
     {
         "/api/v1/auth/login",
+        "/api/v1/auth/login/2fa",
         "/api/v1/auth/register",
     }
 )

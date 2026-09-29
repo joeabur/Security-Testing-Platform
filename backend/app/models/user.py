@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, String
+from sqlalchemy import Boolean, DateTime, LargeBinary, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
@@ -33,6 +33,17 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     tokens_valid_after: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    #: AES-256-GCM ciphertext of the TOTP shared secret (nonce-prefixed, same
+    #: shape `app/core/evidence/crypto.py::encrypt` produces), or null. Set by
+    #: `POST /auth/2fa/setup` before enrollment is confirmed, so a caller who
+    #: never finishes enrolling leaves an unused secret sitting here — harmless,
+    #: since login only ever checks `totp_enabled`, never whether this column is
+    #: populated.
+    totp_secret_encrypted: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    #: The only column `/auth/login` actually reads to decide whether a second
+    #: factor is required. Flips to `True` only after `POST /auth/2fa/enable`
+    #: verifies a real code against the stored secret — never at `setup` time.
+    totp_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     memberships: Mapped[list["Membership"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"

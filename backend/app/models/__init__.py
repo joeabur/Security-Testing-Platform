@@ -36,6 +36,7 @@ from app.models.surface_endpoint import SurfaceEndpoint, SurfaceSource
 from app.models.synthetic_account import SyntheticAccount
 from app.models.target import Target, TargetEnvironment, TargetKind
 from app.models.tool_invocation import RunToolInvocation
+from app.models.totp_recovery_code import TotpRecoveryCode
 from app.models.user import User
 from app.models.user_session import UserSession
 from app.models.vcs import PullRequestPost, VcsConnection
@@ -89,6 +90,7 @@ __all__ = [
     "Target",
     "TargetEnvironment",
     "TargetKind",
+    "TotpRecoveryCode",
     "User",
     "UserSession",
 ]
