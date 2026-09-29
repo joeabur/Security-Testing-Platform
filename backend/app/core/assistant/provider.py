@@ -48,6 +48,12 @@ class ProviderConfig:
     model: str
     # The NAME of an environment variable, never a key.
     api_key_env_var: str | None = None
+    # CIDR strings the operator explicitly authorized this provider's own
+    # endpoint to resolve to, if it is a private/loopback address — see
+    # `platform_egress_context` below. Empty means only a public address is
+    # reachable, matching `RulesOfEngagement.allowed_ip_ranges`'s own
+    # default-deny posture.
+    allowed_ip_ranges: tuple[str, ...] = ()
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS
     max_output_tokens: int = DEFAULT_MAX_TOKENS
     temperature: float = 0.0

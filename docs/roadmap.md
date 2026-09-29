@@ -3771,3 +3771,82 @@ from another organization is 404 (not 403, not silently ignored — the same
 non-disclosure every other cross-tenant path in this platform uses).
 `tests/security/test_authorization_matrix.py` updated with both new
 routes. Full backend suite run as the final gate before commit.
+
+## Agent provider provisioning: close the "nothing can ever configure it" gap
+
+### Context
+
+A live, runtime audit of the platform (starting both servers and a Celery
+worker, not just reading source) found the native AI agent's own engine
+(planner, tool runtime, `POST .../agent/investigate`) fully built and
+correctly returning `409` when unconfigured — but there was no endpoint,
+CLI command, or UI anywhere in the codebase that could ever create the
+`AgentProvider` row an organization needs to clear that `409`. The only
+places an `AgentProvider` was ever constructed were test fixtures. The
+agent framework's own design already anticipated a local/free provider
+(`AgentProviderKind.OPENAI_COMPATIBLE`, covering Ollama/vLLM/llama.cpp),
+but a second, deeper gap made even that path non-functional once
+provisioning existed: `platform_egress_context`
+(`app/core/assistant/egress.py`) hardcoded an empty `allowed_ip_ranges`,
+so `GatedTransport` refused any provider endpoint at a private or loopback
+address — which is where a self-hosted model server almost always lives.
+
+### Design
+
+Six new endpoints on `app/api/v1/routers/agent.py`: `POST`/`GET`/`PATCH`/
+`DELETE .../agent/providers` and `GET`/`PUT .../agent`, admin tier to
+write and analyst tier to read — the same split `docs/workflows.md`'s
+admin/security-engineer tiers use, since configuring what the agent may
+reach is a configuration change, not itself a scan. `POST .../providers`
+defaults `is_default: true`: creating an organization's first provider
+both sets `Agent.default_provider_id` and `Agent.enabled = true` in the
+same request, closing the exact trap a two-step "create provider, then
+remember to separately enable the agent" flow would have reproduced. A
+new `_make_default`/`_clear_default` pair in the router is the single
+place that ever changes which provider is default, so `AgentProvider
+.is_default` (a denormalized display flag) and `Agent.default_provider_id`
+(what `_resolved_provider` actually reads) cannot drift apart, and at
+most one provider per organization is ever marked default.
+
+A new `AgentProvider.allowed_ip_ranges` column (JSON list of CIDR
+strings, migration `b6f1d84a2c19`) is threaded through `ProviderConfig`
+and into `platform_egress_context`'s `RulesOfEngagement.allowed_ip_ranges`
+— the same mechanism a scan target's own `RulesOfEngagement` already uses
+to authorize a private-network target, applied here to a provider
+endpoint for the first time. The cloud-metadata address stays blocked
+unconditionally regardless of this setting (`hostmatch.py`'s own
+`_METADATA_IPS` check ignores the allowlist entirely), so this closes a
+real functionality gap without opening the SSRF hole that check exists
+to prevent.
+
+### What this does not change
+
+- No CLI command for provider management — `aegis-ai`/`kervy-ai` has no
+  `agent` subcommand group at all today, so adding one only for
+  provisioning while the rest of agent operation has none would be scope
+  creep. Left for whenever agent CLI support is built generally.
+- No dashboard UI for provider configuration — matches every earlier
+  phase's "API-only, UI is a later phase" precedent.
+- `api_key_env_var` remains a variable *name*, never a value — this
+  endpoint set does not change how a provider's actual credential reaches
+  the process; that is still the deployment operator's own environment
+  configuration, unchanged from Agent Phase 1.
+
+### Verified
+
+`ruff check`/`mypy app` clean. New `tests/test_agent_provisioning.py`:
+creating a provider never returns a secret, creating a default provider
+enables the agent and clears `investigate`'s `409`, a second
+non-default provider does not replace the first, an invalid CIDR is
+rejected at write time (`422`), a local `openai_compatible` provider's
+`allowed_ip_ranges` survives the round trip into the actual `RunContext`
+`platform_egress_context` builds, updating `is_default` moves the agent's
+default provider, deleting the default provider leaves the agent
+unconfigured (not broken — `investigate` cleanly returns to `409`) rather
+than pointing at a row that no longer exists, provider listing is scoped
+to the caller's own organization, an unknown autonomy mode is rejected at
+write time, and a default-provider id from another organization is
+refused with `404`. RBAC and tenant isolation for all six routes are
+covered generically by `tests/security/test_authorization_matrix.py`
+(registered in `EXPECTED_ROLES`). Full backend suite run as the final
+gate before commit.

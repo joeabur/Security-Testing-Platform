@@ -83,6 +83,14 @@ class AgentProvider(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     api_key_env_var: Mapped[str | None] = mapped_column(String(128), nullable=True)
     is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # CIDR strings, same idiom and same default-deny reasoning as
+    # `RulesOfEngagement.allowed_ip_ranges` (app/core/scope/models.py):
+    # `GatedTransport` blocks loopback and RFC1918 ranges unless the operator
+    # explicitly listed them, and a self-hosted `openai_compatible` endpoint
+    # (Ollama, vLLM, llama.cpp) almost always lives at exactly such an
+    # address. Empty means only a public, non-private endpoint is reachable —
+    # the same secure-by-default posture a target's own RoE starts from.
+    allowed_ip_ranges: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
 
 
 class Agent(UUIDPrimaryKeyMixin, TimestampMixin, Base):

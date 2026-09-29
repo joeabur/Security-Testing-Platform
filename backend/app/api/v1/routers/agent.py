@@ -51,6 +51,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import ValidationError
 from sqlalchemy import select
 
+from app.audit.service import record_event
 from app.auth.dependencies import DbSession, effective_role, require_membership
 from app.core.agent.audit import record_tool_call
 from app.core.agent.context import AgentContext
@@ -66,12 +67,18 @@ from app.core.agent.session_store import (
 )
 from app.core.agent.tools.contract import RiskLevel, ToolExecutionError, ToolNotFoundError
 from app.core.agent.tools.registry import agent_tools, tools_by_name
+from app.core.assistant.autonomy import AutonomyMode
 from app.core.assistant.provider import ProviderError
 from app.core.integrations.dispatch import event_for_investigation
 from app.core.integrations.service import enqueue
 from app.models.agent import Agent, AgentProvider
 from app.models.organization import Membership, Role
 from app.schemas.agent import (
+    AgentProviderCreate,
+    AgentProviderRead,
+    AgentProviderUpdate,
+    AgentRead,
+    AgentUpdate,
     ApproveRequest,
     CallToolRequest,
     InvestigateRequest,
@@ -87,6 +94,253 @@ router = APIRouter(prefix="/organizations/{organization_id}/agent", tags=["agent
 _READER = require_membership(Role.VIEWER)
 _INVESTIGATOR = require_membership(Role.ANALYST)
 _APPROVER = require_membership(Role.SECURITY_ENGINEER)
+# Configuring which provider the agent calls, and whether it is enabled at
+# all, is the same tier as configuring a workflow's gate or a notification
+# channel: a change here decides what the agent may reach and with what
+# credentials, not something a lower tier should be able to widen.
+_CONFIG_ADMIN = require_membership(Role.ADMIN)
+# Reading that configuration (never the secret itself — only the env var
+# *name* is ever stored) is analyst tier, mirroring notification-channels:
+# the people relying on the agent should be able to see why it is or is not
+# configured without being able to change it.
+_CONFIG_READER = require_membership(Role.ANALYST)
+
+
+async def _load_agent(db: DbSession, organization_id: uuid.UUID) -> Agent | None:
+    return (
+        await db.execute(select(Agent).where(Agent.organization_id == organization_id))
+    ).scalar_one_or_none()
+
+
+async def _load_provider(
+    db: DbSession, organization_id: uuid.UUID, provider_id: uuid.UUID
+) -> AgentProvider:
+    provider = (
+        await db.execute(
+            select(AgentProvider).where(
+                AgentProvider.id == provider_id,
+                AgentProvider.organization_id == organization_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if provider is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="agent provider not found")
+    return provider
+
+
+async def _get_or_create_agent(db: DbSession, organization_id: uuid.UUID) -> Agent:
+    agent = await _load_agent(db, organization_id)
+    if agent is None:
+        agent = Agent(organization_id=organization_id, enabled=False)
+        db.add(agent)
+        await db.flush()
+    return agent
+
+
+async def _make_default(db: DbSession, organization_id: uuid.UUID, provider: AgentProvider) -> None:
+    """The single place that ever sets a provider as an org's default, so
+    `AgentProvider.is_default` (a denormalized display flag) and
+    `Agent.default_provider_id` (what `_resolved_provider` actually reads)
+    can never drift apart, and at most one provider per organization is
+    ever marked default at a time."""
+    others = await db.execute(
+        select(AgentProvider).where(
+            AgentProvider.organization_id == organization_id,
+            AgentProvider.id != provider.id,
+            AgentProvider.is_default.is_(True),
+        )
+    )
+    for other in others.scalars():
+        other.is_default = False
+    provider.is_default = True
+
+    agent = await _get_or_create_agent(db, organization_id)
+    agent.default_provider_id = provider.id
+    # A default provider with the agent left disabled would still 409 on
+    # every call — the same trap that made the agent unreachable before
+    # this endpoint existed. Making a provider the default is a clear
+    # enough signal of intent to enable the agent in the same step.
+    agent.enabled = True
+
+
+async def _clear_default(
+    db: DbSession, organization_id: uuid.UUID, provider: AgentProvider
+) -> None:
+    provider.is_default = False
+    agent = await _load_agent(db, organization_id)
+    if agent is not None and agent.default_provider_id == provider.id:
+        agent.default_provider_id = None
+
+
+@router.post(
+    "/providers", response_model=AgentProviderRead, status_code=status.HTTP_201_CREATED
+)
+async def create_agent_provider(
+    organization_id: uuid.UUID,
+    payload: AgentProviderCreate,
+    db: DbSession,
+    membership: Membership = Depends(_CONFIG_ADMIN),  # noqa: B008
+) -> AgentProvider:
+    provider = AgentProvider(
+        organization_id=organization_id,
+        name=payload.name,
+        kind=payload.kind,
+        endpoint=payload.endpoint,
+        model=payload.model,
+        api_key_env_var=payload.api_key_env_var,
+        allowed_ip_ranges=payload.allowed_ip_ranges,
+        is_default=False,
+    )
+    db.add(provider)
+    await db.flush()
+
+    if payload.is_default:
+        await _make_default(db, organization_id, provider)
+
+    await record_event(
+        db,
+        action="agent_provider.created",
+        resource_type="agent_provider",
+        resource_id=str(provider.id),
+        result="allow",
+        organization_id=organization_id,
+        user_id=membership.user_id,
+        metadata={"kind": provider.kind.value, "is_default": payload.is_default},
+    )
+    await db.commit()
+    await db.refresh(provider)
+    return provider
+
+
+@router.get("/providers", response_model=list[AgentProviderRead])
+async def list_agent_providers(
+    organization_id: uuid.UUID,
+    db: DbSession,
+    membership: Membership = Depends(_CONFIG_READER),  # noqa: B008
+) -> list[AgentProvider]:
+    result = await db.execute(
+        select(AgentProvider)
+        .where(AgentProvider.organization_id == organization_id)
+        .order_by(AgentProvider.name)
+    )
+    return list(result.scalars().all())
+
+
+@router.patch("/providers/{provider_id}", response_model=AgentProviderRead)
+async def update_agent_provider(
+    organization_id: uuid.UUID,
+    provider_id: uuid.UUID,
+    payload: AgentProviderUpdate,
+    db: DbSession,
+    membership: Membership = Depends(_CONFIG_ADMIN),  # noqa: B008
+) -> AgentProvider:
+    provider = await _load_provider(db, organization_id, provider_id)
+    fields = payload.model_dump(exclude_unset=True, exclude={"is_default"})
+    for field, value in fields.items():
+        setattr(provider, field, value)
+
+    if payload.is_default is True:
+        await _make_default(db, organization_id, provider)
+    elif payload.is_default is False:
+        await _clear_default(db, organization_id, provider)
+
+    await record_event(
+        db,
+        action="agent_provider.updated",
+        resource_type="agent_provider",
+        resource_id=str(provider.id),
+        result="allow",
+        organization_id=organization_id,
+        user_id=membership.user_id,
+        metadata={"fields": sorted(fields)},
+    )
+    await db.commit()
+    await db.refresh(provider)
+    return provider
+
+
+@router.delete("/providers/{provider_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_agent_provider(
+    organization_id: uuid.UUID,
+    provider_id: uuid.UUID,
+    db: DbSession,
+    membership: Membership = Depends(_CONFIG_ADMIN),  # noqa: B008
+) -> None:
+    provider = await _load_provider(db, organization_id, provider_id)
+    await record_event(
+        db,
+        action="agent_provider.deleted",
+        resource_type="agent_provider",
+        resource_id=str(provider.id),
+        result="allow",
+        organization_id=organization_id,
+        user_id=membership.user_id,
+        metadata={"name": provider.name},
+    )
+    # `agents.default_provider_id` is ON DELETE SET NULL, so a provider that
+    # was the org's default leaves the agent enabled-but-unconfigured rather
+    # than pointing at a row that no longer exists — the same clean failure
+    # `_resolved_provider` already handles (falls through to the 409).
+    await db.delete(provider)
+    await db.commit()
+
+
+@router.get("", response_model=AgentRead)
+async def get_agent(
+    organization_id: uuid.UUID,
+    db: DbSession,
+    membership: Membership = Depends(_CONFIG_READER),  # noqa: B008
+) -> Agent:
+    agent = await _load_agent(db, organization_id)
+    if agent is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            detail="the native agent has not been configured for this organization yet",
+        )
+    return agent
+
+
+@router.put("", response_model=AgentRead)
+async def put_agent(
+    organization_id: uuid.UUID,
+    payload: AgentUpdate,
+    db: DbSession,
+    membership: Membership = Depends(_CONFIG_ADMIN),  # noqa: B008
+) -> Agent:
+    if payload.default_provider_id is not None:
+        await _load_provider(db, organization_id, payload.default_provider_id)
+
+    # Validated here, not on the Pydantic schema: `app.core.assistant` is
+    # off limits to every module outside `app/core/assistant/`, `app/core/
+    # agent/`, and `app/api/` (tests/security/test_assistant_boundary.py),
+    # and `app/schemas/` is none of those.
+    try:
+        autonomy_mode = AutonomyMode.parse(payload.autonomy_mode)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+
+    agent = await _get_or_create_agent(db, organization_id)
+    agent.enabled = payload.enabled
+    agent.default_provider_id = payload.default_provider_id
+    agent.autonomy_mode = autonomy_mode.name.lower()
+
+    await record_event(
+        db,
+        action="agent.configured",
+        resource_type="agent",
+        resource_id=str(agent.id),
+        result="allow",
+        organization_id=organization_id,
+        user_id=membership.user_id,
+        metadata={
+            "enabled": agent.enabled,
+            "autonomy_mode": agent.autonomy_mode,
+            "has_default_provider": agent.default_provider_id is not None,
+        },
+    )
+    await db.commit()
+    await db.refresh(agent)
+    return agent
 
 
 async def _resolved_provider(db: DbSession, organization_id: uuid.UUID) -> AgentProvider | None:

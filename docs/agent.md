@@ -66,6 +66,53 @@ time. Every provider call — hosted or local — still goes through
 endpoint that resolves to cloud metadata is refused exactly as a scan
 target would be.
 
+`AgentProvider.allowed_ip_ranges` (CIDR strings) is what makes a *local*
+endpoint actually reachable: `GatedTransport` blocks loopback/RFC1918
+ranges by default (`app/core/scope/hostmatch.py`), the same as it does for
+a scan target, and a self-hosted Ollama/vLLM/llama.cpp server almost
+always lives at exactly such an address. Set it to the CIDR the endpoint
+actually resolves to (e.g. `127.0.0.1/32`, or the Docker network's own
+range) when creating the provider; leaving it empty means only a public
+address is reachable, which is the secure default. The cloud-metadata
+address is blocked unconditionally regardless of this setting — see
+`hostmatch.py`'s own comment for why that one has no override.
+
+#### Provisioning a provider
+
+Nothing above happens on its own: an organization's agent has to actually
+be pointed at a provider before `POST .../agent/investigate` will do
+anything but refuse with a `409` (`"the native agent is not enabled, or has
+no default provider configured, for this organization"`). Six endpoints on
+`app/api/v1/routers/agent.py` do that, admin tier to write and analyst
+tier to read (the same split `docs/workflows.md`'s own admin/security
+tiers use — configuring what the agent may reach is a configuration
+change, not a scan):
+
+| Method | Path | Role |
+|---|---|---|
+| `POST` | `.../agent/providers` | Admin |
+| `GET` | `.../agent/providers` | Analyst |
+| `PATCH` | `.../agent/providers/{provider_id}` | Admin |
+| `DELETE` | `.../agent/providers/{provider_id}` | Admin |
+| `GET` | `.../agent` | Analyst |
+| `PUT` | `.../agent` | Admin |
+
+`POST .../agent/providers` takes `is_default: bool` (default `true`):
+creating an organization's first provider both wires it in as
+`Agent.default_provider_id` *and* sets `Agent.enabled = true` in the same
+call, so provisioning a provider is genuinely one request, not "create the
+provider, then remember to separately enable the agent and set it as
+default" — a second admin-tier call `PUT .../agent` makes is only needed to
+change the autonomy mode or re-point the default later. `AgentProvider`'s
+own `is_default` column and `Agent.default_provider_id` are kept in sync
+by construction (`_make_default`/`_clear_default` in the router — at most
+one provider per organization is ever marked default), never left to
+drift. No response from any of these endpoints ever includes a secret:
+`api_key_env_var` is the *name* of an environment variable the deployment
+operator sets on the backend/worker process, read at call time
+(`ProviderConfig.resolve_key`) — the same discipline every other
+credential reference in this codebase follows.
+
 ### Tools: the only thing the AI can do
 
 A `Tool` (`app/core/agent/tools/contract.py`) is a frozen dataclass:

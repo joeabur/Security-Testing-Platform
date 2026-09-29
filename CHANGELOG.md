@@ -36,6 +36,27 @@ All notable changes to this project are recorded here. The format follows
 
 ### Added
 
+- **Native AI agent provider provisioning.** The agent engine (planner,
+  tool runtime, `POST /agent/investigate`) has existed since Agent Phase
+  5, but nothing could ever create an `AgentProvider` row for it —
+  `investigate` always refused with `409` and there was no endpoint, CLI
+  command, or UI anywhere to clear it. Six new endpoints on
+  `app/api/v1/routers/agent.py` close that gap: `POST`/`GET`/`PATCH`/
+  `DELETE .../agent/providers` and `GET`/`PUT .../agent` (admin tier to
+  write, analyst tier to read — never the secret itself, only an
+  `api_key_env_var` *name*). Creating a provider with `is_default: true`
+  (the default) wires it into `Agent.default_provider_id` and enables the
+  agent in the same call, so provisioning is one request, not several.
+  `AgentProvider.allowed_ip_ranges` (new column) is what makes the
+  `openai_compatible` local-provider path actually usable: it lets a
+  self-hosted Ollama/vLLM/llama.cpp endpoint at a private/loopback
+  address (`platform_egress_context` previously hardcoded an empty
+  allowlist, so `GatedTransport` refused every such endpoint outright)
+  authorize exactly the CIDR the operator explicitly configured it at,
+  the same `RulesOfEngagement.allowed_ip_ranges` mechanism a scan
+  target's own authorization already uses. See `docs/agent.md`
+  ("Provisioning a provider").
+
 - Social OAuth login (Google, GitHub) and self-service password reset.
   `User.password_hash` is now nullable for an OAuth-only account; a new
   `OAuthIdentity` table links `(provider, provider_user_id)` to a user —
