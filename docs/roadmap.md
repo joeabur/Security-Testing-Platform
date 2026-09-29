@@ -3614,3 +3614,160 @@ cluster re-run standalone as well as inside the full suite.
   the pentest-module Phase 1 note: `create_workflow` can store a
   `TriggerKind.SCHEDULE` workflow correctly, but nothing fires it on a
   schedule until Celery Beat exists (pentest-module Phase 8).
+
+## Social OAuth login and password reset
+
+### Context
+
+Requested directly: add SSO login and a forgot-password/reset-password
+capability. Scoped down to **social OAuth** (Google, GitHub) rather than
+enterprise SAML/OIDC — the two aren't the same feature wearing different
+names; SAML/OIDC federates identity from an organization's own IdP for
+enterprise SSO, while social OAuth is "log in with an account you already
+have" for individual signup. `docs/deployment.md`'s "What is not provided"
+still correctly says no enterprise SAML/OIDC exists.
+
+### Design
+
+The identity rule that shapes everything else: `OAuthIdentity` links
+`(provider, provider_user_id)` to a `User`, never email. A provider profile
+is matched against an existing account only by that pair; a callback whose
+email matches an existing password-only account refuses with `409` rather
+than linking — see `app/models/oauth.py`'s module docstring for why matching
+by email would be an account-takeover vector (a provider that does not
+itself verify email ownership would let anyone claim any address). This is
+the same disclosure `POST /auth/register`'s duplicate-email case already
+makes, applied at the same "creating a new account" moment.
+
+`User.password_hash` becomes nullable for an OAuth-only account. Every
+caller that reads it now checks for `None` first (`login`'s handler; there
+is no other reader).
+
+Both new external-facing pieces — OAuth token exchange/profile fetch, and
+the platform's password-reset email — go through this platform's
+established "platform egress" pattern (`app/core/vcs/egress.py`,
+`app/core/assistant/egress.py`, `app/core/integrations/egress.py`): a fresh
+`RunContext` per call, `allowed_domains` holding exactly the one host that
+call needs, through the sole `GatedTransport`. `app/core/oauth/egress.py`
+is the fourth instance. The password-reset email turned out to need no new
+egress module at all — `app/core/integrations/send.py::send_email` is
+already generic over its relay host/port/credentials and recipient list
+(the per-organization `NotificationChannel` binding lives one layer above
+it, in `app/core/integrations/service.py`, never inside `send_email`
+itself), so `app/core/password_reset_email.py` calls it directly with the
+platform's own `KERVY_PLATFORM_SMTP_*` settings.
+
+The OAuth authorization-code flow's CSRF protection is a single-use,
+Redis-backed state nonce (`app/core/oauth/state.py`) — the same
+fail-closed idiom `app/core/workflow/replay_guard.py` established for
+Phase 8's webhook replay protection, the eighth Redis-backed store in this
+codebase. It plays the role the anonymous CSRF token
+(`app/core/csrf/anon.py`) plays for `/auth/login`/`/auth/register`: there is
+no session yet to bind an ordinary token to, and a provider-issued redirect
+cannot carry a custom header.
+
+Password reset: `PasswordResetToken` follows `ApiKey`'s own secret-handling
+shape exactly — 256 bits of CSPRNG output, SHA-256 digest stored, plaintext
+shown/emailed once. A successful reset sets `tokens_valid_after` and revokes
+every `UserSession` row, the identical "log out everywhere" cutover
+`/auth/logout-all` uses — a password reset is exactly the "I think this
+account was compromised" case that mechanism exists for. `forgot-password`
+is always `202`, whether or not the address is registered, has no local
+password, or the platform has no mail relay configured — the same
+non-enumerating shape as login's generic "invalid email or password".
+
+`forgot-password` and `reset-password` were added to CSRF's `EXEMPT_PATHS`
+rather than `ANONYMOUS_CSRF_PATHS` — a real distinction, not a shortcut.
+`login`/`register` need the anonymous token because they establish a
+session an attacker could hijack via login-CSRF; `forgot-password` and
+`reset-password` never read the caller's session at all (their entire
+authority is their own request body — an email address, or a bearer token
+plus a new password), so a forged request achieves nothing a direct call
+would not already achieve. Caught in testing, not by design review: the
+first test run failed with `403` because the shared test client already
+carried a session cookie from an earlier `register()` call in the same
+test — a real scenario (a logged-in person using forgot-password from an
+authenticated tab), not a test artifact to work around.
+
+### What was deliberately not built
+
+- **No account linking UI.** An existing password account and a later OAuth
+  sign-in with the same email do not merge — the callback refuses instead.
+  Deliberate for this pass (see the identity-rule reasoning above); a
+  "link this OAuth identity to my existing account" authenticated flow is a
+  reasonable follow-up but a distinct feature with its own confirmation
+  step, not assumed here.
+- **No enterprise SAML/OIDC.** Scoped out at the start; see Context above.
+- **No "remember this device" or session-length distinction** between a
+  password login and an OAuth login — both issue the same session shape.
+
+### Verified
+
+`ruff check`/`mypy app` clean. Targeted suite (`test_oauth.py`,
+`test_password_reset.py`, `test_auth.py`, `test_csrf.py`,
+`test_rate_limit.py`, `test_authorization_matrix.py`): 324 passed, 2
+skipped. OAuth's outbound calls never touch a real network in tests: a
+`FakeDnsResolver` satisfies the scope engine's allowlist check and `respx`
+replaces the actual socket, the same two-part substitution
+`tests/test_assistant_api.py::_worker_transport` established for the AI
+lab fixture. Full backend suite run as the final gate before commit.
+
+## Membership control: close the owner-grant gap
+
+### Context
+
+Asked directly to confirm that an organization's owner has full
+administrative and membership control, without global system privileges or
+cross-tenant access. Cross-tenant isolation and "no global privileges" were
+already true (guarantee #12, #26 — RLS plus `require_membership`'s 404-not-
+403). Membership control was not: `app/api/v1/routers/organizations.py` had
+only `invite_member` — no way to remove a member or change an existing
+member's role existed at all, regardless of who was asking. And
+`invite_member`'s `Role.ADMIN` minimum meant an Admin, not just an Owner,
+could grant `Role.OWNER` to anyone, including an account they control —
+a real privilege-escalation path, not a hypothetical one, since `Role.OWNER`
+is the single most senior role in `seniority_order()` and nothing above it
+exists to check the grant.
+
+### Design
+
+Two new endpoints, `PATCH` and `DELETE` on
+`/organizations/{organization_id}/members/{member_id}`, both `Role.ADMIN`
+minimum like `invite_member` — an Admin can still manage ordinary
+membership day to day. The carve-out: any operation that grants, changes
+away from, or removes `Role.OWNER` additionally requires the caller's own
+membership to already be `Role.OWNER` (`membership.role.at_least(Role.OWNER)`,
+true only for an owner, since owner is index 0 in `seniority_order`). The
+same check was added retroactively to `invite_member` for the grant side of
+this — the endpoint already existed but the gap was in what it permitted,
+not a missing route.
+
+An organization's last remaining owner cannot be demoted or removed at all,
+even by another owner — refused with `409`, not merely discouraged. Without
+that rail, the *last* owner-only check would still pass (they are an owner,
+demoting/removing themselves), and the organization would be left with no
+one able to perform an owner-only action ever again, including undoing the
+mistake. `_owner_count()` is a single `COUNT(*) WHERE role = 'owner'` scoped
+to the organization, checked before the write, never after.
+
+### What this does not change
+
+- Ordinary role changes (viewer ↔ analyst ↔ security_engineer ↔ admin) stay
+  `Role.ADMIN` minimum, unchanged from `invite_member`'s existing bar.
+- No self-service "leave organization" distinct from the new `DELETE`
+  endpoint — a member removing their own membership uses the same route an
+  admin would, and is subject to the same last-owner rule if they happen to
+  be it.
+- No organization deletion or rename endpoint — out of scope for this pass,
+  unchanged from before.
+
+### Verified
+
+`ruff check`/`mypy app` clean. New tests in `tests/test_organizations.py`:
+admin cannot grant or revoke owner, owner can change a member's role, the
+last owner cannot be demoted or removed, a second owner can then be
+demoted, admin can remove a non-owner member, and removing a member by id
+from another organization is 404 (not 403, not silently ignored — the same
+non-disclosure every other cross-tenant path in this platform uses).
+`tests/security/test_authorization_matrix.py` updated with both new
+routes. Full backend suite run as the final gate before commit.

@@ -57,10 +57,19 @@ FORM_FIELD = "csrf_token"
 #: it is a `GET`, so `requires_token` never reaches this list for it anyway,
 #: but it is named here for the same reason the others are: so the exemption
 #: is a fact about the route, not an accident of method.
+#: `forgot-password` and `reset-password` never read the caller's session —
+#: unlike every other exemption below, a request to either can arrive from a
+#: browser with **no** cookie at all (that is the normal case: a person who
+#: forgot their password is not logged in). Both take their entire authority
+#: from their own body (an email address; a bearer token plus a new
+#: password), so a forged request achieves nothing a direct call to the
+#: endpoint would not already achieve — there is no victim session to ride.
 EXEMPT_PATHS = frozenset(
     {
         "/api/v1/auth/logout",
         "/api/v1/auth/csrf",
+        "/api/v1/auth/forgot-password",
+        "/api/v1/auth/reset-password",
     }
 )
 

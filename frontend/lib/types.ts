@@ -1,10 +1,20 @@
-export type Role = "owner" | "admin" | "security_engineer" | "analyst" | "viewer";
+export type Role =
+  | "owner"
+  | "admin"
+  | "security_engineer"
+  | "analyst"
+  | "viewer";
 
 export interface User {
   id: string;
   email: string;
   full_name: string;
   is_active: boolean;
+}
+
+export interface OAuthProviders {
+  google: boolean;
+  github: boolean;
 }
 
 export interface Organization {
@@ -150,7 +160,11 @@ export interface Repository {
   latest_scan: RepositoryScanSummary | null;
 }
 
-export type WorkflowTriggerKind = "repository_change" | "pull_request" | "schedule" | "manual";
+export type WorkflowTriggerKind =
+  | "repository_change"
+  | "pull_request"
+  | "schedule"
+  | "manual";
 
 export interface Workflow {
   id: string;

@@ -36,6 +36,25 @@ All notable changes to this project are recorded here. The format follows
 
 ### Added
 
+- Social OAuth login (Google, GitHub) and self-service password reset.
+  `User.password_hash` is now nullable for an OAuth-only account; a new
+  `OAuthIdentity` table links `(provider, provider_user_id)` to a user —
+  never by email, so a provider profile can never silently take over an
+  existing password account (a matching email on an unlinked account
+  refuses with `409`, same as a duplicate registration). New endpoints:
+  `GET /auth/oauth/providers`, `GET /auth/oauth/{provider}/authorize`,
+  `GET /auth/oauth/{provider}/callback`, `POST /auth/forgot-password`,
+  `POST /auth/reset-password`. Password reset is a single-use, SHA-256-
+  digested `PasswordResetToken` (mirroring `ApiKey`'s own secret-handling
+  shape) that, on success, invalidates every existing session the same
+  way `/auth/logout-all` does. Both OAuth token exchange and the
+  platform's own password-reset email go through the same
+  `RunContext`/`GatedTransport` scope-engine pattern every other outbound
+  destination in this platform uses (`app/core/oauth/egress.py`), scoped
+  to exactly the one host each call needs. Both features are off by
+  default and require explicit configuration — see
+  `docs/configuration.md`.
+
 - Pentest module, Phase 10 (security operations dashboard): a new
   `GET /organizations/{id}/dashboard/summary` endpoint (`Role.VIEWER`)
   and an org-wide overview page in the Next.js frontend — open findings
@@ -235,6 +254,21 @@ All notable changes to this project are recorded here. The format follows
   Google Search Console submission steps.
 
 ### Fixed
+
+- **Membership management was missing half its verbs, and the half that
+  existed had a privilege-escalation gap.** There was no way to remove a
+  member or change an existing member's role at all — only
+  `POST /organizations/{id}/members` (invite) existed. Added
+  `PATCH .../members/{member_id}` (change role) and
+  `DELETE .../members/{member_id}` (remove), both `Role.ADMIN` minimum.
+  The gap: `invite_member`'s `Role.ADMIN` minimum let an Admin grant
+  `Role.OWNER` to anyone, including an account they control — owner is the
+  single most senior role, and nothing should be able to mint one except an
+  existing one. All three endpoints now require the caller to already be an
+  owner before any operation that grants, changes, or removes `Role.OWNER`;
+  an organization's last remaining owner additionally can never be demoted
+  or removed, refused with `409` rather than merely discouraged. See
+  `docs/security-model.md` guarantee #33.
 
 - `target_kind_enum` was missing `WEB_APP` on any database built by running
   the migrations in order — only `Base.metadata.create_all()` (used by the

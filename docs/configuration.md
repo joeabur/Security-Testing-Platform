@@ -76,6 +76,41 @@ outbound destination is an operator decision.
 |---|---|
 | `KERVY_VCS_ALLOWED_HOSTS` | JSON list, for GitHub Enterprise only. `api.github.com` is pinned in code |
 
+## Social OAuth login (optional)
+
+Leave a provider's client id/secret unset and its button never appears —
+`GET /api/v1/auth/oauth/providers` reports it as unavailable, and its
+`/authorize`/`/callback` routes 404 rather than half-working. The client
+*secret* is never a setting: only the name of the environment variable
+holding it is, read fresh at call time the same way `AI_API_KEY_ENV_VAR` is.
+
+| Variable | Notes |
+|---|---|
+| `GOOGLE_OAUTH_CLIENT_ID` | From the Google Cloud Console OAuth client |
+| `GOOGLE_OAUTH_CLIENT_SECRET_ENV_VAR` | Name of the variable holding the secret |
+| `GITHUB_OAUTH_CLIENT_ID` | From a GitHub OAuth App |
+| `GITHUB_OAUTH_CLIENT_SECRET_ENV_VAR` | Name of the variable holding the secret |
+| `KERVY_OAUTH_CALLBACK_BASE_URL` | This backend's own externally-reachable origin — where a provider redirects back to. Required for either provider to work; distinct from `KERVY_PUBLIC_BASE_URL` below, which is the frontend's |
+
+Register `{KERVY_OAUTH_CALLBACK_BASE_URL}/api/v1/auth/oauth/google/callback`
+(and the `github` equivalent) as the provider's own allowed redirect URI —
+it refuses any other.
+
+## Password reset (optional)
+
+Leave `KERVY_PLATFORM_SMTP_HOST` unset and `POST /auth/forgot-password`
+still answers 202 (never disclosing whether an address is registered — see
+`docs/security-model.md`), but issues no token and sends no mail.
+
+| Variable | Notes |
+|---|---|
+| `KERVY_PLATFORM_SMTP_HOST` | The platform's own outbound relay — distinct from any per-organization notification channel |
+| `KERVY_PLATFORM_SMTP_PORT` | Default `587` |
+| `KERVY_PLATFORM_SMTP_FROM_ADDRESS` | Required alongside the host |
+| `KERVY_PLATFORM_SMTP_USERNAME` | Optional |
+| `KERVY_PLATFORM_SMTP_PASSWORD_ENV_VAR` | Name of the variable holding the password, not the value itself |
+| `KERVY_PASSWORD_RESET_TOKEN_TTL_MINUTES` | Default `30` |
+
 ## Frontend
 
 | Variable | Notes |

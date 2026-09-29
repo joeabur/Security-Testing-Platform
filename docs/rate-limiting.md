@@ -11,9 +11,21 @@ most likely to matter first in a real deployment.
 | `POST /auth/login` | per identity | 10 failures / 15 min |
 | `POST /auth/login` | per IP | 60 failures / 15 min |
 | `POST /auth/register` | per IP | 10 / hour |
+| `GET /auth/oauth/{provider}/callback` | per IP | 30 / hour |
+| `POST /auth/forgot-password` | per IP | 10 / hour |
 
-An attempt consumes from **both** dimensions, because either alone is
-bypassable. Per-IP alone falls to a botnet — a thousand hosts making three
+`forgot-password` and the OAuth callback are IP-only, for a reason distinct
+from "the per-IP budget is enough": neither has an identity to key a second
+bucket on without breaking its own non-enumeration property.
+`forgot-password` never looks up the address until *after* the budget is
+already charged — same ordering as `login`, for the same reason — so there is
+nothing to key an identity dimension on that would not itself leak whether
+the address exists. The callback's "identity" is a one-time authorization
+code, never reused, so an identity bucket on it would never accumulate
+anything.
+
+Every other listed route consumes from **both** dimensions, because either
+alone is bypassable. Per-IP alone falls to a botnet — a thousand hosts making three
 attempts each against one account is a thousand times the budget. Per-identity
 alone falls to spraying — one host trying one common password against ten
 thousand accounts never exceeds any account's budget.

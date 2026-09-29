@@ -1,13 +1,19 @@
 import { z } from "zod";
 
 export const loginSchema = z.object({
-  email: z.string().min(1, "Email is required").email("Enter a valid email address"),
+  email: z
+    .string()
+    .min(1, "Email is required")
+    .email("Enter a valid email address"),
   password: z.string().min(1, "Password is required"),
 });
 export type LoginInput = z.infer<typeof loginSchema>;
 
 export const registerSchema = z.object({
-  email: z.string().min(1, "Email is required").email("Enter a valid email address"),
+  email: z
+    .string()
+    .min(1, "Email is required")
+    .email("Enter a valid email address"),
   full_name: z.string().min(1, "Name is required").max(200),
   password: z
     .string()
@@ -15,6 +21,28 @@ export const registerSchema = z.object({
     .max(200, "Password is too long"),
 });
 export type RegisterInput = z.infer<typeof registerSchema>;
+
+export const forgotPasswordSchema = z.object({
+  email: z
+    .string()
+    .min(1, "Email is required")
+    .email("Enter a valid email address"),
+});
+export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>;
+
+export const resetPasswordSchema = z
+  .object({
+    new_password: z
+      .string()
+      .min(12, "Password must be at least 12 characters")
+      .max(200, "Password is too long"),
+    confirm_password: z.string().min(1, "Confirm your new password"),
+  })
+  .refine((value) => value.new_password === value.confirm_password, {
+    message: "Passwords do not match",
+    path: ["confirm_password"],
+  });
+export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
 
 export const createOrganizationSchema = z.object({
   name: z.string().min(1, "Organization name is required").max(200),
@@ -46,7 +74,10 @@ export const createRepositorySchema = z.object({
   url: z.string().min(1, "Repository URL is required").max(2048),
   branch: z.string().max(200).optional(),
   authorized: z.literal(true, {
-    errorMap: () => ({ message: "You must affirm you have the right to have this repository scanned" }),
+    errorMap: () => ({
+      message:
+        "You must affirm you have the right to have this repository scanned",
+    }),
   }),
 });
 export type CreateRepositoryInput = z.infer<typeof createRepositorySchema>;
@@ -77,7 +108,10 @@ export const authorizationGrantSchema = z
   .object({
     authorized_by_name: z.string().min(1, "Required").max(200),
     authorized_by_role: z.string().min(1, "Required").max(100),
-    authorized_by_email: z.string().min(1, "Required").email("Enter a valid email address"),
+    authorized_by_email: z
+      .string()
+      .min(1, "Required")
+      .email("Enter a valid email address"),
     reference: z.string().min(1, "Required").max(500),
     valid_from: z.string().min(1, "Required"),
     valid_until: z.string().min(1, "Required"),
@@ -92,7 +126,9 @@ export const startRunSchema = z.object({
   profile: z.enum(["connectivity", "quick", "full"]),
   safe_mode: z.boolean(),
   authorization_confirmed: z.literal(true, {
-    errorMap: () => ({ message: "You must confirm you are authorized to run this assessment" }),
+    errorMap: () => ({
+      message: "You must confirm you are authorized to run this assessment",
+    }),
   }),
 });
 export type StartRunInput = z.infer<typeof startRunSchema>;
@@ -100,7 +136,12 @@ export type StartRunInput = z.infer<typeof startRunSchema>;
 export const createWorkflowSchema = z.object({
   name: z.string().min(1, "Name is required").max(120),
   target_id: z.string().min(1, "Choose a target"),
-  trigger_kind: z.enum(["repository_change", "pull_request", "schedule", "manual"]),
+  trigger_kind: z.enum([
+    "repository_change",
+    "pull_request",
+    "schedule",
+    "manual",
+  ]),
   enabled: z.boolean(),
 });
 export type CreateWorkflowInput = z.infer<typeof createWorkflowSchema>;

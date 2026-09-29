@@ -46,6 +46,8 @@ test_engine = create_async_engine(settings.database_url)
 TestSessionLocal = async_sessionmaker(bind=test_engine, expire_on_commit=False, class_=AsyncSession)
 
 _TABLES = [
+    "password_reset_tokens",
+    "oauth_identities",
     "user_sessions",
     "ai_drafts",
     "pull_request_posts",

@@ -36,6 +36,11 @@ dependencies = [
     # documented drop-in replacement, already present transitively but now
     # imported directly.
     "defusedxml>=0.7",
+    # RFC 6238 TOTP for two-factor login (app/core/twofactor/totp.py). A
+    # narrow, widely-used implementation of one HMAC-based algorithm, used
+    # in preference to hand-rolling it the way this project avoids
+    # hand-rolling any other primitive built on `cryptography`/`argon2-cffi`.
+    "pyotp>=2.9",
 ]
 
 [project.optional-dependencies]

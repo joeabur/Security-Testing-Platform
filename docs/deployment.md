@@ -118,7 +118,9 @@ un-migrated database is the failure mode to avoid.
   an illustrative, unexercised sketch, not a shipped one.
 - No Terraform.
 - No multi-region or HA guidance beyond "run more replicas".
-- No SSO/SAML/OIDC — local accounts only.
+- No enterprise SAML/OIDC SSO. Social OAuth login (Google, GitHub) is
+  supported and optional — `docs/configuration.md`'s "Social OAuth login"
+  section.
 - No backup tooling; use your database's.
 - `docker compose up --build` is written but **unverified** (see
   `docs/installation.md`), so treat the compose path as a starting point rather

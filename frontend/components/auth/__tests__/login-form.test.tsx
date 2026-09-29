@@ -15,6 +15,8 @@ vi.mock("@/lib/api-client", () => ({
 
 import { LoginForm } from "@/components/auth/login-form";
 
+const noProviders = { google: false, github: false };
+
 describe("LoginForm", () => {
   beforeEach(() => {
     pushMock.mockReset();
@@ -23,7 +25,7 @@ describe("LoginForm", () => {
   });
 
   it("shows a validation error for an invalid email without calling the API", async () => {
-    render(<LoginForm />);
+    render(<LoginForm providers={noProviders} />);
 
     fireEvent.change(screen.getByLabelText(/email/i), { target: { value: "not-an-email" } });
     fireEvent.change(screen.getByLabelText(/password/i), { target: { value: "secret" } });
@@ -35,7 +37,7 @@ describe("LoginForm", () => {
 
   it("submits valid credentials and redirects to the dashboard", async () => {
     fetchMock.mockResolvedValueOnce({ user: { email: "user@example.test" } });
-    render(<LoginForm />);
+    render(<LoginForm providers={noProviders} />);
 
     fireEvent.change(screen.getByLabelText(/email/i), { target: { value: "user@example.test" } });
     fireEvent.change(screen.getByLabelText(/password/i), { target: { value: "secret" } });

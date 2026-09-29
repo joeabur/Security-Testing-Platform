@@ -62,6 +62,27 @@ logger = structlog.get_logger()
 LOGIN_IDENTITY = Rule(name="login", dimension=Dimension.IDENTITY, limit=10, window_seconds=15 * 60)
 LOGIN_IP = Rule(name="login", dimension=Dimension.IP, limit=60, window_seconds=15 * 60)
 REGISTER_IP = Rule(name="register", dimension=Dimension.IP, limit=10, window_seconds=60 * 60)
+# A TOTP code is only 10^6 possibilities and every attempt is a guess against
+# whichever challenge the caller is holding, so this is tighter than LOGIN's
+# own password budget on purpose — the same shape as AGENT_SENSITIVE, applied
+# to the one step that stands between a correct password and a session.
+LOGIN_2FA_IDENTITY = Rule(
+    name="login_2fa", dimension=Dimension.IDENTITY, limit=10, window_seconds=15 * 60
+)
+# Unauthenticated and, unlike login, discloses nothing to key a per-identity
+# budget on ahead of a DB lookup — `forgot-password` never reveals whether an
+# address is registered, so IP is the only dimension available here.
+FORGOT_PASSWORD_IP = Rule(
+    name="forgot_password", dimension=Dimension.IP, limit=10, window_seconds=60 * 60
+)
+# Bounds how many token-exchange calls an IP can force this server to make
+# against a provider with a bad `code` — each attempt costs a real outbound
+# request even when it is certain to fail. Higher than REGISTER_IP: a
+# legitimate user bouncing back from a cancelled consent screen a few times
+# is normal, not an attack.
+OAUTH_CALLBACK_IP = Rule(
+    name="oauth_callback", dimension=Dimension.IP, limit=30, window_seconds=60 * 60
+)
 # Registered ahead of need: no route calls `check("agent_tool_call", ...)`
 # yet (the agent's own API surface lands in a later phase), but the policy
 # entry is added alongside the tool registry it bounds rather than as an
@@ -84,6 +105,9 @@ AGENT_SENSITIVE_TOOL_CALL_IDENTITY = Rule(
 POLICY: dict[str, tuple[Rule, ...]] = {
     "login": (LOGIN_IDENTITY, LOGIN_IP),
     "register": (REGISTER_IP,),
+    "login_2fa": (LOGIN_2FA_IDENTITY,),
+    "forgot_password": (FORGOT_PASSWORD_IP,),
+    "oauth_callback": (OAUTH_CALLBACK_IP,),
     "agent_tool_call": (AGENT_TOOL_CALL_IDENTITY,),
     "agent_sensitive_tool_call": (AGENT_SENSITIVE_TOOL_CALL_IDENTITY,),
 }

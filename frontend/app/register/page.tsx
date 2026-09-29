@@ -4,8 +4,15 @@ import { ShieldCheck } from "lucide-react";
 
 import { RegisterForm } from "@/components/auth/register-form";
 import { ThemeToggle } from "@/components/nav/theme-toggle";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { isAuthenticated } from "@/lib/api-server";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card";
+import { isAuthenticated, serverApiFetch } from "@/lib/api-server";
+import type { OAuthProviders } from "@/lib/types";
 
 export const metadata: Metadata = { title: "Register — Kervy Security" };
 
@@ -13,6 +20,10 @@ export default async function RegisterPage() {
   if (await isAuthenticated()) {
     redirect("/dashboard");
   }
+
+  const providers = await serverApiFetch<OAuthProviders>(
+    "/auth/oauth/providers",
+  ).catch(() => ({ google: false, github: false }) satisfies OAuthProviders);
 
   return (
     <main className="bg-hero-fade relative flex min-h-screen flex-col items-center justify-center gap-6 px-4 py-12">
@@ -23,17 +34,20 @@ export default async function RegisterPage() {
         <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-elevated">
           <ShieldCheck className="h-5 w-5" aria-hidden />
         </span>
-        <span className="text-xl font-semibold tracking-tight">Kervy Security</span>
+        <span className="text-xl font-semibold tracking-tight">
+          Kervy Security
+        </span>
       </div>
       <Card className="w-full max-w-sm animate-fade-up shadow-elevated">
         <CardHeader>
           <CardTitle>Create an account</CardTitle>
           <CardDescription>
-            For authorized security assessment of Generative AI applications only.
+            For authorized security assessment of Generative AI applications
+            only.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <RegisterForm />
+          <RegisterForm providers={providers} />
         </CardContent>
       </Card>
     </main>

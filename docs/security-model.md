@@ -44,6 +44,9 @@ being true. Most are both.
 | 28 | The AI layer retains nothing for later use | Every provider call is single-shot; only platform-owned, audited rows (`AiDraft`, evidence bundles) persist anything, for a human to review and accept — never a store the AI itself reads back on a later call, run, or organization — `docs/guardrails.md` §1.1 |
 | 29 | The native agent cannot act beyond the caller's own role and tenant | Every tool call runs under an `AgentContext` built from the same role-ceiling logic `require_membership` enforces at the HTTP boundary; a `SENSITIVE` tool additionally requires an explicit, separately-authorized approval that no role or autonomy setting can substitute for — `app/core/agent/permissions.py`, `docs/agent.md` |
 | 30 | The native agent persists no conversation, prompt, response, or tool output | Five closed tables (`Agent`, `AgentProvider`, `AgentTool`, `AgentConfiguration`, `AgentUsageMetadata`) hold configuration and non-content metrics only, pinned by a closed-table-set test and a column-allowlist test; the only content that ever reaches Redis is a paused investigation's plan and state, key-expired at 30 minutes and read fail-closed — `app/models/agent.py`, `app/core/agent/session_store.py`, `docs/agent.md` |
+| 31 | A social login cannot silently take over an existing password account | Identity is matched only by `(provider, provider_user_id)`, never by email; a callback whose email matches an existing account refuses with `409`, the same non-enumerating-at-registration shape `POST /auth/register`'s duplicate-email case already uses — `app/models/oauth.py`, `app/api/v1/routers/auth.py::oauth_callback` |
+| 32 | A password reset token is single-use, short-lived, and invalidates every existing session | Stored as a SHA-256 digest, never the plaintext; a successful reset sets `tokens_valid_after` and revokes every `UserSession` row, the same "log out everywhere" cutover `/auth/logout-all` uses — `app/models/password_reset.py` |
+| 33 | Only an existing owner can grant, change, or remove another owner | `invite_member`, `update_member_role`, and `remove_member` all check `Role.at_least(Role.OWNER)` before any operation that touches `Role.OWNER`, so an Admin — despite having every other membership-management permission — cannot mint a co-owner or demote one; an organization's last remaining owner additionally cannot be demoted or removed at all, refused with `409`, so an organization can never end up with no one able to perform an owner-only action — `app/api/v1/routers/organizations.py` |
 
 ## The habit behind the tests
 
@@ -72,8 +75,10 @@ checked.
 - **Append-only is by construction, not by grant.** Revoking `UPDATE`/`DELETE`
   on `audit_logs` at the database level is recommended and not enforced.
 - **Evidence is unencrypted at rest.**
-- **Rate limiting covers only `login`/`register`.** Authenticated routes rely
-  on RBAC instead — see `docs/rate-limiting.md` §"What is not limited".
+- **Rate limiting covers `login`/`register` and, since social OAuth login and
+  password reset, `oauth_callback`/`forgot_password` too.** Authenticated
+  routes rely on RBAC instead — see `docs/rate-limiting.md` §"What is not
+  limited".
 
 `docs/security-review.md` carries the full self-review, including how each
 control was verified and what is not covered.

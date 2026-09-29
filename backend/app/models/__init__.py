@@ -25,7 +25,9 @@ from app.models.integration import (
     NotificationChannel,
     NotificationDelivery,
 )
+from app.models.oauth import OAuthIdentity, OAuthProvider
 from app.models.organization import Membership, Organization, Role
+from app.models.password_reset import PasswordResetToken
 from app.models.remediation import RemediationTask
 from app.models.retest import RetestResult, RetestVerdict
 from app.models.rules_of_engagement import RulesOfEngagementRecord
@@ -53,6 +55,9 @@ __all__ = [
     "DeliveryStatus",
     "NotificationChannel",
     "NotificationDelivery",
+    "OAuthIdentity",
+    "OAuthProvider",
+    "PasswordResetToken",
     "ApiKeyScope",
     "ApiKey",
     "AssetKind",

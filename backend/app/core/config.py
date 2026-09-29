@@ -178,6 +178,70 @@ class Settings(BaseSettings):
             )
         return key
 
+    # --- social OAuth login (Google, GitHub) -------------------------------
+    # A provider is enabled only when both its client id and its client
+    # secret's *env var name* are set — the same "absent means the whole
+    # feature is off" shape as the AI layer above. The secret itself is never
+    # a Settings field: it is read fresh from `os.environ` at call time
+    # (`app/core/auth/oauth_providers.py`), the same indirection
+    # `ai_api_key_env_var` uses, so it is never captured into this cached,
+    # long-lived object.
+    google_oauth_client_id: str | None = Field(default=None, alias="GOOGLE_OAUTH_CLIENT_ID")
+    google_oauth_client_secret_env_var: str | None = Field(
+        default=None, alias="GOOGLE_OAUTH_CLIENT_SECRET_ENV_VAR"
+    )
+    github_oauth_client_id: str | None = Field(default=None, alias="GITHUB_OAUTH_CLIENT_ID")
+    github_oauth_client_secret_env_var: str | None = Field(
+        default=None, alias="GITHUB_OAUTH_CLIENT_SECRET_ENV_VAR"
+    )
+    #: This backend's own externally-reachable origin, used to build the
+    #: `redirect_uri` a provider sends the browser back to
+    #: (`{oauth_callback_base_url}/api/v1/auth/oauth/{provider}/callback`).
+    #: Deliberately separate from `public_base_url` above: that one is the
+    #: *frontend's* origin (where a human ends up after the round trip);
+    #: this one is the API's own, which is a different origin in every
+    #: deployment this project documents.
+    oauth_callback_base_url: str | None = Field(
+        default=None, alias="KERVY_OAUTH_CALLBACK_BASE_URL"
+    )
+
+    # --- password reset -----------------------------------------------------
+    password_reset_token_ttl_minutes: int = Field(
+        default=30, alias="KERVY_PASSWORD_RESET_TOKEN_TTL_MINUTES"
+    )
+    #: The platform's own outbound mail relay, for a reset link — distinct
+    #: from `app/core/integrations/send.py`'s `send_email`, which is bound to
+    #: a per-organization `NotificationChannel` destination an admin
+    #: configured. A password reset has no organization in scope yet (the
+    #: caller has only proven they can read an inbox), so it needs one fixed,
+    #: operator-configured relay instead. Absent means the feature is
+    #: disabled: `POST /auth/forgot-password` still returns its
+    #: non-enumerating 202 (so the endpoint's existence never leaks whether
+    #: reset is configured), but no mail is sent and no token is issued.
+    platform_smtp_host: str | None = Field(default=None, alias="KERVY_PLATFORM_SMTP_HOST")
+    platform_smtp_port: int = Field(default=587, alias="KERVY_PLATFORM_SMTP_PORT")
+    platform_smtp_from_address: str | None = Field(
+        default=None, alias="KERVY_PLATFORM_SMTP_FROM_ADDRESS"
+    )
+    platform_smtp_username: str | None = Field(default=None, alias="KERVY_PLATFORM_SMTP_USERNAME")
+    #: Name of the env var holding the SMTP password, not the value — same
+    #: indirection as the OAuth client secrets above.
+    platform_smtp_password_env_var: str | None = Field(
+        default=None, alias="KERVY_PLATFORM_SMTP_PASSWORD_ENV_VAR"
+    )
+
+    @property
+    def google_oauth_enabled(self) -> bool:
+        return bool(self.google_oauth_client_id and self.google_oauth_client_secret_env_var)
+
+    @property
+    def github_oauth_enabled(self) -> bool:
+        return bool(self.github_oauth_client_id and self.github_oauth_client_secret_env_var)
+
+    @property
+    def password_reset_enabled(self) -> bool:
+        return bool(self.platform_smtp_host and self.platform_smtp_from_address)
+
     def model_post_init(self, __context: object) -> None:
         if (
             self.environment == "production"

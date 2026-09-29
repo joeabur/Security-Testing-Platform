@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { ShieldCheck } from "lucide-react";
 
-import { LoginForm } from "@/components/auth/login-form";
+import { ForgotPasswordForm } from "@/components/auth/forgot-password-form";
 import { ThemeToggle } from "@/components/nav/theme-toggle";
 import {
   Card,
@@ -11,27 +11,14 @@ import {
   CardTitle,
   CardDescription,
 } from "@/components/ui/card";
-import { isAuthenticated, serverApiFetch } from "@/lib/api-server";
-import type { OAuthProviders } from "@/lib/types";
+import { isAuthenticated } from "@/lib/api-server";
 
-export const metadata: Metadata = { title: "Sign in — Kervy Security" };
+export const metadata: Metadata = { title: "Forgot password — Kervy Security" };
 
-export default async function LoginPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ oauth_error?: string }>;
-}) {
+export default async function ForgotPasswordPage() {
   if (await isAuthenticated()) {
     redirect("/dashboard");
   }
-
-  // Unauthenticated GET, so this never throws for a caller with no session —
-  // still guarded, since a provider outage or a misconfigured backend should
-  // degrade to "no OAuth buttons" rather than break the whole login page.
-  const providers = await serverApiFetch<OAuthProviders>(
-    "/auth/oauth/providers",
-  ).catch(() => ({ google: false, github: false }) satisfies OAuthProviders);
-  const { oauth_error: oauthError } = await searchParams;
 
   return (
     <main className="bg-hero-fade relative flex min-h-screen flex-col items-center justify-center gap-6 px-4 py-12">
@@ -48,13 +35,14 @@ export default async function LoginPage({
       </div>
       <Card className="w-full max-w-sm animate-fade-up shadow-elevated">
         <CardHeader>
-          <CardTitle>Sign in</CardTitle>
+          <CardTitle>Forgot your password?</CardTitle>
           <CardDescription>
-            Access your organization&apos;s assessments and findings.
+            Enter the email on your account and we&apos;ll send you a reset
+            link.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <LoginForm providers={providers} oauthError={oauthError} />
+          <ForgotPasswordForm />
         </CardContent>
       </Card>
     </main>

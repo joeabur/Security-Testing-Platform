@@ -41,3 +41,22 @@ class SessionRead(BaseModel):
     ip_address: str | None
     user_agent: str | None
     is_current: bool
+
+
+class OAuthProvidersRead(BaseModel):
+    """Which social-login buttons the frontend should render. A provider
+    absent here (both false) is not merely unconfigured — hitting its
+    authorize/callback routes directly still 404s, the same way a route
+    behind any other disabled feature does."""
+
+    google: bool
+    github: bool
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: Email
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str = Field(min_length=12, max_length=200)

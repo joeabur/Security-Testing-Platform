@@ -15,7 +15,12 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     email: Mapped[str] = mapped_column(String(320), unique=True, index=True, nullable=False)
     full_name: Mapped[str] = mapped_column(String(200), nullable=False)
-    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    #: Null for an account created via OAuth that has never also set a local
+    #: password. `verify_password` is never called with a null hash — every
+    #: caller (`/auth/login`, `/auth/reset-password`) checks for `None` first
+    #: and refuses or treats it as "no password set" rather than passing it
+    #: to Argon2.
+    password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     #: A JWT issued before this moment is rejected, however long its own
     #: `exp` still has to run (app/core/revocation/). Null means nothing has

@@ -1,7 +1,10 @@
 import uuid
-from datetime import UTC, datetime
+from contextlib import suppress
+from datetime import UTC, datetime, timedelta
+from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
+from fastapi.responses import RedirectResponse
 from sqlalchemy import select, update
 
 from app.audit.service import record_event
@@ -14,15 +17,29 @@ from app.auth.security import (
     token_id,
     verify_password,
 )
-from app.core.config import get_settings
+from app.core.config import Settings, get_settings
 from app.core.csrf import anon as csrf_anon
 from app.core.csrf import enforce as csrf_enforce
 from app.core.csrf import tokens as csrf_tokens
+from app.core.oauth import providers as oauth_providers
+from app.core.oauth.state import OAuthStateInvalid, OAuthStateStore, OAuthStateUnavailable
+from app.core.password_reset_email import PasswordResetEmailNotConfigured, send_password_reset_email
 from app.core.ratelimit import dependency as ratelimit
 from app.core.revocation import dependency as revocation
+from app.models.oauth import OAuthIdentity, OAuthProvider
+from app.models.password_reset import PasswordResetToken, digest_of, mint_reset_token
 from app.models.user import User
 from app.models.user_session import UserSession
-from app.schemas.auth import LoginRequest, RegisterRequest, SessionRead, TokenResponse, UserRead
+from app.schemas.auth import (
+    ForgotPasswordRequest,
+    LoginRequest,
+    OAuthProvidersRead,
+    RegisterRequest,
+    ResetPasswordRequest,
+    SessionRead,
+    TokenResponse,
+    UserRead,
+)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -158,7 +175,15 @@ async def login(
     result = await db.execute(select(User).where(User.email == payload.email))
     user = result.scalar_one_or_none()
 
-    if user is None or not verify_password(payload.password, user.password_hash):
+    # `password_hash` is null for an OAuth-only account (app/models/user.py);
+    # such an account has no local password to check, so it fails the same
+    # generic way a wrong password would rather than calling into Argon2 with
+    # a null hash.
+    if (
+        user is None
+        or user.password_hash is None
+        or not verify_password(payload.password, user.password_hash)
+    ):
         await record_event(
             db,
             action="auth.login",
@@ -345,3 +370,300 @@ async def revoke_session(session_id: uuid.UUID, current_user: CurrentUser, db: D
             user_id=current_user.id,
         )
         await db.commit()
+
+
+# --- Social OAuth login (Google, GitHub) -----------------------------------
+#
+# `/authorize` and `/callback` are navigated by the browser directly (a link,
+# then a provider-issued redirect), never called with `fetch` — so failures
+# below send the browser back to the frontend's login page with an
+# `oauth_error` query parameter rather than raising an API-style HTTPException
+# a person would otherwise see rendered as raw JSON mid-flow. Success does the
+# same: it 302s with the session cookie already set on the redirect response,
+# exactly the way `_set_session_cookie` sets it after a password login.
+
+
+def _oauth_provider_or_404(provider: str) -> OAuthProvider:
+    try:
+        return OAuthProvider(provider)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Unknown OAuth provider") from exc
+
+
+def _require_oauth_ready(settings: Settings, provider: OAuthProvider) -> str:
+    """The provider is configured and there is somewhere to send the browser
+    back to. Returns the callback `redirect_uri` a caller needs next.
+
+    404 for every failure mode here, not just an unconfigured provider: from
+    the caller's perspective "not configured" and "half-configured" both mean
+    the same thing — this login option does not work — and there is nothing
+    an unauthenticated caller can do about either.
+    """
+    if not oauth_providers.enabled(settings, provider) or not settings.public_base_url:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="OAuth provider not available")
+    try:
+        return oauth_providers.redirect_uri_for(settings, provider)
+    except oauth_providers.OAuthProviderDisabled as exc:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, detail="OAuth provider not available"
+        ) from exc
+
+
+@router.get("/oauth/providers", response_model=OAuthProvidersRead)
+async def oauth_providers_available() -> OAuthProvidersRead:
+    settings = get_settings()
+    return OAuthProvidersRead(
+        google=settings.google_oauth_enabled, github=settings.github_oauth_enabled
+    )
+
+
+@router.get("/oauth/{provider}/authorize")
+async def oauth_authorize(provider: str, request: Request) -> RedirectResponse:
+    settings = get_settings()
+    provider_enum = _oauth_provider_or_404(provider)
+    redirect_uri = _require_oauth_ready(settings, provider_enum)
+
+    try:
+        state = await OAuthStateStore().issue(provider=provider_enum.value)
+    except OAuthStateUnavailable as exc:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, detail="OAuth login is temporarily unavailable"
+        ) from exc
+
+    url = oauth_providers.authorize_url(
+        settings, provider_enum, redirect_uri=redirect_uri, state=state
+    )
+    return RedirectResponse(url, status_code=status.HTTP_302_FOUND)
+
+
+def _oauth_error_redirect(settings: Settings, code: str) -> RedirectResponse:
+    base = (settings.public_base_url or "").rstrip("/")
+    return RedirectResponse(
+        f"{base}/login?oauth_error={quote(code)}", status_code=status.HTTP_302_FOUND
+    )
+
+
+@router.get("/oauth/{provider}/callback")
+async def oauth_callback(
+    provider: str, request: Request, response: Response, db: DbSession
+) -> RedirectResponse:
+    settings = get_settings()
+    provider_enum = _oauth_provider_or_404(provider)
+    redirect_uri = _require_oauth_ready(settings, provider_enum)
+
+    await ratelimit.enforce(request, "oauth_callback")
+
+    query = request.query_params
+    if query.get("error"):
+        return _oauth_error_redirect(settings, "provider_denied")
+    code = query.get("code")
+    state = query.get("state")
+    if not code or not state:
+        return _oauth_error_redirect(settings, "missing_code_or_state")
+
+    try:
+        await OAuthStateStore().consume(state, provider=provider_enum.value)
+    except OAuthStateInvalid:
+        return _oauth_error_redirect(settings, "invalid_state")
+    except OAuthStateUnavailable:
+        return _oauth_error_redirect(settings, "service_unavailable")
+
+    try:
+        profile = await oauth_providers.exchange_code_for_profile(
+            settings, provider_enum, code=code, redirect_uri=redirect_uri
+        )
+    except (oauth_providers.OAuthExchangeError, oauth_providers.OAuthProviderDisabled):
+        return _oauth_error_redirect(settings, "exchange_failed")
+
+    identity_result = await db.execute(
+        select(OAuthIdentity).where(
+            OAuthIdentity.provider == provider_enum.value,
+            OAuthIdentity.provider_user_id == profile.provider_user_id,
+        )
+    )
+    identity = identity_result.scalar_one_or_none()
+
+    is_new_account = False
+    if identity is not None:
+        user = await db.get(User, identity.user_id)
+        if user is None:
+            return _oauth_error_redirect(settings, "account_missing")
+    else:
+        existing_user_result = await db.execute(select(User).where(User.email == profile.email))
+        existing_user = existing_user_result.scalar_one_or_none()
+        if existing_user is not None:
+            # Never silently link — see app/models/oauth.py's module
+            # docstring for why matching by email alone would be unsafe.
+            await record_event(
+                db,
+                action="auth.oauth_login",
+                resource_type="user",
+                resource_id=str(existing_user.id),
+                result="deny",
+                ip_address=request.client.host if request.client else None,
+                metadata={"provider": provider_enum.value, "reason": "email_already_registered"},
+            )
+            await db.commit()
+            return _oauth_error_redirect(settings, "email_already_registered")
+
+        user = User(email=profile.email, full_name=profile.full_name, password_hash=None)
+        db.add(user)
+        await db.flush()
+        db.add(
+            OAuthIdentity(
+                user_id=user.id,
+                provider=provider_enum.value,
+                provider_user_id=profile.provider_user_id,
+                email_at_link=profile.email,
+            )
+        )
+        is_new_account = True
+
+    if not user.is_active:
+        await record_event(
+            db,
+            action="auth.oauth_login",
+            resource_type="user",
+            resource_id=str(user.id),
+            result="deny",
+            metadata={"provider": provider_enum.value, "reason": "inactive_account"},
+        )
+        await db.commit()
+        return _oauth_error_redirect(settings, "account_inactive")
+
+    token = create_access_token(subject=user.id)
+    await _record_session(db, user_id=user.id, token=token, request=request)
+    await record_event(
+        db,
+        action="auth.oauth_register" if is_new_account else "auth.oauth_login",
+        resource_type="user",
+        resource_id=str(user.id),
+        result="allow",
+        user_id=user.id,
+        ip_address=request.client.host if request.client else None,
+        metadata={"provider": provider_enum.value},
+    )
+    await db.commit()
+
+    base = (settings.public_base_url or "").rstrip("/")
+    destination = f"{base}/organizations/new" if is_new_account else f"{base}/dashboard"
+    redirect = RedirectResponse(destination, status_code=status.HTTP_302_FOUND)
+    _set_session_cookie(redirect, token)
+    return redirect
+
+
+# --- Forgot / reset password -------------------------------------------------
+
+
+@router.post("/forgot-password", status_code=status.HTTP_202_ACCEPTED)
+async def forgot_password(
+    payload: ForgotPasswordRequest, request: Request, db: DbSession
+) -> None:
+    """Always 202, whether or not the address is registered, has no local
+    password, or the platform has no mail relay configured — the same
+    non-enumerating shape `/auth/login` uses. Only a configured, matching,
+    password-having account ever actually gets a token or an email."""
+    await ratelimit.enforce(request, "forgot_password")
+    settings = get_settings()
+
+    result = await db.execute(select(User).where(User.email == payload.email))
+    user = result.scalar_one_or_none()
+
+    if user is not None and user.password_hash is not None and settings.password_reset_enabled:
+        # At most one live link per user: an older, unused token is deleted
+        # rather than merely outlived, so "the link in your latest email" is
+        # always the true statement — see PasswordResetToken's docstring.
+        await db.execute(
+            update(PasswordResetToken)
+            .where(
+                PasswordResetToken.user_id == user.id,
+                PasswordResetToken.used_at.is_(None),
+            )
+            .values(used_at=datetime.now(UTC))
+        )
+        token, digest = mint_reset_token()
+        expires_at_value = datetime.now(UTC) + timedelta(
+            minutes=settings.password_reset_token_ttl_minutes
+        )
+        db.add(
+            PasswordResetToken(user_id=user.id, token_digest=digest, expires_at=expires_at_value)
+        )
+        base = (settings.public_base_url or "").rstrip("/")
+        reset_url = f"{base}/reset-password?token={quote(token)}"
+        with suppress(PasswordResetEmailNotConfigured):
+            await send_password_reset_email(settings, to_address=user.email, reset_url=reset_url)
+        await record_event(
+            db,
+            action="auth.forgot_password",
+            resource_type="user",
+            resource_id=str(user.id),
+            result="allow",
+            user_id=user.id,
+            ip_address=request.client.host if request.client else None,
+        )
+    else:
+        await record_event(
+            db,
+            action="auth.forgot_password",
+            resource_type="user",
+            result="deny",
+            ip_address=request.client.host if request.client else None,
+            metadata={"reason": "no_matching_password_account"},
+        )
+    await db.commit()
+
+
+@router.post("/reset-password", status_code=status.HTTP_204_NO_CONTENT)
+async def reset_password(payload: ResetPasswordRequest, request: Request, db: DbSession) -> None:
+    """Consumes the token and sets a new password. Deliberately does not
+    also start a session — the caller has proven control of an email inbox,
+    not (yet) presented on a browser worth trusting with a cookie; they are
+    sent back to `/login` to sign in with the new password, same as any
+    other first use of a credential.
+
+    Every existing session is invalidated (`tokens_valid_after`), the same
+    `logout-all` mechanism a "log out everywhere" request uses — a password
+    reset is exactly the "I think this account was compromised" case that
+    exists for.
+    """
+    digest = digest_of(payload.token)
+    result = await db.execute(
+        select(PasswordResetToken).where(PasswordResetToken.token_digest == digest)
+    )
+    reset_token = result.scalar_one_or_none()
+
+    if reset_token is None or not reset_token.usable_at():
+        await record_event(
+            db,
+            action="auth.reset_password",
+            resource_type="password_reset_token",
+            result="deny",
+            ip_address=request.client.host if request.client else None,
+            metadata={"reason": "invalid_or_expired_token"},
+        )
+        await db.commit()
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Invalid or expired reset token")
+
+    user = await db.get(User, reset_token.user_id)
+    if user is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Invalid or expired reset token")
+
+    now = datetime.now(UTC)
+    user.password_hash = hash_password(payload.new_password)
+    user.tokens_valid_after = now
+    reset_token.used_at = now
+    await db.execute(
+        update(UserSession)
+        .where(UserSession.user_id == user.id, UserSession.revoked_at.is_(None))
+        .values(revoked_at=now)
+    )
+    await record_event(
+        db,
+        action="auth.reset_password",
+        resource_type="user",
+        resource_id=str(user.id),
+        result="allow",
+        user_id=user.id,
+        ip_address=request.client.host if request.client else None,
+    )
+    await db.commit()
