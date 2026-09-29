@@ -3,69 +3,159 @@
 @tailwind utilities;
 
 :root {
-  --background: 210 20% 98%;
+  --radius: 0.75rem;
+
+  --background: 210 24% 97%;
   --foreground: 222 47% 11%;
-  --border: 214 32% 87%;
+  --border: 214 28% 88%;
+  --input-border: 214 24% 82%;
   --card: 0 0% 100%;
   --card-foreground: 222 47% 11%;
-  --primary: 217 91% 40%;
+
+  --primary: 221 83% 53%;
+  --primary-hover: 221 83% 47%;
   --primary-foreground: 210 40% 98%;
+
+  --accent: 262 83% 58%;
+  --accent-foreground: 210 40% 98%;
+
   --muted: 210 20% 94%;
-  --muted-foreground: 215 16% 40%;
-  --destructive: 0 72% 42%;
+  --muted-foreground: 215 16% 42%;
+
+  --success: 152 68% 32%;
+  --success-foreground: 152 68% 96%;
+  --warning: 38 92% 42%;
+  --warning-foreground: 38 92% 97%;
+  --destructive: 0 72% 45%;
   --destructive-foreground: 210 40% 98%;
 
-  --severity-critical: 0 72% 42%;
+  --severity-critical: 0 72% 45%;
   --severity-high: 24 88% 45%;
-  --severity-medium: 42 87% 42%;
+  --severity-medium: 42 87% 40%;
   --severity-low: 142 60% 32%;
-  --severity-info: 217 91% 40%;
+  --severity-info: 217 91% 45%;
+
+  --shadow-color: 222 47% 11%;
 }
 
 :root[data-theme="dark"],
 :root:not([data-theme="light"]) {
   @media (prefers-color-scheme: dark) {
-    --background: 222 47% 7%;
+    --background: 224 44% 6%;
     --foreground: 210 40% 96%;
-    --border: 217 33% 20%;
-    --card: 222 44% 10%;
+    --border: 217 30% 19%;
+    --input-border: 217 26% 24%;
+    --card: 222 40% 9%;
     --card-foreground: 210 40% 96%;
-    --primary: 217 91% 60%;
-    --primary-foreground: 222 47% 7%;
-    --muted: 217 33% 15%;
-    --muted-foreground: 215 20% 65%;
-    --destructive: 0 63% 55%;
+
+    --primary: 217 91% 62%;
+    --primary-hover: 217 91% 68%;
+    --primary-foreground: 222 47% 8%;
+
+    --accent: 262 83% 68%;
+    --accent-foreground: 222 47% 8%;
+
+    --muted: 217 30% 15%;
+    --muted-foreground: 215 20% 68%;
+
+    --success: 152 55% 46%;
+    --success-foreground: 152 68% 96%;
+    --warning: 38 92% 58%;
+    --warning-foreground: 38 60% 12%;
+    --destructive: 0 70% 60%;
     --destructive-foreground: 210 40% 96%;
 
-    --severity-critical: 0 84% 63%;
-    --severity-high: 24 90% 58%;
-    --severity-medium: 42 90% 55%;
-    --severity-low: 142 60% 48%;
-    --severity-info: 217 91% 65%;
+    --severity-critical: 0 84% 65%;
+    --severity-high: 24 90% 60%;
+    --severity-medium: 42 90% 58%;
+    --severity-low: 142 55% 50%;
+    --severity-info: 217 91% 68%;
+
+    --shadow-color: 222 60% 2%;
   }
 }
 
 :root[data-theme="dark"] {
-  --background: 222 47% 7%;
+  --background: 224 44% 6%;
   --foreground: 210 40% 96%;
-  --border: 217 33% 20%;
-  --card: 222 44% 10%;
+  --border: 217 30% 19%;
+  --input-border: 217 26% 24%;
+  --card: 222 40% 9%;
   --card-foreground: 210 40% 96%;
-  --primary: 217 91% 60%;
-  --primary-foreground: 222 47% 7%;
-  --muted: 217 33% 15%;
-  --muted-foreground: 215 20% 65%;
-  --destructive: 0 63% 55%;
+
+  --primary: 217 91% 62%;
+  --primary-hover: 217 91% 68%;
+  --primary-foreground: 222 47% 8%;
+
+  --accent: 262 83% 68%;
+  --accent-foreground: 222 47% 8%;
+
+  --muted: 217 30% 15%;
+  --muted-foreground: 215 20% 68%;
+
+  --success: 152 55% 46%;
+  --success-foreground: 152 68% 96%;
+  --warning: 38 92% 58%;
+  --warning-foreground: 38 60% 12%;
+  --destructive: 0 70% 60%;
   --destructive-foreground: 210 40% 96%;
 
-  --severity-critical: 0 84% 63%;
-  --severity-high: 24 90% 58%;
-  --severity-medium: 42 90% 55%;
-  --severity-low: 142 60% 48%;
-  --severity-info: 217 91% 65%;
+  --severity-critical: 0 84% 65%;
+  --severity-high: 24 90% 60%;
+  --severity-medium: 42 90% 58%;
+  --severity-low: 142 55% 50%;
+  --severity-info: 217 91% 68%;
+
+  --shadow-color: 222 60% 2%;
+}
+
+* {
+  border-color: hsl(var(--border));
 }
 
 body {
   background-color: hsl(var(--background));
   color: hsl(var(--foreground));
+  font-feature-settings: "cv11", "ss01", "tnum";
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background-color: hsl(var(--primary) / 0.25);
+  color: hsl(var(--foreground));
+}
+
+/* A restrained, single-use radial accent for hero/auth surfaces — never
+   stacked with itself, so it stays a texture rather than becoming the
+   "excessive gradients" the design brief explicitly warns against. */
+.bg-hero-fade {
+  background-image: radial-gradient(
+    ellipse 80% 60% at 50% -10%,
+    hsl(var(--primary) / 0.16),
+    transparent 60%
+  );
+}
+
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--border)) transparent;
+}
+.scrollbar-thin::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background-color: hsl(var(--border));
+  border-radius: 9999px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

@@ -1,7 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { Bot, CheckCircle2, ShieldQuestion, Sparkles, XCircle } from "lucide-react";
 
+import { Alert } from "@/components/ui/alert";
+import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
@@ -16,6 +19,20 @@ const RISK_LABEL: Record<string, string> = {
   read_only: "Read-only",
   standard: "Standard",
   sensitive: "Sensitive — needs approval",
+};
+
+const RISK_TONE: Record<string, BadgeProps["tone"]> = {
+  read_only: "success",
+  standard: "primary",
+  sensitive: "warning",
+};
+
+const STATUS_TONE: Record<string, BadgeProps["tone"]> = {
+  awaiting_approval: "warning",
+  running: "primary",
+  completed: "success",
+  cancelled: "neutral",
+  failed: "destructive",
 };
 
 export function AgentWorkspace({
@@ -120,11 +137,15 @@ export function AgentWorkspace({
   }
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
+    <div className="grid animate-fade-in gap-6 lg:grid-cols-[2fr_1fr]">
       <div className="flex flex-col gap-4">
-        <Card>
+        <Card className="border-accent/20 bg-gradient-to-br from-accent/[0.04] to-transparent">
           <CardContent className="pt-6">
             <form onSubmit={onSubmit} className="flex flex-col gap-3">
+              <div className="flex items-center gap-2 text-sm font-medium text-accent">
+                <Sparkles className="h-4 w-4" aria-hidden />
+                Ask the security agent
+              </div>
               <Textarea
                 value={request}
                 onChange={(event) => setRequest(event.target.value)}
@@ -132,12 +153,13 @@ export function AgentWorkspace({
                 rows={3}
                 disabled={isSubmitting}
               />
-              {error && (
-                <p className="text-sm text-destructive" role="alert">
-                  {error}
-                </p>
-              )}
-              <Button type="submit" disabled={isSubmitting || !request.trim()} className="self-start">
+              {error && <Alert tone="destructive">{error}</Alert>}
+              <Button
+                type="submit"
+                isLoading={isSubmitting}
+                disabled={!request.trim()}
+                className="self-start"
+              >
                 {isSubmitting ? "Thinking..." : "Ask the agent"}
               </Button>
             </form>
@@ -156,7 +178,10 @@ export function AgentWorkspace({
 
       <Card>
         <CardHeader>
-          <CardTitle>Available tools</CardTitle>
+          <div className="flex items-center gap-2">
+            <Bot className="h-4 w-4 text-muted-foreground" aria-hidden />
+            <CardTitle>Available tools</CardTitle>
+          </div>
           <CardDescription>
             What the agent may call, and the minimum role each one requires.
           </CardDescription>
@@ -167,9 +192,12 @@ export function AgentWorkspace({
               <li key={tool.name} className="border-b border-border pb-3 last:border-0 last:pb-0">
                 <p className="font-mono text-xs font-medium">{tool.name}</p>
                 <p className="text-muted-foreground">{tool.description}</p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {RISK_LABEL[tool.risk_level] ?? tool.risk_level} · role: {tool.minimum_role}
-                </p>
+                <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                  <Badge tone={RISK_TONE[tool.risk_level] ?? "neutral"}>
+                    {RISK_LABEL[tool.risk_level] ?? tool.risk_level}
+                  </Badge>
+                  <span className="text-xs text-muted-foreground">role: {tool.minimum_role}</span>
+                </div>
               </li>
             ))}
           </ul>
@@ -191,37 +219,43 @@ function InvestigationView({
   onCancel: () => void;
 }) {
   return (
-    <Card>
+    <Card className="animate-fade-up">
       <CardHeader>
-        <CardTitle>
-          Status: <span className="font-mono">{investigation.status}</span>
-        </CardTitle>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <CardTitle>Investigation</CardTitle>
+          <Badge tone={STATUS_TONE[investigation.status] ?? "neutral"} dot>
+            {investigation.status.replace(/_/g, " ")}
+          </Badge>
+        </div>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         {investigation.status === "awaiting_approval" && investigation.pending_approval && (
-          <div className="rounded-md border border-border bg-muted p-4">
-            <p className="text-sm font-medium">
-              Approval needed:{" "}
-              <span className="font-mono">{investigation.pending_approval.tool_name}</span>
-            </p>
-            <p className="text-sm text-muted-foreground">
-              {investigation.pending_approval.description}
-            </p>
-            <div className="mt-3 flex gap-2">
-              <Button type="button" size="sm" onClick={onApprove} disabled={isActing}>
-                {isActing ? "Working..." : "Approve"}
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={onCancel}
-                disabled={isActing}
-              >
-                Cancel
-              </Button>
+          <Alert tone="warning" className="items-start">
+            <div className="flex flex-col gap-3">
+              <div>
+                <p className="flex items-center gap-1.5 font-medium">
+                  <ShieldQuestion className="h-4 w-4 shrink-0" aria-hidden />
+                  Approval needed:{" "}
+                  <span className="font-mono text-xs">{investigation.pending_approval.tool_name}</span>
+                </p>
+                <p className="mt-1 text-warning/90">{investigation.pending_approval.description}</p>
+              </div>
+              <div className="flex gap-2">
+                <Button type="button" size="sm" onClick={onApprove} isLoading={isActing}>
+                  {isActing ? "Working..." : "Approve"}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={onCancel}
+                  disabled={isActing}
+                >
+                  Cancel
+                </Button>
+              </div>
             </div>
-          </div>
+          </Alert>
         )}
 
         {investigation.outcomes.length > 0 && (
@@ -247,13 +281,20 @@ function InvestigationView({
 
 function StepRow({ outcome }: { outcome: StepOutcome }) {
   const ok = outcome.status === "ok";
+  const Icon = ok ? CheckCircle2 : XCircle;
   return (
-    <li className="border-b border-border pb-2 last:border-0">
-      <span className="font-mono text-xs">{outcome.tool_name}</span>{" "}
-      <span className={cn("text-xs font-medium", ok ? "text-primary" : "text-destructive")}>
-        {outcome.status}
-      </span>
-      {outcome.error && <p className="text-xs text-destructive">{outcome.error}</p>}
+    <li className="flex items-start gap-2 border-b border-border pb-2 last:border-0">
+      <Icon
+        className={cn("mt-0.5 h-3.5 w-3.5 shrink-0", ok ? "text-success" : "text-destructive")}
+        aria-hidden
+      />
+      <div>
+        <span className="font-mono text-xs">{outcome.tool_name}</span>{" "}
+        <span className={cn("text-xs font-medium", ok ? "text-success" : "text-destructive")}>
+          {outcome.status}
+        </span>
+        {outcome.error && <p className="text-xs text-destructive">{outcome.error}</p>}
+      </div>
     </li>
   );
 }

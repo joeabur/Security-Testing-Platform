@@ -41,11 +41,11 @@ export function ScanRepositoryButton({
 
   return (
     <div className="flex flex-col items-end gap-1">
-      <Button type="button" size="sm" variant="outline" onClick={onScan} disabled={isScanning}>
+      <Button type="button" size="sm" variant="outline" onClick={onScan} isLoading={isScanning}>
         {isScanning ? "Starting scan..." : "Scan"}
       </Button>
       {error && (
-        <p className="text-xs text-destructive" role="alert">
+        <p className="max-w-[16rem] text-right text-xs text-destructive" role="alert">
           {error}
         </p>
       )}

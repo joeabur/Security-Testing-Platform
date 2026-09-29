@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 
+import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
@@ -70,12 +71,8 @@ export function StartRunForm({ organizationId, targetId }: { organizationId: str
           {errors.authorization_confirmed.message}
         </p>
       )}
-      {formError && (
-        <p className="text-sm text-destructive" role="alert">
-          {formError}
-        </p>
-      )}
-      <Button type="submit" disabled={isSubmitting} className="self-start">
+      {formError && <Alert tone="destructive">{formError}</Alert>}
+      <Button type="submit" isLoading={isSubmitting} className="self-start">
         {isSubmitting ? "Starting..." : "Start run"}
       </Button>
     </form>

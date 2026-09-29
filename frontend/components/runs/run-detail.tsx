@@ -2,11 +2,22 @@
 
 import { useEffect, useState } from "react";
 
+import { Alert } from "@/components/ui/alert";
+import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { clientApiFetch } from "@/lib/api-client";
 import { TERMINAL_RUN_STATUSES, type Run, type RunEvent } from "@/lib/types";
 
 const POLL_MS = 2000;
+
+const STATUS_TONE: Record<string, BadgeProps["tone"]> = {
+  completed: "success",
+  running: "primary",
+  queued: "neutral",
+  failed: "destructive",
+  cancelled: "neutral",
+  expired: "destructive",
+};
 
 export function RunDetail({
   organizationId,
@@ -63,51 +74,91 @@ export function RunDetail({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [organizationId, runId]);
 
+  const isLive = !TERMINAL_RUN_STATUSES.includes(run.status);
+  const progress = run.checks_total > 0 ? Math.round((run.checks_completed / run.checks_total) * 100) : 0;
+
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex animate-fade-in flex-col gap-6">
       <Card>
         <CardHeader>
-          <CardTitle>
-            Run status: <span className="font-mono">{run.status}</span>
-          </CardTitle>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <CardTitle>Run status</CardTitle>
+            <Badge tone={STATUS_TONE[run.status] ?? "neutral"} dot>
+              {run.status}
+            </Badge>
+          </div>
         </CardHeader>
         <CardContent>
-          <dl className="grid gap-2 text-sm sm:grid-cols-3">
-            <div>
-              <dt className="text-muted-foreground">Checks</dt>
-              <dd>
-                {run.checks_completed}/{run.checks_total}
-              </dd>
+          {run.checks_total > 0 && (
+            <div className="mb-5">
+              <div className="mb-1.5 flex justify-between text-xs text-muted-foreground">
+                <span>
+                  {run.checks_completed}/{run.checks_total} checks
+                </span>
+                <span>{progress}%</span>
+              </div>
+              <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+                <div
+                  className="h-full rounded-full bg-primary transition-[width] duration-500 ease-out"
+                  style={{ width: `${progress}%` }}
+                />
+              </div>
             </div>
-            <div>
-              <dt className="text-muted-foreground">Requests used</dt>
+          )}
+
+          <dl className="grid divide-y divide-border rounded-lg border border-border bg-muted/40 text-sm sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+            <div className="flex flex-col gap-0.5 px-4 py-3">
+              <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Requests used
+              </dt>
               <dd>{run.requests_used}</dd>
             </div>
-            <div>
-              <dt className="text-muted-foreground">Requests blocked</dt>
+            <div className="flex flex-col gap-0.5 px-4 py-3">
+              <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Requests blocked
+              </dt>
               <dd>{run.requests_blocked}</dd>
             </div>
-            <div>
-              <dt className="text-muted-foreground">Findings</dt>
+            <div className="flex flex-col gap-0.5 px-4 py-3">
+              <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Findings
+              </dt>
               <dd>{run.findings_reported}</dd>
             </div>
-            <div>
-              <dt className="text-muted-foreground">Profile</dt>
+            <div className="flex flex-col gap-0.5 px-4 py-3">
+              <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Profile
+              </dt>
               <dd>{run.profile}</dd>
             </div>
-            <div>
-              <dt className="text-muted-foreground">Safe mode</dt>
-              <dd>{run.safe_mode ? "On" : "Off"}</dd>
+            <div className="flex flex-col gap-0.5 px-4 py-3 sm:col-span-2">
+              <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Safe mode
+              </dt>
+              <dd>
+                <Badge tone={run.safe_mode ? "success" : "warning"}>{run.safe_mode ? "On" : "Off"}</Badge>
+              </dd>
             </div>
           </dl>
+
           {run.halted_reason && (
-            <p className="mt-4 text-sm text-destructive">Halted: {run.halted_reason}</p>
+            <Alert tone="warning" className="mt-4">
+              Halted: {run.halted_reason}
+            </Alert>
           )}
           {run.error_message && (
-            <p className="mt-4 text-sm text-destructive">Error: {run.error_message}</p>
+            <Alert tone="destructive" className="mt-4">
+              Error: {run.error_message}
+            </Alert>
           )}
-          {!TERMINAL_RUN_STATUSES.includes(run.status) && (
-            <p className="mt-4 text-xs text-muted-foreground">Updating every few seconds…</p>
+          {isLive && (
+            <p className="mt-4 flex items-center gap-1.5 text-xs text-muted-foreground">
+              <span className="relative flex h-2 w-2">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-primary" />
+              </span>
+              Updating every few seconds…
+            </p>
           )}
         </CardContent>
       </Card>
@@ -120,7 +171,7 @@ export function RunDetail({
           {events.length === 0 ? (
             <p className="text-sm text-muted-foreground">No events yet.</p>
           ) : (
-            <ul className="flex flex-col gap-2 text-sm">
+            <ul className="scrollbar-thin flex max-h-96 flex-col gap-2 overflow-y-auto text-sm">
               {events.map((event) => (
                 <li key={event.seq} className="border-b border-border pb-2 last:border-0">
                   <span className="font-mono text-xs text-muted-foreground">

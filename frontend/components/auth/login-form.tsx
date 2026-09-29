@@ -6,6 +6,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import Link from "next/link";
 
+import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -41,7 +42,13 @@ export function LoginForm() {
     <form onSubmit={handleSubmit(onSubmit)} noValidate className="flex flex-col gap-4">
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="email">Email</Label>
-        <Input id="email" type="email" autoComplete="email" {...register("email")} />
+        <Input
+          id="email"
+          type="email"
+          autoComplete="email"
+          aria-invalid={!!errors.email}
+          {...register("email")}
+        />
         {errors.email && (
           <p className="text-sm text-destructive" role="alert">
             {errors.email.message}
@@ -50,19 +57,21 @@ export function LoginForm() {
       </div>
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="password">Password</Label>
-        <Input id="password" type="password" autoComplete="current-password" {...register("password")} />
+        <Input
+          id="password"
+          type="password"
+          autoComplete="current-password"
+          aria-invalid={!!errors.password}
+          {...register("password")}
+        />
         {errors.password && (
           <p className="text-sm text-destructive" role="alert">
             {errors.password.message}
           </p>
         )}
       </div>
-      {formError && (
-        <p className="text-sm text-destructive" role="alert">
-          {formError}
-        </p>
-      )}
-      <Button type="submit" disabled={isSubmitting}>
+      {formError && <Alert tone="destructive">{formError}</Alert>}
+      <Button type="submit" isLoading={isSubmitting}>
         {isSubmitting ? "Signing in..." : "Sign in"}
       </Button>
       <p className="text-center text-sm text-muted-foreground">

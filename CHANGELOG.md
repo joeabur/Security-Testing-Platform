@@ -36,6 +36,21 @@ All notable changes to this project are recorded here. The format follows
 
 ### Added
 
+- Frontend UI redesign: refreshed design tokens (richer primary color,
+  `success`/`warning`/`accent` tokens, an elevation shadow scale, a
+  softer radius scale) in `app/globals.css`/`tailwind.config.ts`; new
+  `Badge`, `Alert`, and `Skeleton` primitives, and a polish pass on
+  `Button`/`Card`/`Input`/`Select`/`Textarea`/`Checkbox`/`Label`
+  (shadows, focus/hover/active transitions, loading spinners via
+  `Button`'s new `isLoading` prop). Every dashboard page, the org
+  section nav, the top nav, and every form's error state now use these
+  consistently — ad hoc status pills replaced with `Badge`, and
+  `formError` blocks replaced with `Alert`. Dark mode and mobile
+  layouts verified with Playwright screenshots at 500px/1440px and a
+  true 390px viewport; fixed a real header-overflow bug on narrow
+  screens found during that check (the landing page's nav row had no
+  shrink/wrap protection).
+
 - Pentest module, Phase 8 (automation): Celery Beat scheduling
   (`Workflow.schedule_interval_minutes`/`next_run_at`, a 60-minute floor),
   an authenticated, replay-protected inbound webhook

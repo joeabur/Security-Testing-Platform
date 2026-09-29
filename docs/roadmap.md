@@ -3369,8 +3369,74 @@ tests) all clean; a `git grep -i aegis` across every tracked file outside
 `backend/alembic/versions/` returns nothing; the live dev and test
 Postgres databases were renamed (`aegis`→`kervy`, `aegis_test`→
 `kervy_test`) and their RLS policies confirmed via `pg_policies` to
-reference `kervy.org_id` exclusively; full backend suite re-run after the
-rename.
+reference `kervy.org_id` exclusively. The full backend suite was run
+twice after the rename: the first run surfaced 6 failures, all in
+`tests/test_reporting.py`, and all the same root cause — the golden
+fixtures under `backend/tests/golden/` had `aegis: 0.1.0` recorded
+ahead of `bandit: 1.7.9` in the "Tool versions" list, and
+`render.py`'s alphabetical sort now puts `kervy` after `bandit`, so the
+line order genuinely changed rather than just the name. Re-recorded
+those 9 golden files with `UPDATE_GOLDEN=1` and reviewed the diff line
+by line before re-running; the second full run passed clean: **1845
+passed, 2 skipped, 0 failed**.
+
+## Frontend UI redesign
+
+A visual redesign of the Next.js dashboard, requested separately from
+any pentest-module phase: modernize the look (color, spacing,
+elevation, motion) without touching the underlying architecture or any
+API contract. Scope was deliberately the Next.js app under `frontend/`
+— the primary product UI — not the Jinja2/HTMX dashboard under
+`backend/app/web/` (Phase 17's lighter, API-key-authenticated ops
+view), which was left alone.
+
+Foundation first, then a sweep: `app/globals.css`/`tailwind.config.ts`
+got a richer primary color, new `success`/`warning`/`accent` tokens, an
+elevation shadow scale (`shadow-soft`/`shadow-elevated`/
+`shadow-popover`), a softer border-radius scale driven by one `--radius`
+variable, and a small set of restrained entrance animations
+(`fade-in`/`fade-up`/`scale-in`) — kept deliberately subtle per the
+brief's own "avoid excessive animations" instruction. Every existing UI
+primitive (`Button`/`Card`/`Input`/`Select`/`Textarea`/`Checkbox`/
+`Label`) got shadows, hover/active/focus transitions, and consistent
+radius; `Button` gained an `isLoading` prop (spinner + disabled, so
+every submit button shows real pending state instead of just disabled).
+Three new primitives — `Badge`, `Alert`, `Skeleton` — replaced ad hoc
+inline-styled status pills and repeated `<p role="alert">` blocks
+across the app: every status pill (run/scan/workflow status, RoE/
+authorization state, role, tool risk tier) now renders through `Badge`,
+and every form's top-level submit error now renders through `Alert`
+(destructive tone, icon, `role="alert"`), consistently across all 9
+forms that had the old pattern.
+
+Then a page-by-page sweep applied the same language everywhere: the top
+nav (sticky, backdrop blur), the org section nav (icon tabs with an
+animated active-underline), the dashboard, targets (list + detail),
+runs (list + detail, including a live progress bar and a pulsing
+"updating" indicator on the polling run-detail view), workflows,
+repositories, the agent workspace (accent-tinted "ask" panel, since
+this is the one surface where the platform's AI identity is
+front-and-center), and the login/register/landing pages (a single
+restrained radial-gradient hero background, applied via one shared
+`.bg-hero-fade` utility class, never stacked with itself).
+
+Verified with the existing tooling (`npm run lint`/`typecheck`/`test`/
+`build`, all clean) plus an actual visual check, since none of those
+tools verify what something looks like: `app/globals.css`/
+`tailwind.config.ts` changes were screenshotted directly (headless
+Chromium) in both light and dark mode, and — since automated tooling
+alone would have missed it — a real Playwright-driven pass (register →
+create an organization → add a target → walk every dashboard page)
+caught a genuine responsive bug the static screenshots didn't: the
+landing page's header row had no `shrink`/`flex-wrap` protection, so on
+a narrow viewport the "Sign in"/"Get started" buttons pushed past the
+right edge instead of wrapping or shrinking. Fixed (hide the redundant
+"Sign in" link below the `sm` breakpoint, `min-w-0 truncate` on the
+logo text, `shrink-0` on fixed-size elements) and re-verified at a true
+390px viewport via Playwright's device-metrics emulation — headless
+Chromium's own `--window-size` flag turned out to floor at 500px in
+this sandbox, which is why the fix was confirmed through Playwright
+rather than the raw screenshot flag.
 
 ## Agent framework, Phases 1–6 — native AI agent with zero persistence
 

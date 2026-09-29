@@ -3,18 +3,19 @@ import Link from "next/link";
 import { Crosshair } from "lucide-react";
 
 import { CreateTargetForm } from "@/components/targets/create-target-form";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { serverApiFetch } from "@/lib/api-server";
 import type { Target } from "@/lib/types";
 
-export const metadata: Metadata = { title: "Targets — Aegis AI Security" };
+export const metadata: Metadata = { title: "Targets — Kervy Security" };
 
 export default async function TargetsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const targets = await serverApiFetch<Target[]>(`/organizations/${id}/targets`);
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex animate-fade-in flex-col gap-6">
       <Card>
         <CardHeader>
           <CardTitle>Add a target</CardTitle>
@@ -32,16 +33,18 @@ export default async function TargetsPage({ params }: { params: Promise<{ id: st
       <div className="flex flex-col gap-3">
         <h2 className="text-lg font-semibold">Targets</h2>
         {targets.length === 0 ? (
-          <Card>
-            <CardHeader className="items-center text-center">
-              <Crosshair className="h-8 w-8 text-muted-foreground" aria-hidden />
-              <CardDescription>No targets yet.</CardDescription>
+          <Card className="border-dashed shadow-none">
+            <CardHeader className="items-center py-10 text-center">
+              <span className="flex h-12 w-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                <Crosshair className="h-6 w-6" aria-hidden />
+              </span>
+              <CardDescription className="mt-1">No targets yet.</CardDescription>
             </CardHeader>
           </Card>
         ) : (
           targets.map((target) => (
             <Link key={target.id} href={`/organizations/${id}/targets/${target.id}`}>
-              <Card className="transition-colors hover:border-primary">
+              <Card className="transition-all duration-150 hover:border-primary/40 hover:shadow-elevated">
                 <CardContent className="flex flex-wrap items-center justify-between gap-4 py-4">
                   <div>
                     <p className="font-medium">{target.name}</p>
@@ -49,25 +52,13 @@ export default async function TargetsPage({ params }: { params: Promise<{ id: st
                       {target.base_url} · {target.environment} · {target.kind}
                     </p>
                   </div>
-                  <div className="flex gap-2 text-xs">
-                    <span
-                      className={
-                        target.has_rules_of_engagement
-                          ? "rounded-full bg-muted px-2 py-1 text-foreground"
-                          : "rounded-full border border-dashed border-border px-2 py-1 text-muted-foreground"
-                      }
-                    >
+                  <div className="flex gap-2">
+                    <Badge tone={target.has_rules_of_engagement ? "success" : "outline"} dot>
                       {target.has_rules_of_engagement ? "RoE set" : "No RoE"}
-                    </span>
-                    <span
-                      className={
-                        target.has_authorization
-                          ? "rounded-full bg-muted px-2 py-1 text-foreground"
-                          : "rounded-full border border-dashed border-border px-2 py-1 text-muted-foreground"
-                      }
-                    >
+                    </Badge>
+                    <Badge tone={target.has_authorization ? "success" : "outline"} dot>
                       {target.has_authorization ? "Authorized" : "Not authorized"}
-                    </span>
+                    </Badge>
                   </div>
                 </CardContent>
               </Card>

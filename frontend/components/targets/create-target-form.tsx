@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 
+import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -98,12 +99,8 @@ export function CreateTargetForm({ organizationId }: { organizationId: string })
           )}
         </div>
       </div>
-      {formError && (
-        <p className="text-sm text-destructive" role="alert">
-          {formError}
-        </p>
-      )}
-      <Button type="submit" disabled={isSubmitting} className="self-start">
+      {formError && <Alert tone="destructive">{formError}</Alert>}
+      <Button type="submit" isLoading={isSubmitting} className="self-start">
         {isSubmitting ? "Adding..." : "Add target"}
       </Button>
     </form>
