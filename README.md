@@ -1,4 +1,4 @@
-# Aegis AI Security
+# Kervy Security
 
 An open-source web platform for **authorized** security assessment of
 Generative AI applications — their models, prompts, retrieval layers,
