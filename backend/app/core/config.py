@@ -84,6 +84,20 @@ class Settings(BaseSettings):
     # same reason as the webhook list above.
     vcs_allowed_hosts: list[str] = Field(default_factory=list, alias="KERVY_VCS_ALLOWED_HOSTS")
 
+    # --- exploitation tier (Pentest module Phase 12) ----------------------
+    # The specific nmap NSE script names an exploitation-fire request may
+    # name, deployment-wide — never a whole category (exploit/brute/dos/
+    # intrusive stay excluded in code regardless of this list). Empty by
+    # default: a fresh deployment can fire nothing until an operator has
+    # explicitly reviewed and named scripts here, the same secure-default
+    # idiom as the webhook/VCS host allowlists above. This is one of three
+    # independent gates a fire request must clear — the target's own
+    # asset_scope.approved_modules and a live ExploitationAuthorization's
+    # approved_script_names are the other two, and all three must agree.
+    exploitation_allowed_nse_scripts: list[str] = Field(
+        default_factory=list, alias="KERVY_EXPLOITATION_ALLOWED_NSE_SCRIPTS"
+    )
+
     # Base URL used to build links back into the platform in a notification.
     # Absent means notifications carry no link rather than a guessed one.
     public_base_url: str | None = Field(default=None, alias="KERVY_PUBLIC_BASE_URL")

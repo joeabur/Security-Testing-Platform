@@ -179,6 +179,14 @@ EXPECTED_ROLES: dict[tuple[str, str], Role] = {
     ("GET", "/organizations/{organization_id}/runs/{run_id}"): Role.VIEWER,
     ("GET", "/organizations/{organization_id}/runs/{run_id}/events"): Role.VIEWER,
     ("GET", "/organizations/{organization_id}/runs/{run_id}/evidence"): Role.VIEWER,
+    (
+        "GET",
+        "/organizations/{organization_id}/runs/{run_id}/exploitation-fires",
+    ): Role.VIEWER,
+    (
+        "GET",
+        "/organizations/{organization_id}/runs/{run_id}/exploitation-fires/{fire_id}",
+    ): Role.VIEWER,
     ("GET", "/organizations/{organization_id}/runs/{run_id}/evidence/verify"): Role.VIEWER,
     ("GET", "/organizations/{organization_id}/runs/{run_id}/evidence/{digest}"): Role.ANALYST,
     ("GET", "/organizations/{organization_id}/runs/{run_id}/report"): Role.VIEWER,
@@ -189,6 +197,10 @@ EXPECTED_ROLES: dict[tuple[str, str], Role] = {
     ("GET", "/organizations/{organization_id}/targets/{target_id}"): Role.VIEWER,
     ("GET", "/organizations/{organization_id}/targets/{target_id}/accounts"): Role.VIEWER,
     ("GET", "/organizations/{organization_id}/targets/{target_id}/authorization"): Role.VIEWER,
+    (
+        "GET",
+        "/organizations/{organization_id}/targets/{target_id}/exploitation-authorization",
+    ): Role.VIEWER,
     ("GET", "/organizations/{organization_id}/targets/{target_id}/openapi"): Role.VIEWER,
     (
         "GET",
@@ -221,8 +233,16 @@ EXPECTED_ROLES: dict[tuple[str, str], Role] = {
     ("POST", "/organizations/{organization_id}/retests"): Role.SECURITY_ENGINEER,
     ("POST", "/organizations/{organization_id}/runs"): Role.SECURITY_ENGINEER,
     ("POST", "/organizations/{organization_id}/runs/{run_id}/cancel"): Role.SECURITY_ENGINEER,
+    (
+        "POST",
+        "/organizations/{organization_id}/runs/{run_id}/exploitation-fires",
+    ): Role.SECURITY_ENGINEER,
     ("POST", "/organizations/{organization_id}/targets"): Role.ADMIN,
     ("POST", "/organizations/{organization_id}/targets/{target_id}/authorization"): Role.ADMIN,
+    (
+        "PUT",
+        "/organizations/{organization_id}/targets/{target_id}/exploitation-authorization",
+    ): Role.ADMIN,
     ("POST", "/organizations/{organization_id}/targets/{target_id}/scope/explain"): Role.VIEWER,
     # Declaring runtime protection changes how this target's findings read: an
     # injection that succeeds against a target claiming a prompt firewall is a

@@ -17,6 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.audit.service import record_event
 from app.core.appsec.checkout import (
     CheckoutError,
     check_host_allowed,
@@ -57,6 +58,9 @@ from app.core.orchestrator.probe_check import ProbeCheck
 from app.core.orchestrator.runner import RunEventPayload, execute_run
 from app.core.orchestrator.vm_check import VmCheck
 from app.core.pentest import service as pentest_service
+from app.core.pentest.contract import PentestServiceTarget
+from app.core.pentest.engine import PentestEngine
+from app.core.pentest.exploitation_service import ExploitationFireRefused, validate_fire_gate
 from app.core.probes.api.registry import build_api_registry
 from app.core.probes.models import ScanResult, Severity
 from app.core.rasp.contract import RuntimeProtectionProfile, untested_marker
@@ -88,6 +92,7 @@ from app.models.assessment_run import (
     RunKind,
     RunStatus,
 )
+from app.models.exploitation import ExploitationFire, ExploitationFireStatus
 from app.models.retest import RetestVerdict
 from app.models.scan_result import ScanResultRecord
 from app.models.surface_endpoint import SurfaceEndpoint
@@ -838,6 +843,121 @@ def run_scheduled_workflow(workflow_id: str) -> None:
     async def _run() -> None:
         try:
             await run_scheduled_workflow_async(workflow_id)
+        finally:
+            await dispose_engine()
+
+    asyncio.run(_run())
+
+
+async def _load_fire(db: AsyncSession, fire_id: uuid.UUID) -> ExploitationFire | None:
+    return (
+        await db.execute(
+            select(ExploitationFire)
+            .where(ExploitationFire.id == fire_id)
+            .options(
+                selectinload(ExploitationFire.target).selectinload(Target.rules_of_engagement),
+                selectinload(ExploitationFire.target).selectinload(
+                    Target.exploitation_authorization
+                ),
+                selectinload(ExploitationFire.run),
+            )
+        )
+    ).scalar_one_or_none()
+
+
+async def fire_exploitation_module_async(fire_id: str) -> None:
+    """The async implementation `fire_exploitation_module` delegates to
+    (Pentest module Phase 12) — the only real invocation path for an
+    `EXPLOITATION`-tier module. Re-validates the three-allowlist gate at
+    execution time rather than trusting `request_fire`'s enqueue-time
+    check is still true — the gate could have changed (an authorization
+    expired, an operator narrowed the allowlist) in the time this task sat
+    in the queue.
+    """
+    session_factory = get_session_factory()
+    async with session_factory() as db:
+        fire = await _load_fire(db, uuid.UUID(fire_id))
+        if fire is None:
+            logger.warning("exploitation_fire_not_found", fire_id=fire_id)
+            return
+        set_current_organization(fire.organization_id)
+
+        try:
+            validate_fire_gate(
+                script_names=fire.script_names,
+                target=fire.target,
+                exploitation_authorization=fire.target.exploitation_authorization,
+            )
+        except ExploitationFireRefused as exc:
+            fire.status = ExploitationFireStatus.FAILED.value
+            fire.detail = str(exc)[:1000]
+            fire.finished_at = datetime.now(UTC)
+            await db.commit()
+            logger.warning(
+                "exploitation_fire_refused_at_execution", fire_id=fire_id, error=str(exc)
+            )
+            return
+
+        fire.status = ExploitationFireStatus.RUNNING.value
+        fire.started_at = datetime.now(UTC)
+        await db.commit()
+
+        service = PentestServiceTarget(
+            host=fire.service_host,
+            port=fire.service_port,
+            protocol="tcp",
+            service="",
+        )
+        try:
+            results, invocation = await PentestEngine().fire(service, tuple(fire.script_names))
+        except Exception as exc:  # noqa: BLE001 - one fire attempt must not crash the task
+            fire.status = ExploitationFireStatus.FAILED.value
+            fire.detail = f"{type(exc).__name__}: {exc}"[:1000]
+            fire.finished_at = datetime.now(UTC)
+            await db.commit()
+            logger.warning("exploitation_fire_failed", fire_id=fire_id, error=str(exc))
+            return
+
+        await pentest_service.record_tool_invocations(
+            db, organization_id=fire.organization_id, run_id=fire.run_id, invocations=[invocation]
+        )
+        await _persist_scan_results(db, fire.run_id, fire.organization_id, results)
+        await promote_run_results(
+            db, organization_id=fire.organization_id, run_id=fire.run_id, target=fire.target
+        )
+
+        reportable = [r for r in results if r.severity is not Severity.INFORMATIONAL]
+        fire.status = ExploitationFireStatus.COMPLETED.value
+        fire.detail = (
+            f"{len(reportable)} finding(s) produced" if reportable else "no exploit output produced"
+        )
+        fire.produced_scan_result_codes = [r.id for r in results]
+        fire.finished_at = datetime.now(UTC)
+        await db.commit()
+
+        await record_event(
+            db,
+            action="target.exploitation.fired",
+            resource_type="target",
+            resource_id=str(fire.target_id),
+            result="allow",
+            organization_id=fire.organization_id,
+            user_id=fire.requested_by_user_id,
+            metadata={
+                "run_id": str(fire.run_id),
+                "script_names": fire.script_names,
+                "fire_id": str(fire.id),
+                "findings": len(reportable),
+            },
+        )
+        await db.commit()
+
+
+@celery_app.task(name="kervy.fire_exploitation_module")
+def fire_exploitation_module(fire_id: str) -> None:
+    async def _run() -> None:
+        try:
+            await fire_exploitation_module_async(fire_id)
         finally:
             await dispose_engine()
 

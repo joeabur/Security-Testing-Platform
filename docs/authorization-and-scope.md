@@ -20,6 +20,36 @@ methods, forbidden headers, blackout windows, safe mode, and budgets.
 A run needs both. Asking for a run without a grant returns `409` — verified in
 `docs/installation.md`, and the first thing the quickstart demonstrates.
 
+## A third, distinct grant: exploitation authorization
+
+The two objects above authorize *assessment* — discovery, vulnerability
+scanning, validation. Real exploit execution (`TestDepth.EXPLOITATION`,
+pentest-module Phase 12) needs more than that, and reusing the general
+authorization for it would silently broaden every existing grant's
+meaning to include live exploit code, which nobody who granted one under
+the old shape agreed to. So it is a separate object,
+`ExploitationAuthorization` (`PUT .../targets/{id}/exploitation-
+authorization`, `Role.ADMIN`, same "replace wholesale on re-grant" shape
+as the general grant), naming its own `approved_script_names` and its own
+validity window.
+
+Firing is a two-step, and each step is its own concrete artifact:
+
+1. **Simulate** happens automatically inside an ordinary scan run once
+   the target's `asset_scope.max_depth=exploitation` and
+   `approved_modules` names `nmap-exploitation`. It never executes
+   anything real — it only records an informational marker in that run's
+   `scan_results` naming what would be eligible to fire.
+2. **Fire** (`POST .../runs/{run_id}/exploitation-fires`,
+   `Role.SECURITY_ENGINEER`, an explicit `authorization_confirmed: true`)
+   references that completed run's own simulate marker and only proceeds
+   if three independent allowlists all agree: the deployment-wide
+   `KERVY_EXPLOITATION_ALLOWED_NSE_SCRIPTS` operator setting (empty by
+   default), the live `ExploitationAuthorization`'s own
+   `approved_script_names`, and the target's `asset_scope.approved_
+   modules`. See `docs/roadmap.md`'s Phase 12 write-up for the full design
+   and why none of the three alone is sufficient.
+
 ## The gate
 
 `app/core/scope/engine.py` decides, and `app/core/scope/transport.py` is the

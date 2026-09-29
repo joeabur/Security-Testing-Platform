@@ -36,6 +36,25 @@ All notable changes to this project are recorded here. The format follows
 
 ### Added
 
+- **Pentest module, Phase 12: the exploitation tier's simulate-then-fire
+  two-step.** Real exploit execution — deferred since the Phase 1
+  foundation "behind its own `ExploitationAuthorization` tier" — is now
+  built, deliberately conservatively. Simulate is automatic: a scan run
+  with `asset_scope.max_depth=exploitation` never invokes the real
+  module, only an informational marker (`KERVY-PENTEST-108`) showing what
+  would be eligible to fire. Fire is a new, separate,
+  `Role.SECURITY_ENGINEER` action (`POST .../runs/{run_id}/exploitation-
+  fires`) gated by three independent allowlists that must all agree: the
+  deployment-wide `KERVY_EXPLOITATION_ALLOWED_NSE_SCRIPTS` operator
+  setting (empty by default — nothing is fireable until an operator names
+  specific scripts), a new, distinct per-target `ExploitationAuthorization`
+  grant (`PUT .../targets/{id}/exploitation-authorization`, `Role.ADMIN`),
+  and the target's own `asset_scope.approved_modules`. A successful fire
+  produces a `Severity.CRITICAL` finding with full evidence, dispatched to
+  the worker rather than run inline, the same way every other scan on this
+  platform is. See `docs/roadmap.md`'s Phase 12 write-up and
+  `docs/authorization-and-scope.md`.
+
 - **Pentest module, Phase 11: a fuller Next.js findings view.** The
   dashboard summary's top-findings list has always had "no filtering,
   pagination, or status transitions from this surface" (`docs/dashboard.md`)

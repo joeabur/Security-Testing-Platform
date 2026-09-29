@@ -3996,3 +3996,120 @@ the finding from `new` to `confirmed` with a note, and confirmed the
 status-form's options changed to exactly `confirmed`'s own allowed next
 states — proving the transitions map drives the live UI, not just the
 unit test.
+
+## Pentest module, Phase 12 — exploitation tier
+
+### Context
+
+The last deferred piece of `app/core/pentest/`. Since the Phase 1
+foundation, `TestDepth` has named four tiers — `discovery`,
+`vulnerability_scan`, `validation`, `exploitation` — and every phase since
+has repeated the same line: real exploit execution is deliberately last
+in the plan, "behind its own `ExploitationAuthorization` tier, a
+simulate-then-fire two-step." Phase 6's registry registered modules for
+the first three tiers only, with an explicit comment that nothing runs at
+`EXPLOITATION` "on purpose." This phase builds that gap, deliberately
+conservatively: it reuses this codebase's own existing safety idioms
+rather than inventing new ones, and adds no hand-picked list of specific
+CVE exploit scripts of its own.
+
+### Design
+
+**Simulate is not a new endpoint.** When a target's `asset_scope.max_
+depth == exploitation` and `approved_modules` names `nmap-exploitation`,
+an ordinary `POST /runs` already makes `PentestEngine` see it as
+tier-eligible — and for `EXPLOITATION` specifically, `PentestEngine.run()`
+now never calls the module's real `run()` inline. It only emits an
+informational `KERVY-PENTEST-108` marker naming the module and the
+service. That marker, sitting in the run's own persisted `scan_results`,
+is the concrete proof simulate happened for that exact `host:port`.
+
+**Fire is a new, separate, authenticated action.**
+`POST .../runs/{run_id}/exploitation-fires` requires `Role.SECURITY_
+ENGINEER` (the same tier `START_SCAN`/`RUN_WORKFLOW` already require),
+an explicit `authorization_confirmed: true`, and references an
+already-completed run whose `scan_results` contain that simulate marker
+for the named service. It only proceeds if three independent allowlists
+agree, in a fixed order so the same request always fails on the same,
+most-informative reason (`app.core.pentest.exploitation_service.
+validate_fire_gate`):
+
+1. The deployment-wide operator setting `KERVY_EXPLOITATION_ALLOWED_NSE_
+   SCRIPTS` — empty by default, the same secure-default idiom `KERVY_
+   NOTIFY_ALLOWED_WEBHOOK_HOSTS`/`KERVY_VCS_ALLOWED_HOSTS` already use.
+   Nothing is fireable on a fresh deployment until an operator has
+   personally reviewed and named specific script names here.
+2. A live, per-target `ExploitationAuthorization` — a *second*, distinct
+   grant from the general `Authorization` (`PUT .../targets/{id}/
+   exploitation-authorization`, `Role.ADMIN`, replaced wholesale on
+   re-grant like `Authorization` itself) naming its own
+   `approved_script_names` and a validity window.
+3. The target's own `asset_scope.approved_modules` naming
+   `nmap-exploitation` — the existing Phase 6 gate, unchanged.
+
+The gate runs twice: once when `request_fire` accepts the API call and
+creates the `ExploitationFire` row, and again inside the Celery task
+right before the real `nmap` invocation — never trusting an enqueue-time
+check is still true once the task reaches the front of the queue.
+
+`PentestEngine.fire(service, script_names)` is the only real invocation
+path: it calls a new `nmap_scripts.run_named_scripts` (one `nmap --script
+<comma-joined names>` call, restricted to an explicit, finite list —
+never a whole category; `exploit`/`brute`/`dos`/`intrusive` stay excluded
+exactly as the module's own docstring always promised) and turns the
+result into a `KERVY-PENTEST-103` finding: `Severity.CRITICAL`,
+`Confidence.HIGH` — a live-observed result, not a heuristic, the same
+"directly observed" reasoning `KERVY-PENTEST-102` (the validation tier)
+already documents one tier down. The registry's own `nmap-exploitation`
+entry points `run` at `refuse_automatic_invocation`, a tripwire that
+always raises — a second, runtime-enforced layer on top of the engine's
+own dispatch split, in case that split is ever changed by mistake.
+
+Firing is dispatched to the worker (`kervy.fire_exploitation_module`),
+never run inline in the API process — the same target-touching-work-
+belongs-on-the-worker rule every other scan on this platform already
+follows. It persists the resulting finding and evidence with the same
+helpers `run_assessment` uses, re-promotes the run's findings (idempotent
+— dedup by fingerprint), and records two audit-log entries: one when the
+fire is requested, one when it actually executes.
+
+### Deferrals
+
+- **No hand-picked default script list.** `KERVY_EXPLOITATION_ALLOWED_
+  NSE_SCRIPTS` ships empty; which specific NSE `exploit`-category scripts
+  are safe enough for a given deployment's targets is the operator's
+  judgment call, not this codebase's.
+- **No new demo-lab vulnerable network service.** Tested the same way
+  Phase 6 already tests tier-gating — an injected fake `PentestModule`
+  and a monkeypatched `run_named_scripts`, no real `nmap` or real
+  vulnerable service needed. Standing up a real exploitable network
+  service is a separate, later increment if ever wanted.
+- **No two-person review.** Simulate-then-fire is satisfied by requiring
+  a prior completed run's own simulate marker before fire is accepted; it
+  does not require a second, different human than the one who fires.
+- **No dashboard UI, no CLI.** API-only, matching every earlier pentest-
+  module phase's own "dashboard/CLI is a later phase" precedent.
+- **Incident-response runbook, authorization-artifact legal format,
+  insurance/liability review** — named in this roadmap since the Phase 1
+  foundation as operator responsibilities, not implementation tasks;
+  still out of scope here.
+
+### Verified
+
+`ruff check`/`mypy app` clean. New tests
+(`test_pentest_exploitation.py` plus additions to `test_pentest_
+engine.py`): the simulate-only split (an injected EXPLOITATION-tier
+module's `run` is never called), `fire()` producing a `CRITICAL` finding
+and a visible-gap marker on failure, the registry tripwire raising
+directly, the three-allowlist gate refusing independently on each of
+operator-setting/authorization-missing/authorization-expired/script-
+mismatch/asset-scope-mismatch and passing when all three agree, granting
+and reading back an `ExploitationAuthorization` through the API, RBAC on
+the grant endpoint (a viewer is refused) and the fire endpoint (an
+analyst is refused), and a fire attempt against a run with no simulate
+marker refused with `404`/`409`. `tests/security/test_authorization_
+matrix.py`'s pin test covers all four new routes, including its own
+`test_only_admins_and_owners_may_grant_an_authorization` check (the new
+`exploitation-authorization` route ends in "authorization" and is picked
+up by that test automatically). Full backend suite green alongside this
+work.
