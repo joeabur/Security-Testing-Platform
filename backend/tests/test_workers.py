@@ -17,8 +17,8 @@ def test_the_assessment_task_is_registered_on_the_worker() -> None:
     # Exactly what a worker does on boot; `include` is lazy until then.
     celery_app.loader.import_default_modules()
 
-    assert "aegis.run_assessment" in celery_app.tasks
-    assert celery_app.tasks["aegis.run_assessment"].name == "aegis.run_assessment"
+    assert "kervy.run_assessment" in celery_app.tasks
+    assert celery_app.tasks["kervy.run_assessment"].name == "kervy.run_assessment"
 
 
 async def test_disposing_the_engine_lets_the_next_event_loop_start_clean() -> None:

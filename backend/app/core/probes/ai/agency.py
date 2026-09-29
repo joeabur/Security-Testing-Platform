@@ -93,7 +93,7 @@ class ExcessiveAgencyProbe:
             for tool in sorted(target.declared_tools, key=lambda item: item.name)
         )
         return ScanResult(
-            id="AEGIS-AI-030",
+            id="KERVY-AI-030",
             title="Agent permission surface",
             category=Category.AI_SECURITY,
             severity=Severity.INFORMATIONAL,
@@ -138,7 +138,7 @@ class ExcessiveAgencyProbe:
             results.append(
                 self._finding(
                     target,
-                    result_code="AEGIS-AI-031",
+                    result_code="KERVY-AI-031",
                     title="Irreversible tool with no confirmation step",
                     severity=Severity.HIGH,
                     description=(
@@ -170,7 +170,7 @@ class ExcessiveAgencyProbe:
             results.append(
                 self._finding(
                     target,
-                    result_code="AEGIS-AI-032",
+                    result_code="KERVY-AI-032",
                     title="Agent can write to an external system",
                     severity=Severity.MEDIUM,
                     description=(
@@ -198,7 +198,7 @@ class ExcessiveAgencyProbe:
             results.append(
                 self._finding(
                     target,
-                    result_code="AEGIS-AI-033",
+                    result_code="KERVY-AI-033",
                     title="No tool requires confirmation",
                     severity=Severity.MEDIUM,
                     description=(
@@ -272,7 +272,7 @@ class ExcessiveAgencyProbe:
 
     def _not_declared(self, target: AiProbeTarget) -> ScanResult:
         return ScanResult(
-            id="AEGIS-AI-000",
+            id="KERVY-AI-000",
             title="Not tested: excessive agency",
             category=Category.AI_SECURITY,
             severity=Severity.INFORMATIONAL,

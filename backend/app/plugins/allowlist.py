@@ -187,15 +187,15 @@ def _allowlist(value: Any) -> tuple[AllowedPackage, ...]:
 
 
 # PEP 503: a run of `-`, `_` or `.` collapses to a single `-`. Collapsing the
-# run matters — character-by-character substitution would make `aegis__plugin`
-# normalize to `aegis--plugin` and not match an allowlist entry of
-# `aegis-plugin`. That direction fails closed, but it also breaks legitimate
+# run matters — character-by-character substitution would make `kervy__plugin`
+# normalize to `kervy--plugin` and not match an allowlist entry of
+# `kervy-plugin`. That direction fails closed, but it also breaks legitimate
 # entries, and getting it right costs one regex.
 _NORMALIZE = re.compile(r"[-_.]+")
 
 
 def _normalize(name: str) -> str:
-    """PEP 503 normalization, so `Aegis_Plugin` and `aegis-plugin` are the same
+    """PEP 503 normalization, so `Kervy_Plugin` and `kervy-plugin` are the same
     package and an allowlist cannot be sidestepped by punctuation."""
     return _NORMALIZE.sub("-", name.strip().lower())
 
@@ -205,7 +205,7 @@ def policy_from_settings() -> PluginPolicy:
 
     Three states, in precedence order:
 
-    1. `AEGIS_NO_PLUGINS=1` — off, whatever else is configured. This is §16's
+    1. `KERVY_NO_PLUGINS=1` — off, whatever else is configured. This is §16's
        `--no-plugins`, and it wins deliberately: when something has gone wrong
        there should be exactly one thing to set.
     2. `PLUGINS_CONFIG` pointing at a readable file — that file's policy.
@@ -218,7 +218,7 @@ def policy_from_settings() -> PluginPolicy:
     if settings.no_plugins:
         return PluginPolicy(
             enabled=False,
-            warnings=("plugin discovery is off: AEGIS_NO_PLUGINS is set",),
+            warnings=("plugin discovery is off: KERVY_NO_PLUGINS is set",),
         )
 
     if not settings.plugins_config:

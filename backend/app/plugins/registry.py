@@ -50,7 +50,7 @@ class DiscoveryResult:
         did — "no third-party plugins" is information an operator wants, and a
         banner that appears only sometimes is one nobody learns to read.
         """
-        lines = ["Aegis plugins:"]
+        lines = ["Kervy plugins:"]
         third_party = [record for record in self.loaded if not record.first_party]
         if third_party:
             lines.append(

@@ -18,8 +18,8 @@ from dataclasses import dataclass
 # An unguessable delimiter would be better still, but a fixed one is
 # checkable in a test and readable in an audit record. The stripping below
 # is what prevents evidence from closing the block early.
-EVIDENCE_OPEN = "<<<AEGIS-EVIDENCE-BEGIN>>>"
-EVIDENCE_CLOSE = "<<<AEGIS-EVIDENCE-END>>>"
+EVIDENCE_OPEN = "<<<KERVY-EVIDENCE-BEGIN>>>"
+EVIDENCE_CLOSE = "<<<KERVY-EVIDENCE-END>>>"
 
 SYSTEM_PREAMBLE = (
     "You are a security-analysis assistant inside an authorized assessment "

@@ -153,7 +153,7 @@ def tool_unavailable(meta: EngineMeta, reason: str) -> ScanResult:
     a visible gap, never an empty result set that reads as "nothing found".
     """
     return ScanResult(
-        id="AEGIS-APPSEC-000",
+        id="KERVY-APPSEC-000",
         title=f"Not tested: {meta.name}",
         category=Category.INFRASTRUCTURE,
         severity=Severity.INFORMATIONAL,

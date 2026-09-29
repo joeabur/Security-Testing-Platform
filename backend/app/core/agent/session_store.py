@@ -45,7 +45,7 @@ from app.core.agent.planner import Plan, PlanStep
 from app.core.agent.tools.contract import RiskLevel
 from app.core.config import get_settings
 
-_KEY_PREFIX = "aegis:agent:investigation:"
+_KEY_PREFIX = "kervy:agent:investigation:"
 # 30 minutes: long enough for a human to see an approval request and act on
 # it, short enough that a forgotten one does not sit in Redis indefinitely.
 TTL_SECONDS = 30 * 60

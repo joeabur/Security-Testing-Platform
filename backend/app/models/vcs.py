@@ -6,7 +6,7 @@ this schema cannot hold a credential even if a future caller tried.
 
 `PullRequestPost` is the record of what this platform wrote into somebody's
 pull request. It exists because writing into a customer's repository is the
-most externally-visible thing the platform does, and "what did Aegis say on
+most externally-visible thing the platform does, and "what did Kervy say on
 PR 412?" should be answerable from our side without reading GitHub.
 """
 

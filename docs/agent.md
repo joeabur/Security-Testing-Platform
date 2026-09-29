@@ -194,7 +194,7 @@ persistent agent models (`Agent`, `AgentProvider`, `AgentTool`,
 - An import-boundary test, the same shape as the assistant's.
 
 **`InvestigationSessionStore`** (Redis, key prefix
-`aegis:agent:investigation:`, `TTL_SECONDS = 1800`) is the sixth
+`kervy:agent:investigation:`, `TTL_SECONDS = 1800`) is the sixth
 independent Redis-backed store in this codebase (alongside the Celery
 broker, the run kill-switch, the rate limiter, JWT revocation, and the AI
 spend cap — `docs/security-model.md` guarantee #27, `docs/revocation.md`).
@@ -284,8 +284,8 @@ a small hand-rolled protocol implementation over a heavyweight framework
 dependency for a narrow, well-specified need.
 
 It is a thin client over the *same* authenticated REST endpoints described
-above, built the same way `aegis_cli` is (`aegis_cli.client.ApiClient`,
-`aegis_cli.config.Profile` — zero duplication, reused directly):
+above, built the same way `kervy_cli` is (`kervy_cli.client.ApiClient`,
+`kervy_cli.config.Profile` — zero duplication, reused directly):
 
 - `tools/list` calls `GET /organizations/{id}/agent/tools` and translates
   the catalog into MCP's `{name, description, inputSchema}` shape.
@@ -298,7 +298,7 @@ above, built the same way `aegis_cli` is (`aegis_cli.client.ApiClient`,
   arguments).
 
 Credentials are the same API key an operator already has for the CLI
-(`AEGIS_API_KEY` / `aegis-ai login`'s saved profile), not a new kind of
+(`KERVY_API_KEY` / `kervy-ai login`'s saved profile), not a new kind of
 secret to provision. `backend/mcp_server/` has **zero imports of
 `app.core.agent`** — a structural proof, not just an intent, that an
 external MCP client gets no more access than the authenticated REST API

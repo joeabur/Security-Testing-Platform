@@ -158,7 +158,7 @@ async def test_a_report_is_downloadable_in_every_format(
     canonical = await client.get(f"{base}?report_format=json", headers=headers)
     assert canonical.status_code == 200
     payload = json.loads(canonical.text)
-    assert payload["schema"] == "aegis.report/v1"
+    assert payload["schema"] == "kervy.report/v1"
     assert payload["authorization"]["reference"] == "REP-7"
     assert payload["findings"]
 
@@ -208,7 +208,7 @@ async def test_every_template_renders_for_a_real_run(
         assert response.status_code == 200, template
         assert "REP-7" in response.text, template
     executive = await client.get(f"{base}?template=executive", headers=headers)
-    assert "AEGIS-AI-" not in executive.text
+    assert "KERVY-AI-" not in executive.text
 
 
 async def test_a_report_is_refused_before_the_run_has_executed(

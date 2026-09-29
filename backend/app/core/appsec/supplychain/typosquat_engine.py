@@ -75,7 +75,7 @@ class NameConfusionEngine:
             )
             results.append(
                 ScanResult(
-                    id="AEGIS-SUPPLY-030",
+                    id="KERVY-SUPPLY-030",
                     title=(f"{len(confusable)} dependency name(s) resemble widely-used packages"),
                     category=Category.DESIGN,
                     severity=Severity.LOW,
@@ -111,7 +111,7 @@ class NameConfusionEngine:
             )
             results.append(
                 ScanResult(
-                    id="AEGIS-SUPPLY-031",
+                    id="KERVY-SUPPLY-031",
                     title=f"{len(loose)} dependenc{'y' if len(loose) == 1 else 'ies'} unpinned",
                     category=Category.DESIGN,
                     severity=Severity.LOW,
@@ -141,7 +141,7 @@ class NameConfusionEngine:
         if hooks:
             results.append(
                 ScanResult(
-                    id="AEGIS-SUPPLY-032",
+                    id="KERVY-SUPPLY-032",
                     title=f"{len(hooks)} npm lifecycle script(s) run code at install time",
                     category=Category.DESIGN,
                     severity=Severity.INFORMATIONAL,

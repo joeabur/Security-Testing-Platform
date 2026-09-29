@@ -1,20 +1,20 @@
-# Running Aegis in CI
+# Running Kervy in CI
 
-> Scope note: this document covers the `aegis-ai` CLI, API keys and the
+> Scope note: this document covers the `kervy-ai` CLI, API keys and the
 > security gate — Phase 10 of `docs/BUILD_SPEC.md` §26. The workflows in
 > `.github/workflows/` that test *this repository* are described at the end.
 
 ## The short version
 
 ```yaml
-- name: Aegis security gate
+- name: Kervy security gate
   env:
-    AEGIS_BASE_URL: https://aegis.internal/api/v1
-    AEGIS_API_KEY: ${{ secrets.AEGIS_API_KEY }}
-    AEGIS_ORGANIZATION: ${{ vars.AEGIS_ORGANIZATION }}
+    KERVY_BASE_URL: https://kervy.internal/api/v1
+    KERVY_API_KEY: ${{ secrets.KERVY_API_KEY }}
+    KERVY_ORGANIZATION: ${{ vars.KERVY_ORGANIZATION }}
   run: |
-    pip install aegis-ai-security-backend
-    aegis-ai ci --target "$AEGIS_TARGET" --config security-gate.yaml
+    pip install kervy-security-backend
+    kervy-ai ci --target "$KERVY_TARGET" --config security-gate.yaml
 ```
 
 Exit codes, from §20, are the contract:
@@ -33,7 +33,7 @@ at all, so a refusal never exits 0.
 
 ## Why the gate ignores some findings
 
-`aegis-ai gate` will **not** fail a build on:
+`kervy-ai gate` will **not** fail a build on:
 
 - **Single-shot findings.** One observation is not a measurement. The AI
   engine reports an attack success rate with a confidence interval precisely
@@ -99,7 +99,7 @@ Notes that have bitten people:
 Create one per pipeline, from the UI or the API, as an admin:
 
 ```bash
-curl -X POST "$AEGIS_BASE_URL/organizations/$ORG/api-keys" \
+curl -X POST "$KERVY_BASE_URL/organizations/$ORG/api-keys" \
   -H "Authorization: Bearer $SESSION" \
   -d '{"name": "ci-staging", "scopes": ["read", "scan"], "expires_at": "2027-01-01T00:00:00Z"}'
 ```
@@ -138,34 +138,34 @@ the code scope and the runtime-protection declaration are each their own
 resource, matching the API:
 
 ```bash
-aegis-ai target roe --target "$TARGET_ID" --file roe.yaml                 # admin
-aegis-ai target adapter --target "$TARGET_ID" --file adapter.yaml         # security engineer
-aegis-ai target code --target "$TARGET_ID" --file code.yaml               # admin
-aegis-ai target runtime-protection --target "$TARGET_ID" --file rp.yaml   # admin
+kervy-ai target roe --target "$TARGET_ID" --file roe.yaml                 # admin
+kervy-ai target adapter --target "$TARGET_ID" --file adapter.yaml         # security engineer
+kervy-ai target code --target "$TARGET_ID" --file code.yaml               # admin
+kervy-ai target runtime-protection --target "$TARGET_ID" --file rp.yaml   # admin
 ```
 
 `adapter` is the one of the four a CI credential (`scan` scope) can call —
 it configures how the platform talks to the target, not whether testing it
 is authorized. `roe`, `code`, and `runtime-protection` need an admin
-session (`aegis-ai login`), same as `auth grant` above: each is a claim
+session (`kervy-ai login`), same as `auth grant` above: each is a claim
 someone accountable is making about scope or protection, not a pipeline
 setting.
 
 ## Scanning source code without the full target workflow
 
 If all a pipeline needs is SAST/SCA/secrets/IaC over a repository — no live
-target, no adapter, no operator-granted authorization — `aegis-ai repo` is
+target, no adapter, no operator-granted authorization — `kervy-ai repo` is
 the shorter path (`docs/repositories.md` has the full design):
 
 ```bash
-aegis-ai repo add --name "$REPO_NAME" --url "$REPO_URL" --branch "$BRANCH" --authorized
-aegis-ai repo scan "$REPOSITORY_ID" --wait   # not yet supported; see below
+kervy-ai repo add --name "$REPO_NAME" --url "$REPO_URL" --branch "$BRANCH" --authorized
+kervy-ai repo scan "$REPOSITORY_ID" --wait   # not yet supported; see below
 ```
 
 `repo add`/`repo scan` need `security_engineer` — no admin step, because
 adding a repository is its own consent (`--authorized`) rather than a claim
 someone else has to sign off on. `repo scan` does not yet support `--wait`
-or `--dry-run` the way `scan` does for a full target; poll `aegis-ai runs
+or `--dry-run` the way `scan` does for a full target; poll `kervy-ai runs
 show "$RUN_ID"` for now.
 
 ## Typical pipeline shapes
@@ -174,13 +174,13 @@ show "$RUN_ID"` for now.
 checks it):
 
 ```bash
-aegis-ai gate --run "$RUN_ID" --config security-gate.yaml
+kervy-ai gate --run "$RUN_ID" --config security-gate.yaml
 ```
 
 **Scan and gate in one step**, which is what `ci` is for:
 
 ```bash
-aegis-ai ci --target "$TARGET_ID" --fail-on critical,high --timeout 2400
+kervy-ai ci --target "$TARGET_ID" --fail-on critical,high --timeout 2400
 ```
 
 `ci` waits for the run to reach a terminal state, then gates on the findings
@@ -194,7 +194,7 @@ and its findings are not a basis for passing a build.
 that generates its own target URLs:
 
 ```bash
-aegis-ai scope explain "$TARGET_ID" --url "https://$HOST/api/health"   # exits 4 if refused
+kervy-ai scope explain "$TARGET_ID" --url "https://$HOST/api/health"   # exits 4 if refused
 ```
 
 ## This repository's own workflows
@@ -208,16 +208,16 @@ aegis-ai scope explain "$TARGET_ID" --url "https://$HOST/api/health"   # exits 4
 | `sbom.yml` | CycloneDX SBOMs for the backend environment and the frontend lockfile |
 
 `security.yml` runs the same Semgrep rules the product's SAST engine ships,
-including `aegis.ungated-http-client` — the rule that catches an HTTP client
+including `kervy.ungated-http-client` — the rule that catches an HTTP client
 built outside the scope engine. A security tool that does not run its own
 rules against itself is making a claim it has not tested. That rule currently
 has exactly two suppressions, each annotated at the line it applies to: the
 gated transport itself, which *is* the choke point, and the CLI's client,
-which talks to the Aegis API rather than to a target.
+which talks to the Kervy API rather than to a target.
 
 detect-secrets runs against `.secrets.baseline` rather than as a bare scan.
 A bare scan is red on day one here — migration revision hashes, environment
-variable *names* like `AEGIS_API_KEY`, and the credentials the vulnerable lab
+variable *names* like `KERVY_API_KEY`, and the credentials the vulnerable lab
 fixture contains on purpose — and a job that is red from the start is a job
 the team turns off. The baseline records those as hashes, never as values, so
 the step fails only on something new. Re-audit it with

@@ -207,7 +207,7 @@ def _findings(ref: ImageRef, payload: dict[str, Any]) -> list[ScanResult]:
             fixed = str(entry.get("FixedVersion") or "")
             results.append(
                 ScanResult(
-                    id="AEGIS-CONTAINER-101",
+                    id="KERVY-CONTAINER-101",
                     title=f"{advisory} in {package} {installed} ({ref.raw})",
                     category=Category.INFRASTRUCTURE,
                     severity=_SEVERITY.get(
@@ -259,7 +259,7 @@ def _findings(ref: ImageRef, payload: dict[str, Any]) -> list[ScanResult]:
 
 def _coverage_marker(surface: str, reason: str) -> ScanResult:
     return ScanResult(
-        id="AEGIS-CONTAINER-109",
+        id="KERVY-CONTAINER-109",
         title=f"Not tested: {surface}",
         category=Category.INFRASTRUCTURE,
         severity=Severity.INFORMATIONAL,

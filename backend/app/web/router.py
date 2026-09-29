@@ -339,12 +339,12 @@ def _actions(membership: Membership) -> dict[str, dict[str, str]]:
             "Connect a repository",
             Role.SECURITY_ENGINEER,
             "POST /api/v1/organizations/{organization_id}/repositories "
-            "(or: aegis-ai repo add --name ... --url ... --authorized)",
+            "(or: kervy-ai repo add --name ... --url ... --authorized)",
         ),
         "scan_repository": action(
             "Scan a repository",
             Role.SECURITY_ENGINEER,
             "POST /api/v1/organizations/{organization_id}/repositories/{repository_id}/scan "
-            "(or: aegis-ai repo scan <repository>)",
+            "(or: kervy-ai repo scan <repository>)",
         ),
     }

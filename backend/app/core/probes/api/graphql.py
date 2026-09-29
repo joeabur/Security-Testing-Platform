@@ -115,7 +115,7 @@ class GraphQLIntrospectionProbe:
 
             results.append(
                 ScanResult(
-                    id="AEGIS-API-060",
+                    id="KERVY-API-060",
                     title="GraphQL introspection is enabled",
                     category=Category.API_SECURITY,
                     severity=Severity.MEDIUM,
@@ -238,7 +238,7 @@ class GraphQLQueryCostProbe:
         framework_note: str,
     ) -> ScanResult:
         return ScanResult(
-            id="AEGIS-API-061",
+            id="KERVY-API-061",
             title=title,
             category=Category.API_SECURITY,
             severity=Severity.MEDIUM,
@@ -295,7 +295,7 @@ class GraphQLErrorVerbosityProbe:
             if ctx.halted:
                 break
             url = urljoin(base, path.lstrip("/"))
-            observation = await _post_query(ctx, transport, url, "{ aegisNoSuchField }")
+            observation = await _post_query(ctx, transport, url, "{ kervyNoSuchField }")
             if observation is None:
                 continue
 
@@ -306,7 +306,7 @@ class GraphQLErrorVerbosityProbe:
 
             results.append(
                 ScanResult(
-                    id="AEGIS-API-062",
+                    id="KERVY-API-062",
                     title="GraphQL errors expose internal details",
                     category=Category.API_SECURITY,
                     severity=Severity.MEDIUM,
@@ -317,7 +317,7 @@ class GraphQLErrorVerbosityProbe:
                         f"internals (matched {marker!r}) rather than a schema error."
                     ),
                     evidence=clip(
-                        f"POST {url} {{ aegisNoSuchField }} -> "
+                        f"POST {url} {{ kervyNoSuchField }} -> "
                         f"HTTP {observation.status_code}\n{body_text(observation)}"
                     ),
                     impact=(
@@ -332,14 +332,14 @@ class GraphQLErrorVerbosityProbe:
                     probe_version=self.version,
                     frameworks=("OWASP-API-2023:API8", "CWE-209"),
                     reproduction=(
-                        f"POST {url} with query {{ aegisNoSuchField }}.",
+                        f"POST {url} with query {{ kervyNoSuchField }}.",
                         f"Observe {marker!r} in the response body.",
                     ),
                     evidence_bundle=evidence_of(
                         observation,
                         probe_id=self.id,
                         probe_version=self.version,
-                        request_body="{ aegisNoSuchField }",
+                        request_body="{ kervyNoSuchField }",
                         verdict=f"resolver internals matched {marker!r}",
                         include_body=True,
                     ),

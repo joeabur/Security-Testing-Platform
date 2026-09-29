@@ -8,9 +8,9 @@ FROM python:3.12-slim
 
 # Intentionally vulnerable: labelled so an image scanner and a human both see
 # it before anything is deployed anywhere.
-LABEL org.opencontainers.image.title="Aegis demo target (intentionally vulnerable)"
+LABEL org.opencontainers.image.title="Kervy demo target (intentionally vulnerable)"
 LABEL org.opencontainers.image.description="Do not deploy. Built to be exploited."
-LABEL com.aegis.intentionally-vulnerable="true"
+LABEL com.kervy.intentionally-vulnerable="true"
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \

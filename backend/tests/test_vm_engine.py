@@ -47,7 +47,7 @@ async def test_an_empty_port_allowlist_is_a_visible_gap_and_never_scans() -> Non
     assert calls == []
     assert open_ports == []
     assert invocations == []
-    assert findings[0].id == "AEGIS-VM-109"
+    assert findings[0].id == "KERVY-VM-109"
     assert "allowed_ports is empty" in findings[0].evidence
 
 
@@ -68,7 +68,7 @@ async def test_a_host_resolving_to_a_blocked_address_is_a_visible_gap_and_never_
     assert calls == []
     assert open_ports == []
     assert invocations == []
-    assert findings[0].id == "AEGIS-VM-109"
+    assert findings[0].id == "KERVY-VM-109"
     assert "blocked address" in findings[0].evidence
 
 
@@ -84,7 +84,7 @@ async def test_a_scan_failure_is_a_visible_gap() -> None:
     assert open_ports == []
     assert len(invocations) == 1
     assert invocations[0].tool_name == "nmap"
-    assert findings[0].id == "AEGIS-VM-109"
+    assert findings[0].id == "KERVY-VM-109"
     assert "port scan failed" in findings[0].evidence
 
 
@@ -99,7 +99,7 @@ async def test_malformed_nmap_output_is_a_visible_gap() -> None:
 
     assert open_ports == []
     assert len(invocations) == 1
-    assert findings[0].id == "AEGIS-VM-109"
+    assert findings[0].id == "KERVY-VM-109"
     assert "not valid XML" in findings[0].evidence
 
 
@@ -118,7 +118,7 @@ async def test_a_clean_scan_still_emits_an_inventory_finding() -> None:
 
     assert open_ports == []
     assert len(findings) == 1
-    assert findings[0].id == "AEGIS-VM-001"
+    assert findings[0].id == "KERVY-VM-001"
     assert "None of the 2 declared port(s)" in findings[0].description
     assert len(invocations) == 1
     assert invocations[0].tool_name == "nmap"
@@ -135,16 +135,16 @@ async def test_open_ports_produce_an_inventory_and_noteworthy_port_findings() ->
 
     assert {item.port for item in open_ports} == {22, 6379, 8080}
     ids = [item.id for item in findings]
-    assert ids.count("AEGIS-VM-001") == 1
+    assert ids.count("KERVY-VM-001") == 1
     # 22 (ssh) and 8080 (http-proxy) are not in the noteworthy set; 6379
     # (redis) is.
-    assert ids.count("AEGIS-VM-101") == 1
+    assert ids.count("KERVY-VM-101") == 1
 
-    noteworthy = next(item for item in findings if item.id == "AEGIS-VM-101")
+    noteworthy = next(item for item in findings if item.id == "KERVY-VM-101")
     assert "6379" in noteworthy.title
     assert noteworthy.severity.value == "MEDIUM"
     assert noteworthy.fingerprint is not None
 
-    inventory = next(item for item in findings if item.id == "AEGIS-VM-001")
+    inventory = next(item for item in findings if item.id == "KERVY-VM-001")
     assert "3 of 3" in inventory.description
     assert len(invocations) == 1

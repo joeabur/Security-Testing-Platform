@@ -23,7 +23,7 @@ import sys
 BANNER = r"""
 +--------------------------------------------------------------------------+
 |                                                                          |
-|   AEGIS DEMO TARGET — INTENTIONALLY VULNERABLE                           |
+|   KERVY DEMO TARGET — INTENTIONALLY VULNERABLE                           |
 |                                                                          |
 |   This service is built to be exploited. It leaks its system prompt,     |
 |   follows injected instructions, renders model output as raw HTML, and   |

@@ -70,7 +70,7 @@ async def test_the_secret_is_returned_once_and_never_again(
     org_id, headers = await _owner(client, strong_password, "a")
     created = await _mint(client, org_id, headers, ["read"])
 
-    assert created["token"].startswith("aegis_")
+    assert created["token"].startswith("kervy_")
     listed = (await client.get(f"/api/v1/organizations/{org_id}/api-keys", headers=headers)).json()
     assert len(listed) == 1
     assert "token" not in listed[0]
@@ -296,11 +296,11 @@ async def test_using_a_key_records_when_it_was_last_used(
 @pytest.mark.parametrize(
     "token",
     [
-        "aegis_",
-        "aegis_short_secret",
-        "aegis_zzzzzzzzzzzzzzzz_secret",
-        "aegis_0011223344556677",
-        "aegis_0011223344556677_",
+        "kervy_",
+        "kervy_short_secret",
+        "kervy_zzzzzzzzzzzzzzzz_secret",
+        "kervy_0011223344556677",
+        "kervy_0011223344556677_",
     ],
 )
 async def test_a_malformed_key_is_rejected(
@@ -320,7 +320,7 @@ async def test_a_wrong_secret_for_a_real_key_id_is_rejected(
     org_id, headers = await _owner(client, strong_password, "o")
     created = await _mint(client, org_id, headers, ["read"])
 
-    forged = f"aegis_{created['key_id']}_not-the-real-secret"
+    forged = f"kervy_{created['key_id']}_not-the-real-secret"
     response = await client.get(
         f"/api/v1/organizations/{org_id}/findings",
         headers={"Authorization": f"Bearer {forged}"},

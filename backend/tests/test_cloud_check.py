@@ -34,7 +34,7 @@ async def test_cloud_check_reports_an_engine_failure_without_losing_the_run() ->
 
     assert len(results) == 1
     assert results[0].ok is False
-    assert check.scan_results[0].id == "AEGIS-CLOUD-199"
+    assert check.scan_results[0].id == "KERVY-CLOUD-199"
 
 
 async def test_cloud_check_summarizes_a_clean_run() -> None:

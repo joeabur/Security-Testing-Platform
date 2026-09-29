@@ -6,6 +6,34 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **Renamed the platform from Aegis AI Security to Kervy Security**,
+  end to end rather than at the branding layer alone: every `AEGIS_*`
+  environment variable (`AEGIS_EVIDENCE_ENCRYPTION_KEY`,
+  `AEGIS_WEBHOOK_SECRET_ENCRYPTION_KEY`, `AEGIS_RATE_LIMIT_ENABLED`,
+  and the rest) is now `KERVY_*`; the `X-Aegis-Signature`/
+  `X-Aegis-Timestamp`/`X-Aegis-Event` webhook-signing headers are now
+  `X-Kervy-*`; the `aegis_session`/`aegis_csrf` cookies are now
+  `kervy_session`/`kervy_csrf`; every `AEGIS-<engine>-<rule>` finding/
+  probe-ID prefix (`AEGIS-SAST-...`, `AEGIS-API-...`, `AEGIS-IAC-...`,
+  and the rest) is now `KERVY-<engine>-<rule>`; every Redis key prefix,
+  the Celery app/task names, the `aegis-ai`/`aegis-mcp` CLI commands
+  (now `kervy-ai`/`kervy-mcp`, `backend/aegis_cli` now
+  `backend/kervy_cli`), and the package names in both
+  `backend/pyproject.toml` and `frontend/package.json` all follow. The
+  Postgres Row-Level Security session variable
+  (`app/db/tenant_context.py`) moved from `aegis.org_id` to
+  `kervy.org_id` via a dedicated `ALTER POLICY` migration
+  (`e1d16423a6b1`) rather than an edit to any of the five historical
+  migrations that created those policies, which are left exactly as
+  they were run. Every historical Alembic migration file is
+  deliberately untouched for the same reason — a migration is a record
+  of what actually ran, not a place to retell it under a new name.
+  **This is a breaking change** for any existing deployment or
+  integration still using the old env var names, header names, cookie
+  names, or database name.
+
 ### Added
 
 - Pentest module, Phase 8 (automation): Celery Beat scheduling
@@ -161,7 +189,7 @@ All notable changes to this project are recorded here. The format follows
 - Responsive layout pass on the Jinja2 dashboard: header, cards, and tables
   now reflow at phone width; the Next.js frontend's existing Tailwind
   breakpoints were left as-is and its top nav made wrap-safe.
-- `aegis-ai repo add|list|show|scan|remove` and
+- `kervy-ai repo add|list|show|scan|remove` and
   `/organizations/{id}/repositories` — a lightweight path onto code scanning
   (SAST/SCA/secrets/IaC) for a repository someone already has read access
   to: a URL, a branch, and a self-affirmed consent, skipping the
@@ -185,7 +213,7 @@ All notable changes to this project are recorded here. The format follows
   be created against a properly migrated deployment. Found while adding
   `CODE_REPO` to the same enum; both are added by migration `c3f8a2e91b4d`.
 
-- `aegis-ai target roe|adapter|code|runtime-protection` — a full audit pass
+- `kervy-ai target roe|adapter|code|runtime-protection` — a full audit pass
   found `target add` and `auth grant` covered by the CLI but the four
   PUT endpoints that finish configuring a target (rules of engagement, the
   adapter, the code scope, the runtime-protection declaration) had no CLI
@@ -258,7 +286,7 @@ reports.
   a retest workflow reporting reproduced / not reproduced / **not tested**.
 - Evidence redacted *before* it is written, content-addressed and hash-chained;
   verification re-walks the chain and re-hashes the files. Encryption at rest
-  is opt-in (`AEGIS_EVIDENCE_ENCRYPTION_KEY`, AES-256-GCM) — unset, a bundle is
+  is opt-in (`KERVY_EVIDENCE_ENCRYPTION_KEY`, AES-256-GCM) — unset, a bundle is
   protected by filesystem permissions and redaction alone, same as before this
   existed (`docs/configuration.md`).
 - Reports in Markdown, HTML, PDF, JSON, SARIF 2.1.0 and CSV, in four audience
@@ -274,7 +302,7 @@ reports.
 
 ### CI/CD and integrations
 
-- `aegis-ai` CLI over the same API and scope engine as the UI.
+- `kervy-ai` CLI over the same API and scope engine as the UI.
 - Scoped API keys, capped at security engineer so a CI credential can never
   grant authorization.
 - Security gate with documented exit codes (0 pass, 1 gate failed, 2 config

@@ -1,4 +1,4 @@
-# Aegis AI Security
+# Kervy Security
 
 An open-source web platform for **authorized** security assessment of
 Generative AI applications — their models, prompts, retrieval layers,
@@ -23,7 +23,7 @@ content-addressed evidence plus reports in Markdown, HTML, PDF, JSON, SARIF
 2.1.0 and CSV, and a remediation board with a retest workflow that reports
 reproduced / not reproduced / not tested with the evidence from either side.
 
-There is also an `aegis-ai` CLI and a CI security gate with documented exit
+There is also an `kervy-ai` CLI and a CI security gate with documented exit
 codes — see [`docs/cicd.md`](docs/cicd.md).
 
 Findings and finished runs can be sent out to Slack, Microsoft Teams, a
@@ -156,7 +156,7 @@ report formats.
 cd backend
 python3.12 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
-export DATABASE_URL=postgresql+asyncpg://<user>:<password>@localhost:5432/aegis
+export DATABASE_URL=postgresql+asyncpg://<user>:<password>@localhost:5432/kervy
 export REDIS_URL=redis://localhost:6379/0
 alembic upgrade head
 uvicorn app.main:app --reload
@@ -295,7 +295,7 @@ complete list of what is still deferred.
   why a channel cannot become an SSRF primitive, how credentials stay out of
   the database, the retry and dead-letter rules, and the webhook signing
   scheme.
-- [`docs/cicd.md`](docs/cicd.md) — the `aegis-ai` CLI, API keys, and the CI
+- [`docs/cicd.md`](docs/cicd.md) — the `kervy-ai` CLI, API keys, and the CI
   security gate: its exit codes, and why it refuses to fail a build on an
   unstable finding.
 - [`docs/roadmap.md`](docs/roadmap.md) — what's built, what's deferred, and

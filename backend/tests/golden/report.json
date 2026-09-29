@@ -17,7 +17,7 @@
     "not_tested": [
       {
         "area": "dependency advisories",
-        "probe_id": "AEGIS-APPSEC-000",
+        "probe_id": "KERVY-APPSEC-000",
         "reason": "Advisory lookup is disabled by default (no outbound disclosure)."
       }
     ],
@@ -145,7 +145,7 @@
         ]
       },
       "probe": {
-        "id": "AEGIS-AI-001",
+        "id": "KERVY-AI-001",
         "version": "1.0.0"
       },
       "remediation": "Separate instructions from data; re-assert the system policy per turn.",
@@ -160,7 +160,7 @@
           "impact": "major",
           "likelihood": 0.62
         },
-        "model": "aegis-v1",
+        "model": "kervy-v1",
         "score": 7.4
       },
       "severity": "HIGH",
@@ -191,7 +191,7 @@
         ]
       },
       "probe": {
-        "id": "AEGIS-AI-030",
+        "id": "KERVY-AI-030",
         "version": "1.0.0"
       },
       "remediation": "Bind tool calls to the authenticated principal.",
@@ -205,7 +205,7 @@
           "impact": "moderate",
           "likelihood": 0.5
         },
-        "model": "aegis-v1",
+        "model": "kervy-v1",
         "score": 5.0
       },
       "severity": "MEDIUM",
@@ -240,7 +240,7 @@
         ]
       },
       "probe": {
-        "id": "AEGIS-SAST-B602",
+        "id": "KERVY-SAST-B602",
         "version": "bandit-1.7"
       },
       "remediation": "Pass an argument list; never shell=True.",
@@ -254,7 +254,7 @@
           "impact": "major",
           "likelihood": 0.62
         },
-        "model": "aegis-v1",
+        "model": "kervy-v1",
         "score": 9.1
       },
       "severity": "CRITICAL",
@@ -297,7 +297,7 @@
     "requests_blocked": 2,
     "safe_mode": true
   },
-  "schema": "aegis.report/v1",
+  "schema": "kervy.report/v1",
   "surface": {
     "adapters": [
       "chat_http"
@@ -318,7 +318,7 @@
     "name": "Support assistant \"beta\" & API"
   },
   "tool": {
-    "name": "Aegis AI Security",
+    "name": "Kervy Security",
     "version": "0.1.0"
   }
 }

@@ -107,7 +107,7 @@ async def lab() -> AsyncGenerator[dict[str, str], None]:
 
 LAB_SPEC = {
     "openapi": "3.0.3",
-    "info": {"title": "Aegis Lab", "version": "0.1.0"},
+    "info": {"title": "Kervy Lab", "version": "0.1.0"},
     "paths": {
         "/api/orders/{order_id}": {
             "get": {
@@ -259,8 +259,8 @@ async def _configure(client: AsyncClient, password: str, base_url: str) -> tuple
     # database. `ord-7001` belongs to globex, which is what makes reading it
     # with the acme token the BOLA finding.
     for label, variable, owned in (
-        ("acme_user", "AEGIS_LAB_ACME_TOKEN", ["ord-5001"]),
-        ("globex_user", "AEGIS_LAB_GLOBEX_TOKEN", ["ord-7001"]),
+        ("acme_user", "KERVY_LAB_ACME_TOKEN", ["ord-5001"]),
+        ("globex_user", "KERVY_LAB_GLOBEX_TOKEN", ["ord-7001"]),
     ):
         account = await client.put(
             f"{base}/accounts/{label}",
@@ -330,15 +330,15 @@ async def test_a_real_assessment_against_the_lab_finds_its_seeded_flaws(
 
     # The seeded flaws the engines should surface against this lab. Named
     # individually so a regression says which one stopped being found.
-    # Not asserted: AEGIS-API-001. The lab *does* require authentication on
+    # Not asserted: KERVY-API-001. The lab *does* require authentication on
     # `/api/orders/{id}` — it returns 401 without a token. Its flaw is that it
     # then skips the ownership check, which is BOLA, not missing auth.
-    assert "AEGIS-API-050" in codes, "BOLA: another tenant's order served to an acme token"
-    assert "AEGIS-API-010" in codes, "missing security headers"
-    assert "AEGIS-API-011" in codes, "reflected CORS with credentials"
-    assert "AEGIS-API-013" in codes, "reachable /.env"
-    assert "AEGIS-API-020" in codes, "no advertised rate limit"
-    assert any(code.startswith("AEGIS-AI-0") for code in codes), "no AI finding at all"
+    assert "KERVY-API-050" in codes, "BOLA: another tenant's order served to an acme token"
+    assert "KERVY-API-010" in codes, "missing security headers"
+    assert "KERVY-API-011" in codes, "reflected CORS with credentials"
+    assert "KERVY-API-013" in codes, "reachable /.env"
+    assert "KERVY-API-020" in codes, "no advertised rate limit"
+    assert any(code.startswith("KERVY-AI-0") for code in codes), "no AI finding at all"
 
     findings = (
         await client.get(f"/api/v1/organizations/{org_id}/findings", headers=headers)
@@ -407,7 +407,7 @@ async def test_the_scope_engine_refuses_the_lab_without_the_deliberate_opt_in(
     # These two read the target's configuration and its specification; neither
     # sends a request, so their presence is not evidence that anything reached
     # the lab. Everything else requires an observation.
-    analysis_only = {"AEGIS-API-002", "AEGIS-API-003", "AEGIS-API-030", "AEGIS-API-031"}
+    analysis_only = {"KERVY-API-002", "KERVY-API-003", "KERVY-API-030", "KERVY-API-031"}
     observed = [
         item
         for item in results

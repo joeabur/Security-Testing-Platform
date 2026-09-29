@@ -32,7 +32,7 @@ async def test_a_target_that_does_not_authorize_a_live_pull_is_a_visible_gap() -
 
     assert invocations == []
     assert len(findings) == 1
-    assert findings[0].id == "AEGIS-CONTAINER-109"
+    assert findings[0].id == "KERVY-CONTAINER-109"
     assert "allow_live_pull" in findings[0].evidence
 
 
@@ -52,7 +52,7 @@ async def test_an_unauthorized_registry_is_a_visible_gap_and_never_pulls() -> No
 
     assert calls == []
     assert invocations == []
-    assert findings[0].id == "AEGIS-CONTAINER-109"
+    assert findings[0].id == "KERVY-CONTAINER-109"
     assert "not in asset_scope.allowed_registries" in findings[0].evidence
 
 
@@ -76,7 +76,7 @@ async def test_a_pull_failure_is_a_visible_gap_and_never_scans() -> None:
     assert scan_calls == []
     assert len(invocations) == 1
     assert invocations[0].tool_name == "docker"
-    assert findings[0].id == "AEGIS-CONTAINER-109"
+    assert findings[0].id == "KERVY-CONTAINER-109"
     assert "image pull failed" in findings[0].evidence
 
 
@@ -121,7 +121,7 @@ async def test_a_scan_failure_is_a_visible_gap() -> None:
 
     findings, invocations = await engine.run(target)
 
-    assert findings[0].id == "AEGIS-CONTAINER-109"
+    assert findings[0].id == "KERVY-CONTAINER-109"
     assert "image scan failed" in findings[0].evidence
     # pull + the failed scan attempt + the always-runs removal.
     assert {item.tool_name for item in invocations} == {"docker", "trivy"}
@@ -176,7 +176,7 @@ async def test_a_successful_scan_produces_verified_findings_and_always_cleans_up
     assert len(remove_calls) == 1
     assert len(findings) == 1
     finding = findings[0]
-    assert finding.id == "AEGIS-CONTAINER-101"
+    assert finding.id == "KERVY-CONTAINER-101"
     assert "CVE-2023-12345" in finding.title
     assert finding.frameworks == ("CVE-2023-12345", "CWE-120")
     assert finding.fingerprint is not None
@@ -212,7 +212,7 @@ async def test_a_malformed_image_reference_is_a_visible_gap_before_any_pull() ->
 
     assert calls == []
     assert invocations == []
-    assert findings[0].id == "AEGIS-CONTAINER-109"
+    assert findings[0].id == "KERVY-CONTAINER-109"
 
 
 def test_check_registry_allowed_error_is_a_container_pull_error() -> None:

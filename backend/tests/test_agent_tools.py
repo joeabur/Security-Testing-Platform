@@ -106,14 +106,14 @@ def _finding_fields() -> dict[str, object]:
     now = datetime.now(UTC)
     return {
         "category": Category.API_SECURITY,
-        "probe_id": "AEGIS-API-050",
+        "probe_id": "KERVY-API-050",
         "probe_version": "1.0.0",
         "surface": "GET /orders/{id}",
         "severity": Severity.CRITICAL,
         "severity_rationale": "authenticated cross-tenant read",
         "confidence": Confidence.HIGH,
         "stability": Stability.DETERMINISTIC,
-        "risk_model": "aegis-ordinal-v1",
+        "risk_model": "kervy-ordinal-v1",
         "risk_score": 9,
         "description": "Another tenant's order is readable.",
         "impact": "Cross-tenant data exposure.",
@@ -125,7 +125,7 @@ def _finding_fields() -> dict[str, object]:
 
 def _scan_result_fields(**overrides: object) -> dict[str, object]:
     base: dict[str, object] = {
-        "result_code": "AEGIS-API-050",
+        "result_code": "KERVY-API-050",
         "title": "BOLA on /orders/{id}",
         "category": Category.API_SECURITY,
         "severity": Severity.CRITICAL,
@@ -135,7 +135,7 @@ def _scan_result_fields(**overrides: object) -> dict[str, object]:
         "evidence": "e",
         "impact": "i",
         "remediation": "r",
-        "probe_id": "AEGIS-API-050",
+        "probe_id": "KERVY-API-050",
         "probe_version": "1.0.0",
     }
     base.update(overrides)
@@ -438,7 +438,7 @@ async def test_get_scan_results_respects_include_informational(
                 run_id=run.id,
                 organization_id=org_id,
                 **_scan_result_fields(
-                    result_code="AEGIS-APPSEC-000",
+                    result_code="KERVY-APPSEC-000",
                     title="Not tested: Semgrep",
                     severity=Severity.INFORMATIONAL,
                 ),
@@ -656,7 +656,7 @@ async def test_create_report_as_json_produces_canonical_json(
 
     assert result.report_format == "json"
     parsed = json.loads(result.content)
-    assert parsed["tool"]["name"] == "Aegis AI Security"
+    assert parsed["tool"]["name"] == "Kervy Security"
 
 
 async def test_create_report_refuses_a_run_that_has_not_started(

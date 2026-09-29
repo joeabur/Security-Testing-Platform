@@ -134,7 +134,7 @@ def _inventory_finding(target: VmTarget, open_ports: list[OpenPort]) -> ScanResu
     ordered = sorted(open_ports, key=lambda item: item.port)
     listed = "\n".join(_format_port_line(item) for item in ordered)
     return ScanResult(
-        id="AEGIS-VM-001",
+        id="KERVY-VM-001",
         title=f"{len(open_ports)} open port(s) found on {target.host}",
         category=Category.INFRASTRUCTURE,
         severity=Severity.INFORMATIONAL,
@@ -165,7 +165,7 @@ def _format_port_line(item: OpenPort) -> str:
 def _noteworthy_port_finding(target: VmTarget, item: OpenPort, reason: str) -> ScanResult:
     banner = f"{item.service} {item.product} {item.version}".strip()
     return ScanResult(
-        id="AEGIS-VM-101",
+        id="KERVY-VM-101",
         title=f"{target.host}:{item.port} exposes {reason.split(' (')[0]}",
         category=Category.INFRASTRUCTURE,
         severity=Severity.MEDIUM,
@@ -195,7 +195,7 @@ def _noteworthy_port_finding(target: VmTarget, item: OpenPort, reason: str) -> S
 
 def _coverage_marker(surface: str, reason: str) -> ScanResult:
     return ScanResult(
-        id="AEGIS-VM-109",
+        id="KERVY-VM-109",
         title=f"Not tested: {surface}",
         category=Category.INFRASTRUCTURE,
         severity=Severity.INFORMATIONAL,

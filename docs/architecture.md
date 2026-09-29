@@ -7,7 +7,7 @@
    browser ────────▶│   frontend   │  Next.js — auth pages only today
                     └──────┬───────┘
                            │ HTTP
-   aegis-ai CLI ──────────▶│
+   kervy-ai CLI ──────────▶│
    CI job       ──────────▶│
                     ┌──────▼───────┐      ┌──────────────┐
                     │   FastAPI    │◀────▶│  PostgreSQL  │

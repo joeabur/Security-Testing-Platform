@@ -1,6 +1,6 @@
 # Pull-request integration
 
-Aegis posts a run's findings back to a GitHub pull request as a **check run**
+Kervy posts a run's findings back to a GitHub pull request as a **check run**
 with inline annotations. This document is written around the boundary, because
 writing into someone else's repository is the most externally-visible thing this
 platform does.
@@ -39,7 +39,7 @@ caller can widen it:
   code. A database row cannot redirect it — attempting to set `api_host` on one
   is refused at creation.
 * A `github_enterprise` connection's host is site-specific, so it must appear in
-  `AEGIS_VCS_ALLOWED_HOSTS`, held in the environment. An organization admin picks
+  `KERVY_VCS_ALLOWED_HOSTS`, held in the environment. An organization admin picks
   among hosts an operator sanctioned; they cannot invent one.
 * `allowed_ip_ranges` is empty, so sanctioning a host does **not** sanction an
   internal address behind it. A self-hosted instance on RFC1918 is a deliberate
@@ -95,7 +95,7 @@ layer uses on the way out.
 ## Usage
 
 ```bash
-aegis-ai pr publish \
+kervy-ai pr publish \
   --connection <connection-id> \
   --owner acme --repo api --pr 412 \
   --sha $GITHUB_SHA \
@@ -121,7 +121,7 @@ exists to prevent.
 
 ## What is not built
 
-* **No webhook receiver.** Aegis does not listen for `pull_request` events and
+* **No webhook receiver.** Kervy does not listen for `pull_request` events and
   scan automatically; publishing is invoked by CI or by hand. Ingesting webhooks
   means an inbound authenticated endpoint, replay protection and a decision about
   what a push from a fork may trigger — worth doing deliberately rather than

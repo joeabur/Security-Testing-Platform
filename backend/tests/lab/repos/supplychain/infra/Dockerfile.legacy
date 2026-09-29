@@ -1,4 +1,4 @@
 # SEEDED: a runtime the end-of-life table has no entry for. Must be reported as
-# "not assessed" (AEGIS-SUPPLY-019), never as supported.
+# "not assessed" (KERVY-SUPPLY-019), never as supported.
 FROM crystal:1.9-alpine
 CMD ["true"]

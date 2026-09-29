@@ -48,12 +48,12 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Build ${{ matrix.name }}
-        run: docker build -f ${{ matrix.dockerfile }} -t aegis-${{ matrix.name }}:ci ${{ matrix.context }}
+        run: docker build -f ${{ matrix.dockerfile }} -t kervy-${{ matrix.name }}:ci ${{ matrix.context }}
 
       - name: Trivy — vulnerabilities
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image-ref: aegis-${{ matrix.name }}:ci
+          image-ref: kervy-${{ matrix.name }}:ci
           severity: ${{ matrix.severity }}
           ignore-unfixed: true
           exit-code: "1"
@@ -62,7 +62,7 @@ jobs:
       - name: Trivy — misconfiguration and secrets in the image
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image-ref: aegis-${{ matrix.name }}:ci
+          image-ref: kervy-${{ matrix.name }}:ci
           scanners: misconfig,secret
           severity: HIGH,CRITICAL
           exit-code: "1"

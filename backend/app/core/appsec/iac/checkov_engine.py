@@ -115,7 +115,7 @@ class CheckovEngine:
         resource = str(item.get("resource", ""))
 
         return ScanResult(
-            id=f"AEGIS-IAC-{check_id}",
+            id=f"KERVY-IAC-{check_id}",
             title=f"{check_id}: {item.get('check_name', 'infrastructure misconfiguration')}"[:300],
             category=Category.INFRASTRUCTURE,
             severity=severity_from(str(item.get("severity") or ""), Severity.MEDIUM),

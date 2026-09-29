@@ -146,7 +146,7 @@ async def test_a_run_promotes_its_results_into_scored_findings(
         # states the score the finding carries.
         assert finding["severity_rationale"]
         assert f"{finding['risk_score']}/10" in finding["severity_rationale"]
-        assert finding["risk_model"] == "aegis-v1"
+        assert finding["risk_model"] == "kervy-v1"
         assert finding["risk_inputs"]
         assert finding["fingerprint"].startswith("sha256:")
         assert finding["status"] == "new"

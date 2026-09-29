@@ -39,7 +39,7 @@ class DomainCheck:
         except Exception as exc:  # noqa: BLE001 - one engine must not lose the run
             self.scan_results.append(
                 ScanResult(
-                    id="AEGIS-DOMAIN-099",
+                    id="KERVY-DOMAIN-099",
                     title="Domain engine failed to complete",
                     category=Category.INFRASTRUCTURE,
                     severity=Severity.INFORMATIONAL,

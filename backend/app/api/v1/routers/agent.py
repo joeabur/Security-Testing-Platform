@@ -173,7 +173,7 @@ async def _maybe_notify(db: DbSession, organization_id: uuid.UUID, result: Execu
     )
     queued = await enqueue(db, event)
     if queued:
-        celery_app.send_task("aegis.deliver_notifications")
+        celery_app.send_task("kervy.deliver_notifications")
 
 
 @router.get("/tools", response_model=list[ToolCatalogEntry])

@@ -131,7 +131,7 @@ class ContainerScanEngine:
                 fixed = str(entry.get("FixedVersion") or "")
                 results.append(
                     ScanResult(
-                        id="AEGIS-CONTAINER-001",
+                        id="KERVY-CONTAINER-001",
                         title=f"{advisory} in {package} {installed}",
                         category=Category.INFRASTRUCTURE,
                         severity=_SEVERITY.get(
@@ -195,7 +195,7 @@ class ContainerScanEngine:
             f"{manifest}: FROM {name}{':' + tag if tag else ''}" for name, tag, manifest in images
         )
         return ScanResult(
-            id="AEGIS-CONTAINER-009",
+            id="KERVY-CONTAINER-009",
             title="Not tested: base image layers",
             category=Category.INFRASTRUCTURE,
             severity=Severity.INFORMATIONAL,

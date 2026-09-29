@@ -306,7 +306,7 @@ async def explain_scope(
 ) -> ScopeExplainResponse:
     """The dry-run preview: reports what decision a real request would get
     without sending anything or consuming any budget
-    (docs/BUILD_SPEC.md §6.2, §18 `aegis-ai scope explain`).
+    (docs/BUILD_SPEC.md §6.2, §18 `kervy-ai scope explain`).
     """
     target = await load_target(organization_id, target_id, db)
 

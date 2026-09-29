@@ -48,7 +48,7 @@ def create_app() -> FastAPI:
     hits: list[Hit] = []
 
     app = FastAPI(
-        title="Aegis Lab — out-of-band collaborator",
+        title="Kervy Lab — out-of-band collaborator",
         description="Records requests that reach it. Local only. Do not deploy.",
         version="0.1.0",
     )

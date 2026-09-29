@@ -39,12 +39,12 @@ HARDENED_URL = "https://hardened.lab.test"
 
 ACCOUNT_A = SyntheticAccount(
     label="account_a",
-    credential_env_var="AEGIS_LAB_TOKEN_A",
+    credential_env_var="KERVY_LAB_TOKEN_A",
     owned_object_ids=(ORDER_OWNED_BY_A,),
 )
-ACCOUNT_B = SyntheticAccount(label="account_b", credential_env_var="AEGIS_LAB_TOKEN_B")
+ACCOUNT_B = SyntheticAccount(label="account_b", credential_env_var="KERVY_LAB_TOKEN_B")
 ACCOUNT_ADMIN = SyntheticAccount(
-    label="admin", credential_env_var="AEGIS_LAB_TOKEN_ADMIN", is_privileged=True
+    label="admin", credential_env_var="KERVY_LAB_TOKEN_ADMIN", is_privileged=True
 )
 
 
@@ -55,9 +55,9 @@ def _plan() -> AuthorizationTestPlan:
         credentials=CredentialSet.from_environment(
             accounts,
             {
-                "AEGIS_LAB_TOKEN_A": TOKEN_A,
-                "AEGIS_LAB_TOKEN_B": TOKEN_B,
-                "AEGIS_LAB_TOKEN_ADMIN": TOKEN_ADMIN,
+                "KERVY_LAB_TOKEN_A": TOKEN_A,
+                "KERVY_LAB_TOKEN_B": TOKEN_B,
+                "KERVY_LAB_TOKEN_ADMIN": TOKEN_ADMIN,
             },
         ),
     )
@@ -118,23 +118,23 @@ def _codes(results: list[ScanResult]) -> set[str]:
 # engine must report for it. A miss here is a false negative in the engine,
 # which is the failure mode that matters most for a security tool.
 SEEDED_FLAWS = {
-    "AEGIS-API-001": "authenticated endpoint answers without credentials",
-    "AEGIS-API-002": "API served over plaintext HTTP",
-    "AEGIS-API-003": "api_key accepted in the URL",
-    "AEGIS-API-010": "security response headers missing",
-    "AEGIS-API-011": "CORS reflects any origin with credentials",
-    "AEGIS-API-012": "verbose error exposes a traceback",
-    "AEGIS-API-013": "/.env reachable",
-    "AEGIS-API-020": "no rate limit advertised",
-    "AEGIS-API-021": "oversized page size accepted",
-    "AEGIS-API-030": "privileged fields bindable in the request body",
-    "AEGIS-API-031": "write operation reuses a read schema",
-    "AEGIS-API-040": "invalid input causes a server error",
-    "AEGIS-API-050": "object readable by an account that does not own it",
-    "AEGIS-API-051": "admin endpoint reachable by an unprivileged account",
-    "AEGIS-API-060": "GraphQL introspection enabled",
-    "AEGIS-API-061": "GraphQL query cost unlimited",
-    "AEGIS-API-062": "GraphQL errors expose internals",
+    "KERVY-API-001": "authenticated endpoint answers without credentials",
+    "KERVY-API-002": "API served over plaintext HTTP",
+    "KERVY-API-003": "api_key accepted in the URL",
+    "KERVY-API-010": "security response headers missing",
+    "KERVY-API-011": "CORS reflects any origin with credentials",
+    "KERVY-API-012": "verbose error exposes a traceback",
+    "KERVY-API-013": "/.env reachable",
+    "KERVY-API-020": "no rate limit advertised",
+    "KERVY-API-021": "oversized page size accepted",
+    "KERVY-API-030": "privileged fields bindable in the request body",
+    "KERVY-API-031": "write operation reuses a read schema",
+    "KERVY-API-040": "invalid input causes a server error",
+    "KERVY-API-050": "object readable by an account that does not own it",
+    "KERVY-API-051": "admin endpoint reachable by an unprivileged account",
+    "KERVY-API-060": "GraphQL introspection enabled",
+    "KERVY-API-061": "GraphQL query cost unlimited",
+    "KERVY-API-062": "GraphQL errors expose internals",
 }
 
 
@@ -163,11 +163,11 @@ async def test_hardened_control_app_produces_no_findings(
 async def test_no_probe_crashed_against_either_app(
     vulnerable_results: list[ScanResult], hardened_results: list[ScanResult]
 ) -> None:
-    """AEGIS-API-099 is the marker a probe leaves when it raised. Its absence
+    """KERVY-API-099 is the marker a probe leaves when it raised. Its absence
     is what makes the two assertions above mean something: a crashed probe
     would otherwise look identical to a probe that found nothing."""
     for results in (vulnerable_results, hardened_results):
-        crashed = [result for result in results if result.id == "AEGIS-API-099"]
+        crashed = [result for result in results if result.id == "KERVY-API-099"]
         assert crashed == [], [result.evidence for result in crashed]
 
 
@@ -187,7 +187,7 @@ async def test_findings_carry_reproduction_steps_and_framework_mappings(
 async def test_bola_finding_is_critical_and_names_both_accounts(
     vulnerable_results: list[ScanResult],
 ) -> None:
-    bola = next(result for result in vulnerable_results if result.id == "AEGIS-API-050")
+    bola = next(result for result in vulnerable_results if result.id == "KERVY-API-050")
     assert bola.severity is Severity.CRITICAL
     assert "account_a" in bola.evidence and "account_b" in bola.evidence
 
@@ -218,10 +218,10 @@ async def test_no_credential_value_ever_reaches_a_result(
 # exchange. They carry no bundle by design, and naming them here means a new
 # probe cannot quietly join the list.
 _ANALYSIS_ONLY = {
-    "AEGIS-API-002",  # plaintext HTTP: read from the base URL, no request sent
-    "AEGIS-API-003",  # credentials declared as URL parameters
-    "AEGIS-API-030",  # mass assignment, analysis mode
-    "AEGIS-API-031",
+    "KERVY-API-002",  # plaintext HTTP: read from the base URL, no request sent
+    "KERVY-API-003",  # credentials declared as URL parameters
+    "KERVY-API-030",  # mass assignment, analysis mode
+    "KERVY-API-031",
 }
 
 
@@ -252,7 +252,7 @@ async def test_an_authorization_findings_evidence_withholds_the_other_partys_dat
     """BOLA proves account B reached account A's object. Storing that object
     would make the evidence bundle a copy of the records the probe only
     established were reachable — §10's "the decision, then stop"."""
-    bola = next(r for r in vulnerable_results if r.id == "AEGIS-API-050")
+    bola = next(r for r in vulnerable_results if r.id == "KERVY-API-050")
     assert bola.evidence_bundle is not None
     body = bola.evidence_bundle.response["body"]
     assert body.startswith("[NOT RETAINED]")
@@ -265,6 +265,6 @@ async def test_a_verbose_error_findings_evidence_keeps_the_body(
 ) -> None:
     """The mirror image: here the body *is* the finding, so withholding it
     would leave the finding unsupported."""
-    verbose = next(r for r in vulnerable_results if r.id == "AEGIS-API-012")
+    verbose = next(r for r in vulnerable_results if r.id == "KERVY-API-012")
     assert verbose.evidence_bundle is not None
     assert not verbose.evidence_bundle.response["body"].startswith("[NOT RETAINED]")

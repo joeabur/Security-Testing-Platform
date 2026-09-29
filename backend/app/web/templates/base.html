@@ -18,7 +18,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{% block title %}Aegis AI Security{% endblock %}</title>
+<title>{% block title %}Kervy Security{% endblock %}</title>
 {# No icon file is served, and none should be fetched from anywhere else —
    same reasoning as the missing CDN script tag above. Without this, every
    browser issues its own GET /favicon.ico, which 404s and surfaces as a
@@ -34,7 +34,7 @@
 <script>
 (function () {
   try {
-    var stored = localStorage.getItem("aegis-theme");
+    var stored = localStorage.getItem("kervy-theme");
     if (stored === "light" || stored === "dark") {
       document.documentElement.setAttribute("data-theme", stored);
     }
@@ -155,7 +155,7 @@ button[disabled] {
 </head>
 <body>
 <header>
-  <span class="brand">Aegis AI Security</span>
+  <span class="brand">Kervy Security</span>
   {% if organization_id %}
   <nav>
     <a href="/app/organizations/{{ organization_id }}">Overview</a>
@@ -202,7 +202,7 @@ button[disabled] {
     var next = effectiveTheme() === "light" ? "dark" : "light";
     root.setAttribute("data-theme", next);
     try {
-      localStorage.setItem("aegis-theme", next);
+      localStorage.setItem("kervy-theme", next);
     } catch (e) { /* private mode / storage disabled — the choice still
                       applies for this page view, just not remembered. */ }
     render();

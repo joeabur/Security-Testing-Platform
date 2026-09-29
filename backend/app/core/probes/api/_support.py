@@ -17,7 +17,7 @@ from app.core.scope.transport import GatedTransport, Observation, ScopeBlockedEr
 # all. This is a syntactically ordinary value that is not a plausible real
 # object id, so a probe cannot accidentally act on another tenant's record
 # just by walking the surface.
-PLACEHOLDER_PATH_VALUE = "aegis-probe"
+PLACEHOLDER_PATH_VALUE = "kervy-probe"
 
 MAX_EVIDENCE_CHARS = 600
 
@@ -117,7 +117,7 @@ def untested(
     rather than letting silence imply a clean result.
     """
     return ScanResult(
-        id="AEGIS-API-000",
+        id="KERVY-API-000",
         title=f"Not tested: {what}",
         category=Category.API_SECURITY,
         severity=Severity.INFORMATIONAL,

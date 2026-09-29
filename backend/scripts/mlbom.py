@@ -55,7 +55,7 @@ BOM_FORMAT = "CycloneDX"
 #: Environment variables that select the assistant's model at run time. Names
 #: only — this file never reads their values, and the ML-BOM records which
 #: knobs exist rather than how one deployment set them.
-PROVIDER_ENV_VARS = ("AEGIS_AI_PROVIDER", "AEGIS_AI_ENDPOINT", "AEGIS_AI_MODEL")
+PROVIDER_ENV_VARS = ("KERVY_AI_PROVIDER", "KERVY_AI_ENDPOINT", "KERVY_AI_MODEL")
 
 
 def _declarations() -> list[dict[str, Any]]:
@@ -72,8 +72,8 @@ def _declarations() -> list[dict[str, Any]]:
                 "inventory is a statement rather than an omission."
             ),
             "properties": [
-                {"name": "aegis:is-ml-model", "value": "false"},
-                {"name": "aegis:reason", "value": "deterministic string stub"},
+                {"name": "kervy:is-ml-model", "value": "false"},
+                {"name": "kervy:reason", "value": "deterministic string stub"},
             ],
         }
     ]
@@ -102,11 +102,11 @@ def _external_model_services() -> list[dict[str, Any]]:
                 }
             ],
             "properties": [
-                {"name": "aegis:configured-by", "value": ", ".join(PROVIDER_ENV_VARS)},
-                {"name": "aegis:ships-with-release", "value": "false"},
-                {"name": "aegis:optional", "value": "true"},
+                {"name": "kervy:configured-by", "value": ", ".join(PROVIDER_ENV_VARS)},
+                {"name": "kervy:ships-with-release", "value": "false"},
+                {"name": "kervy:optional", "value": "true"},
                 {
-                    "name": "aegis:absent-behaviour",
+                    "name": "kervy:absent-behaviour",
                     "value": (
                         "With no provider configured the assistant layer is absent and "
                         "the platform runs unchanged."
@@ -124,8 +124,8 @@ def _external_model_services() -> list[dict[str, Any]]:
             "authenticated": False,
             "x-trust-boundary": False,
             "properties": [
-                {"name": "aegis:is-ml-model", "value": "false"},
-                {"name": "aegis:used-in", "value": "tests and CI only"},
+                {"name": "kervy:is-ml-model", "value": "false"},
+                {"name": "kervy:used-in", "value": "tests and CI only"},
             ],
         },
     ]
@@ -145,18 +145,18 @@ def build(version: str = "0.1.0") -> dict[str, Any]:
         "metadata": {
             "component": {
                 "type": "application",
-                "name": "aegis-ai-security",
+                "name": "kervy-security",
                 "version": version,
                 "description": "Machine-learning bill of materials.",
             },
             "properties": [
-                {"name": "aegis:bom-kind", "value": "ml-bom"},
+                {"name": "kervy:bom-kind", "value": "ml-bom"},
                 {
-                    "name": "aegis:model-count",
+                    "name": "kervy:model-count",
                     "value": "0",
                 },
                 {
-                    "name": "aegis:statement",
+                    "name": "kervy:statement",
                     "value": (
                         "This release ships no machine-learning model: no weights, no "
                         "checkpoints, no training data, no fine-tune. The assistant "

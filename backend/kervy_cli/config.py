@@ -14,17 +14,17 @@ from pathlib import Path
 
 DEFAULT_BASE_URL = "http://localhost:8000/api/v1"
 
-ENV_BASE_URL = "AEGIS_BASE_URL"
-ENV_TOKEN = "AEGIS_API_KEY"
-ENV_ORG = "AEGIS_ORGANIZATION"
+ENV_BASE_URL = "KERVY_BASE_URL"
+ENV_TOKEN = "KERVY_API_KEY"
+ENV_ORG = "KERVY_ORGANIZATION"
 
 
 def config_path() -> Path:
-    override = os.environ.get("AEGIS_CONFIG")
+    override = os.environ.get("KERVY_CONFIG")
     if override:
         return Path(override)
     base = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
-    return Path(base) / "aegis-ai" / "config.json"
+    return Path(base) / "kervy-ai" / "config.json"
 
 
 @dataclass

@@ -44,7 +44,7 @@ import ipaddress
 
 #: Buckets are namespaced so a key cannot collide with the run kill switch or
 #: anything else in the same Redis.
-PREFIX = "aegis:rl"
+PREFIX = "kervy:rl"
 
 
 def normalize_identity(value: str) -> str:

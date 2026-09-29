@@ -38,7 +38,7 @@ async def test_container_check_reports_an_engine_failure_without_losing_the_run(
 
     assert len(results) == 1
     assert results[0].ok is False
-    assert check.scan_results[0].id == "AEGIS-CONTAINER-199"
+    assert check.scan_results[0].id == "KERVY-CONTAINER-199"
 
 
 async def test_container_check_summarizes_findings_and_invocations() -> None:

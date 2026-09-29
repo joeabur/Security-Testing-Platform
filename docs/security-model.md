@@ -29,7 +29,7 @@ being true. Most are both.
 | 13 | A CI credential cannot authorize testing | API key scopes cap at security engineer, below the admin required to grant |
 | 14 | No finding carries an invented identifier | Every CVE/GHSA/OSV/CWE is shape-verified; unverifiable ones are dropped, not repaired |
 | 15 | No framework mapping is unversioned | Versions come only from the pinned table; a framework with no references is not claimed |
-| 16 | A missing tool produces a visible gap | `AEGIS-APPSEC-000 — not tested`, never an empty result set |
+| 16 | A missing tool produces a visible gap | `KERVY-APPSEC-000 — not tested`, never an empty result set |
 | 17 | The AI layer cannot execute | No code path from assistant to scan, authorization or non-draft field; import-linter confirms the dependency direction |
 | 18 | The platform works with no AI provider | The full suite passes unchanged with none configured |
 | 19 | A plugin cannot bypass the scope engine | Plugins receive a scope-bound transport; a test proves the bypass fails |

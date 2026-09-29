@@ -305,9 +305,9 @@ async def test_the_dotenv_file_is_reachable() -> None:
 async def test_permissive_cors_reflects_any_origin_with_credentials() -> None:
     async with _client(vulnerable_app) as client:
         response = await client.get(
-            "/api/search", headers={"Origin": "https://aegis-probe.invalid"}
+            "/api/search", headers={"Origin": "https://kervy-probe.invalid"}
         )
-    assert response.headers["access-control-allow-origin"] == "https://aegis-probe.invalid"
+    assert response.headers["access-control-allow-origin"] == "https://kervy-probe.invalid"
     assert response.headers["access-control-allow-credentials"] == "true"
 
 

@@ -61,15 +61,15 @@ def _reportable(results: list[ScanResult]) -> list[ScanResult]:
 # Every defect deliberately seeded into tests/lab/repos/vulnerable, with the
 # result code the engines must report for it.
 SEEDED_FLAWS = {
-    "AEGIS-SAST-B602": "subprocess with shell=True on caller input",
-    "AEGIS-SAST-B324": "MD5 used to hash a password",
-    "AEGIS-SAST-B307": "eval on input",
-    "AEGIS-SAST-tls-verification-disabled": "requests called with verify=False",
-    "AEGIS-SAST-unsafe-yaml-load": "yaml.load without a safe loader",
-    "AEGIS-SECRET-AWS_ACCESS_KEY_ID": "committed AWS access key id",
-    "AEGIS-SECRET-CONNECTION_STRING": "committed database connection string",
-    "AEGIS-IAC-CKV_AWS_24": "security group open to the world on SSH",
-    "AEGIS-IAC-CKV_AWS_20": "S3 bucket with a public-read ACL",
+    "KERVY-SAST-B602": "subprocess with shell=True on caller input",
+    "KERVY-SAST-B324": "MD5 used to hash a password",
+    "KERVY-SAST-B307": "eval on input",
+    "KERVY-SAST-tls-verification-disabled": "requests called with verify=False",
+    "KERVY-SAST-unsafe-yaml-load": "yaml.load without a safe loader",
+    "KERVY-SECRET-AWS_ACCESS_KEY_ID": "committed AWS access key id",
+    "KERVY-SECRET-CONNECTION_STRING": "committed database connection string",
+    "KERVY-IAC-CKV_AWS_24": "security group open to the world on SSH",
+    "KERVY-IAC-CKV_AWS_20": "S3 bucket with a public-read ACL",
 }
 
 
@@ -158,7 +158,7 @@ async def test_a_committed_secret_is_reported_without_its_value(
 ) -> None:
     """§13: the digest and a masked preview prove the finding; the value
     itself is never stored."""
-    secret = next(r for r in vulnerable_results if r.id == "AEGIS-SECRET-AWS_ACCESS_KEY_ID")
+    secret = next(r for r in vulnerable_results if r.id == "KERVY-SECRET-AWS_ACCESS_KEY_ID")
     blob = " ".join([secret.description, secret.evidence, secret.remediation])
 
     assert "AKIAIOSFODNN7EXAMPLE" not in blob
@@ -172,7 +172,7 @@ async def test_advisory_rules_are_downgraded_not_suppressed(
     """Bandit's B404/B603/B607 fire on correctly-written code. They are
     recorded as informational so the coverage stays visible, rather than
     dropped — §28 forbids silent suppression."""
-    advisory = [r for r in hardened_results if r.id in ("AEGIS-SAST-B404", "AEGIS-SAST-B603")]
+    advisory = [r for r in hardened_results if r.id in ("KERVY-SAST-B404", "KERVY-SAST-B603")]
 
     assert advisory, "the advisory rules should still be recorded on the control repo"
     for result in advisory:
@@ -190,7 +190,7 @@ async def test_dependency_advisory_lookup_is_off_unless_enabled() -> None:
 
     results = await engine.run(workspace)
 
-    assert [r.id for r in results] == ["AEGIS-APPSEC-000"]
+    assert [r.id for r in results] == ["KERVY-APPSEC-000"]
     assert "disclosure" in results[0].evidence.lower()
 
 
@@ -249,7 +249,7 @@ def test_engines_that_need_a_missing_tool_report_a_gap_not_a_clean_result() -> N
 
 def test_tool_availability_is_detected_rather_than_assumed() -> None:
     assert tool_available("python3") is True
-    assert tool_available("aegis-definitely-not-a-real-binary") is False
+    assert tool_available("kervy-definitely-not-a-real-binary") is False
 
 
 # --- identifier verification --------------------------------------------
@@ -320,7 +320,7 @@ async def test_a_crashing_engine_is_a_visible_gap_not_a_silent_pass() -> None:
 
     assert results[0].ok is False
     assert "engine boom" in results[0].detail
-    assert [r.id for r in check.scan_results] == ["AEGIS-APPSEC-099"]
+    assert [r.id for r in check.scan_results] == ["KERVY-APPSEC-099"]
 
 
 async def test_the_code_check_stops_when_the_run_halts() -> None:
@@ -374,7 +374,7 @@ def test_sca_normalization_keeps_only_verifiable_advisories() -> None:
     findings = PipAuditEngine()._normalize(_PIP_AUDIT_PAYLOAD, "requirements.txt")
 
     codes = {result.id for result in findings}
-    assert codes == {"AEGIS-SCA-GHSA-462w-v97r-4m45", "AEGIS-SCA-PYSEC-2018-28"}
+    assert codes == {"KERVY-SCA-GHSA-462w-v97r-4m45", "KERVY-SCA-PYSEC-2018-28"}
     assert not [r for r in findings if "mystery" in r.endpoint]
 
 
@@ -449,10 +449,10 @@ def test_a_sarif_absolute_uri_does_not_leak_the_checkout_directory(tmp_path: Pat
         return {
             "runs": [
                 {
-                    "tool": {"driver": {"rules": [{"id": "aegis.unsafe-yaml-load"}]}},
+                    "tool": {"driver": {"rules": [{"id": "kervy.unsafe-yaml-load"}]}},
                     "results": [
                         {
-                            "ruleId": "aegis.unsafe-yaml-load",
+                            "ruleId": "kervy.unsafe-yaml-load",
                             "message": {"text": "yaml.load without SafeLoader"},
                             "locations": [
                                 {
@@ -509,13 +509,13 @@ async def test_a_secret_findings_bundle_does_not_republish_the_secret(
 ) -> None:
     """The one place where storing evidence verbatim would spread the very
     thing being reported."""
-    secrets = [r for r in vulnerable_results if r.id.startswith("AEGIS-SECRET-")]
+    secrets = [r for r in vulnerable_results if r.id.startswith("KERVY-SECRET-")]
     assert secrets
     for result in secrets:
         assert result.evidence_bundle is not None
         payload = result.evidence_bundle.canonical_bytes().decode()
         assert "AKIA" not in payload or "AKIA****" in payload
-        assert "aegis-dev-only" not in payload
+        assert "kervy-dev-only" not in payload
 
 
 # --- gitleaks (Phase 11's third tool adapter) -----------------------------
@@ -620,7 +620,7 @@ async def test_gitleaks_reports_a_gap_when_the_tool_is_absent(tmp_path: Path) ->
     results = await engine.run(workspace)
 
     assert len(results) == 1
-    assert results[0].id == "AEGIS-APPSEC-000"
+    assert results[0].id == "KERVY-APPSEC-000"
     assert results[0].severity is Severity.INFORMATIONAL
     # And the report file it would have written is not left behind.
     assert not report_path(workspace).exists()

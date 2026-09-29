@@ -55,7 +55,7 @@ def test_cloud_scope_refuses_a_write_capable_declaration() -> None:
             {
                 "provider": "aws",
                 "account_ref": "123456789012",
-                "credential_env_var": "AEGIS_CLOUD_AWS_TOKEN",
+                "credential_env_var": "KERVY_CLOUD_AWS_TOKEN",
                 "read_only": False,
             }
         )
@@ -66,7 +66,7 @@ def test_cloud_scope_resolves_read_only() -> None:
         {
             "provider": "aws",
             "account_ref": "123456789012",
-            "credential_env_var": "AEGIS_CLOUD_AWS_TOKEN",
+            "credential_env_var": "KERVY_CLOUD_AWS_TOKEN",
         }
     )
     assert scope.read_only is True
@@ -79,7 +79,7 @@ def test_cloud_scope_rejects_an_unknown_provider() -> None:
             {
                 "provider": "digitalocean",
                 "account_ref": "abc",
-                "credential_env_var": "AEGIS_CLOUD_TOKEN",
+                "credential_env_var": "KERVY_CLOUD_TOKEN",
             }
         )
 

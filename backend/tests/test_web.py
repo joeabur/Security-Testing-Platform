@@ -147,7 +147,7 @@ async def _setup(client: AsyncClient, password: str, suffix: str) -> tuple[str, 
         headers={HEADER_NAME: _registered_anon_token},
     )
     assert registered.status_code == 201, registered.text
-    cookie = registered.cookies.get("aegis_session")
+    cookie = registered.cookies.get("kervy_session")
     assert cookie, "register must set the session cookie the dashboard reads"
     headers = {"Authorization": f"Bearer {registered.json()['access_token']}"}
 
@@ -186,7 +186,7 @@ def _finding(org_id: str, target_id: str, **overrides: object) -> Finding:
         "severity_rationale": "Marker recovered in 9 of 10 trials.",
         "confidence": Confidence.HIGH,
         "stability": Stability.DETERMINISTIC,
-        "risk_model": "aegis-v1",
+        "risk_model": "kervy-v1",
         "risk_score": 8.7,
         "risk_inputs": {},
         "description": "d",
@@ -220,7 +220,7 @@ async def test_a_non_member_gets_404_from_every_dashboard_page(
     other_org, _, _ = await _setup(client, strong_password, uuid.uuid4().hex[:8])
 
     response = await client.get(
-        f"/app/organizations/{other_org}{path}", cookies={"aegis_session": outsider_cookie}
+        f"/app/organizations/{other_org}{path}", cookies={"kervy_session": outsider_cookie}
     )
     assert response.status_code == 404
 
@@ -266,7 +266,7 @@ async def test_every_number_on_the_overview_comes_from_a_query(
     version was written after that failure and fails on exactly that edit.
     """
     org_id, target_id, cookie = await _setup(client, strong_password, uuid.uuid4().hex[:8])
-    jar = {"aegis_session": cookie}
+    jar = {"kervy_session": cookie}
     org = uuid.UUID(org_id)
 
     def expected(view: queries.Overview) -> dict[str, int]:
@@ -325,7 +325,7 @@ async def test_a_findings_filter_narrows_what_is_listed(
     client: AsyncClient, db_session: AsyncSession, strong_password: str
 ) -> None:
     org_id, target_id, cookie = await _setup(client, strong_password, uuid.uuid4().hex[:8])
-    jar = {"aegis_session": cookie}
+    jar = {"kervy_session": cookie}
     db_session.add(_finding(org_id, target_id, title="Critical one"))
     db_session.add(
         _finding(org_id, target_id, title="High one", severity=Severity.HIGH, risk_score=6.0)
@@ -348,7 +348,7 @@ async def test_an_htmx_request_gets_the_fragment_and_a_browser_gets_the_page(
     rather than a parallel implementation.
     """
     org_id, _, cookie = await _setup(client, strong_password, uuid.uuid4().hex[:8])
-    jar = {"aegis_session": cookie}
+    jar = {"kervy_session": cookie}
 
     full = await client.get(f"/app/organizations/{org_id}/findings", cookies=jar)
     fragment = await client.get(
@@ -375,7 +375,7 @@ async def test_a_disabled_action_says_why_and_names_what_does_the_job(
     Verified by blanking `_CSRF_REASON`: the reason assertion fails.
     """
     org_id, _, cookie = await _setup(client, strong_password, uuid.uuid4().hex[:8])
-    jar = {"aegis_session": cookie}
+    jar = {"kervy_session": cookie}
 
     page = await client.get(f"/app/organizations/{org_id}/runs", cookies=jar)
     assert page.status_code == 200
@@ -405,7 +405,7 @@ async def test_the_targets_page_names_what_stops_a_scan(
     Verified by making `blockers` always empty: the first assertion fails.
     """
     org_id, target_id, cookie = await _setup(client, strong_password, uuid.uuid4().hex[:8])
-    jar = {"aegis_session": cookie}
+    jar = {"kervy_session": cookie}
 
     page = await client.get(f"/app/organizations/{org_id}/targets", cookies=jar)
     assert page.status_code == 200
@@ -451,14 +451,14 @@ async def test_an_expired_grant_is_not_reported_as_authorized(
     assert "no valid authorization grant" in lapsed[0].blockers
 
     page = await client.get(
-        f"/app/organizations/{org_id}/targets", cookies={"aegis_session": cookie}
+        f"/app/organizations/{org_id}/targets", cookies={"kervy_session": cookie}
     )
     assert "expired" in page.text
     assert ">granted<" not in page.text
 
 
 async def _owner_id(client: AsyncClient, cookie: str) -> uuid.UUID:
-    response = await client.get("/api/v1/auth/me", cookies={"aegis_session": cookie})
+    response = await client.get("/api/v1/auth/me", cookies={"kervy_session": cookie})
     assert response.status_code == 200, response.text
     return uuid.UUID(response.json()["id"])
 
@@ -471,7 +471,7 @@ async def test_the_index_lists_only_organizations_this_session_belongs_to(
 
     # One membership means the index redirects straight into it rather than
     # asking a question with one answer.
-    response = await client.get("/app", cookies={"aegis_session": cookie})
+    response = await client.get("/app", cookies={"kervy_session": cookie})
     assert response.status_code == 303
     assert response.headers["location"] == f"/app/organizations/{mine}"
     assert theirs not in response.headers["location"]
@@ -489,7 +489,7 @@ async def test_the_index_without_a_session_shows_sign_in_rather_than_json(
     response = await client.get("/app")
     assert response.status_code == 200
     assert "Sign in" in response.text
-    assert "aegis-ai login" in response.text
+    assert "kervy-ai login" in response.text
 
 
 # --------------------------------------------------------------------------
@@ -508,7 +508,7 @@ async def test_findings_page_two_shows_rows_the_first_page_did_not(
     2 then renders the exact same 50 rows as page 1.
     """
     org_id, target_id, cookie = await _setup(client, strong_password, uuid.uuid4().hex[:8])
-    jar = {"aegis_session": cookie}
+    jar = {"kervy_session": cookie}
 
     # Worst-first order means the seeded rank controls what lands where;
     # descending risk_score from 99.0 down makes row order unambiguous.
@@ -546,7 +546,7 @@ async def test_findings_pagination_preserves_the_severity_filter(
     """A "next page" link that dropped the active filter would silently widen
     the result set the operator was looking at."""
     org_id, target_id, cookie = await _setup(client, strong_password, uuid.uuid4().hex[:8])
-    jar = {"aegis_session": cookie}
+    jar = {"kervy_session": cookie}
 
     for rank in range(web_router.PAGE_SIZE + 1):
         db_session.add(
@@ -588,7 +588,7 @@ async def test_runs_page_two_shows_runs_the_first_page_did_not(
     client: AsyncClient, db_session: AsyncSession, strong_password: str
 ) -> None:
     org_id, target_id, cookie = await _setup(client, strong_password, uuid.uuid4().hex[:8])
-    jar = {"aegis_session": cookie}
+    jar = {"kervy_session": cookie}
 
     base = datetime.now(UTC)
     for rank in range(web_router.PAGE_SIZE + 1):

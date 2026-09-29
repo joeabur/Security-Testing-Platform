@@ -43,7 +43,7 @@ ROE = {
 
 
 def _checkout_dirs() -> set[Path]:
-    return set(Path(tempfile.gettempdir()).glob("aegis-checkout-*"))
+    return set(Path(tempfile.gettempdir()).glob("kervy-checkout-*"))
 
 
 @pytest.fixture(autouse=True)
@@ -159,7 +159,7 @@ async def test_a_run_clones_scans_and_stores_code_findings(
     run = (
         await client.get(f"/api/v1/organizations/{org_id}/runs/{run_id}", headers=headers)
     ).json()
-    assert {"AEGIS-SAST-B602", "AEGIS-SECRET-AWS_ACCESS_KEY_ID", "AEGIS-IAC-CKV_AWS_20"} <= codes, (
+    assert {"KERVY-SAST-B602", "KERVY-SECRET-AWS_ACCESS_KEY_ID", "KERVY-IAC-CKV_AWS_20"} <= codes, (
         run["halted_reason"],
         run["checks_completed"],
         run["checks_total"],
@@ -169,7 +169,7 @@ async def test_a_run_clones_scans_and_stores_code_findings(
     # the worker, the database and the API.
     assert "AKIAIOSFODNN7EXAMPLE" not in str(results)
 
-    secret = next(r for r in results if r["result_code"] == "AEGIS-SECRET-AWS_ACCESS_KEY_ID")
+    secret = next(r for r in results if r["result_code"] == "KERVY-SECRET-AWS_ACCESS_KEY_ID")
     assert secret["fingerprint"].startswith("sha256:")
 
 

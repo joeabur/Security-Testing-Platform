@@ -92,7 +92,7 @@ def _findings(target: CloudTarget, exposures: list[BucketExposure]) -> list[Scan
             continue
         results.append(
             ScanResult(
-                id="AEGIS-CLOUD-101",
+                id="KERVY-CLOUD-101",
                 title=f"Publicly accessible storage bucket: {exposure.name}",
                 category=Category.INFRASTRUCTURE,
                 severity=Severity.HIGH,
@@ -137,7 +137,7 @@ def _inventory_finding(target: CloudTarget, exposures: list[BucketExposure]) -> 
         f"{item.name} ({item.region or 'unknown region'})" for item in exposures[:50]
     )
     return ScanResult(
-        id="AEGIS-CLOUD-001",
+        id="KERVY-CLOUD-001",
         title=f"{len(exposures)} storage bucket(s) inventoried for {target.account_ref}",
         category=Category.INFRASTRUCTURE,
         severity=Severity.INFORMATIONAL,
@@ -158,7 +158,7 @@ def _inventory_finding(target: CloudTarget, exposures: list[BucketExposure]) -> 
 
 def _coverage_marker(surface: str, reason: str) -> ScanResult:
     return ScanResult(
-        id="AEGIS-CLOUD-109",
+        id="KERVY-CLOUD-109",
         title=f"Not tested: {surface}",
         category=Category.INFRASTRUCTURE,
         severity=Severity.INFORMATIONAL,

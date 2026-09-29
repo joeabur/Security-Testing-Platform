@@ -30,7 +30,7 @@ from app.core.risk.publish import render_markdown
 
 def _result(**overrides: object) -> ScanResult:
     base: dict = {
-        "id": "AEGIS-API-050",
+        "id": "KERVY-API-050",
         "title": "Object readable by an account that does not own it",
         "category": Category.API_SECURITY,
         "severity": Severity.CRITICAL,
@@ -60,12 +60,12 @@ def test_the_same_weakness_keeps_one_fingerprint_across_runs() -> None:
     first = fingerprint(
         probe_id="ai.injection.direct.instruction_override",
         surface="POST /api/chat",
-        signature="canary AEGIS-CANARY-AAAA1111BBBB2222 at 2026-09-18T10:00:00Z req 9f3a1b2c",
+        signature="canary KERVY-CANARY-AAAA1111BBBB2222 at 2026-09-18T10:00:00Z req 9f3a1b2c",
     )
     second = fingerprint(
         probe_id="ai.injection.direct.instruction_override",
         surface="POST /api/chat",
-        signature="canary AEGIS-CANARY-FFFF9999EEEE8888 at 2026-11-02T23:45:01Z req 1122aabb",
+        signature="canary KERVY-CANARY-FFFF9999EEEE8888 at 2026-11-02T23:45:01Z req 1122aabb",
     )
 
     assert first == second

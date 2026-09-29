@@ -1,4 +1,4 @@
-"""The `aegis-ai` CLI (docs/BUILD_SPEC.md §20, §26 Phase 10).
+"""The `kervy-ai` CLI (docs/BUILD_SPEC.md §20, §26 Phase 10).
 
 Phase 10's acceptance criterion has two halves: "the CLI exercises the same
 API/scope engine as the UI (no parallel weaker path)", and "a seeded critical
@@ -15,10 +15,10 @@ import httpx
 import pytest
 import respx
 
-from aegis_cli import main as cli
-from aegis_cli.client import ApiClient, CliError
-from aegis_cli.config import Profile
 from app.core.gate.model import ExitCode
+from kervy_cli import main as cli
+from kervy_cli.client import ApiClient, CliError
+from kervy_cli.config import Profile
 
 BASE_URL = "http://platform.test/api/v1"
 ORG = "11111111-1111-1111-1111-111111111111"
@@ -27,10 +27,10 @@ RUN = "22222222-2222-2222-2222-222222222222"
 
 @pytest.fixture
 def profile(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> Profile:
-    monkeypatch.setenv("AEGIS_CONFIG", str(tmp_path / "config.json"))
-    monkeypatch.setenv("AEGIS_BASE_URL", BASE_URL)
-    monkeypatch.setenv("AEGIS_API_KEY", "aegis_0011223344556677_secret-value")
-    monkeypatch.setenv("AEGIS_ORGANIZATION", ORG)
+    monkeypatch.setenv("KERVY_CONFIG", str(tmp_path / "config.json"))
+    monkeypatch.setenv("KERVY_BASE_URL", BASE_URL)
+    monkeypatch.setenv("KERVY_API_KEY", "kervy_0011223344556677_secret-value")
+    monkeypatch.setenv("KERVY_ORGANIZATION", ORG)
     return Profile.load()
 
 
@@ -204,10 +204,10 @@ def test_an_api_refusal_maps_to_its_documented_exit_code(
 def test_no_credential_means_exit_three_not_a_crash(
     tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("AEGIS_CONFIG", str(tmp_path / "config.json"))
-    monkeypatch.setenv("AEGIS_BASE_URL", BASE_URL)
-    monkeypatch.delenv("AEGIS_API_KEY", raising=False)
-    monkeypatch.setenv("AEGIS_ORGANIZATION", ORG)
+    monkeypatch.setenv("KERVY_CONFIG", str(tmp_path / "config.json"))
+    monkeypatch.setenv("KERVY_BASE_URL", BASE_URL)
+    monkeypatch.delenv("KERVY_API_KEY", raising=False)
+    monkeypatch.setenv("KERVY_ORGANIZATION", ORG)
 
     assert cli.main(["findings", "list"]) == int(ExitCode.AUTH_ERROR)
 
@@ -215,9 +215,9 @@ def test_no_credential_means_exit_three_not_a_crash(
 def test_no_organization_is_a_configuration_error(
     tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("AEGIS_CONFIG", str(tmp_path / "config.json"))
-    monkeypatch.setenv("AEGIS_API_KEY", "aegis_0011223344556677_secret")
-    monkeypatch.delenv("AEGIS_ORGANIZATION", raising=False)
+    monkeypatch.setenv("KERVY_CONFIG", str(tmp_path / "config.json"))
+    monkeypatch.setenv("KERVY_API_KEY", "kervy_0011223344556677_secret")
+    monkeypatch.delenv("KERVY_ORGANIZATION", raising=False)
 
     assert cli.main(["findings", "list"]) == int(ExitCode.CONFIG_ERROR)
 
@@ -435,15 +435,15 @@ def test_broken_evidence_is_a_failure_not_information(profile: Profile) -> None:
 def test_login_writes_an_owner_only_config(
     tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("AEGIS_CONFIG", str(tmp_path / "config.json"))
-    monkeypatch.delenv("AEGIS_API_KEY", raising=False)
+    monkeypatch.setenv("KERVY_CONFIG", str(tmp_path / "config.json"))
+    monkeypatch.delenv("KERVY_API_KEY", raising=False)
 
     with respx.mock:
         # login now fetches the pre-session CSRF cookie first
         # (app/core/csrf/anon.py) and echoes it back on the POST.
         respx.get(f"{BASE_URL}/auth/csrf").mock(
             return_value=httpx.Response(
-                204, headers=[("set-cookie", "aegis_csrf_anon=anon-token-value; Path=/")]
+                204, headers=[("set-cookie", "kervy_csrf_anon=anon-token-value; Path=/")]
             )
         )
         respx.post(f"{BASE_URL}/auth/login").mock(
@@ -474,11 +474,11 @@ def test_a_corrupt_config_does_not_stop_the_cli(
 ) -> None:
     path = tmp_path / "config.json"
     path.write_text("{not json", encoding="utf-8")
-    monkeypatch.setenv("AEGIS_CONFIG", str(path))
-    monkeypatch.setenv("AEGIS_API_KEY", "aegis_0011223344556677_secret")
+    monkeypatch.setenv("KERVY_CONFIG", str(path))
+    monkeypatch.setenv("KERVY_API_KEY", "kervy_0011223344556677_secret")
 
     loaded = Profile.load()
-    assert loaded.token == "aegis_0011223344556677_secret"
+    assert loaded.token == "kervy_0011223344556677_secret"
 
 
 def test_no_command_prints_help_and_exits_two() -> None:

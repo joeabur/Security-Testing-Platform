@@ -516,7 +516,7 @@ async def test_a_completed_investigation_notifies_a_subscribed_channel(
     )
     assert len(deliveries) == 1
     assert deliveries[0].event_type == "agent_investigation.completed"
-    assert "aegis.deliver_notifications" in _stub_broker
+    assert "kervy.deliver_notifications" in _stub_broker
 
 
 async def test_a_paused_investigation_does_not_notify_yet(

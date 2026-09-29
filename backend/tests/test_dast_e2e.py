@@ -183,7 +183,7 @@ async def test_a_destructive_form_is_found_and_never_submitted(site: str) -> Non
     )
     results = await engine.run(context(), DastTarget(seed_url=site + "/"))
 
-    forms = next(item for item in results if item.id == "AEGIS-DAST-002")
+    forms = next(item for item in results if item.id == "KERVY-DAST-002")
     assert f"{site}/orders/delete" in forms.evidence
     assert "does not allow state mutation" in forms.description
 
@@ -195,7 +195,7 @@ async def test_the_engine_reports_the_off_site_links_as_a_finding(site: str) -> 
     )
     results = await engine.run(context(), DastTarget(seed_url=site + "/"))
 
-    refusal = next(item for item in results if item.id == "AEGIS-DAST-001")
+    refusal = next(item for item in results if item.id == "KERVY-DAST-001")
     assert "tracker.invalid" in refusal.description
     assert "nothing was sent" in refusal.impact
 
@@ -208,5 +208,5 @@ async def test_a_tight_request_budget_ends_the_crawl_and_is_reported(site: str) 
         run_tools=False,
     )
     results = await engine.run(context(max_requests=3), DastTarget(seed_url=site + "/"))
-    gap = next(item for item in results if item.id == "AEGIS-DAST-009")
+    gap = next(item for item in results if item.id == "KERVY-DAST-009")
     assert "budget" in gap.description

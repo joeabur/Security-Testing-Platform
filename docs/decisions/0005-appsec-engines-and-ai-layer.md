@@ -88,7 +88,7 @@ themselves.
   secrets engine rather than reimplemented. Two implementations would mean
   two redaction policies, which is how the "never persist a secret"
   invariant gets broken.
-- The CLI is `aegis`, with `aegis-ai` as an alias, superseding ADR 0003's
+- The CLI is `kervy`, with `kervy-ai` as an alias, superseding ADR 0003's
   command name (the *project* name is unchanged).
 - The platform must work with no AI provider configured. That is a testable
   property, not an aspiration: the existing suite has to keep passing with

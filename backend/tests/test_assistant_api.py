@@ -151,7 +151,7 @@ async def _run_with_findings(
     results = (
         await client.get(f"/api/v1/organizations/{org_id}/runs/{run_id}/results", headers=headers)
     ).json()
-    result_id = next(r["id"] for r in results if r["result_code"] == "AEGIS-AI-001")
+    result_id = next(r["id"] for r in results if r["result_code"] == "KERVY-AI-001")
     return org_id, run_id, result_id, headers
 
 

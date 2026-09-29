@@ -73,7 +73,7 @@ def vulnerable_app(request: httpx.Request) -> httpx.Response:
             return _json(
                 {"data": {"__schema": {"queryType": {"name": "Query"}, "types": []}}}, headers=cors
             )
-        if "aegisNoSuchField" in query:  # Seeded: resolver traceback returned.
+        if "kervyNoSuchField" in query:  # Seeded: resolver traceback returned.
             return _json({"errors": [{"message": _TRACEBACK}]}, headers=cors)
         # Seeded: no depth or complexity limit.
         return _json({"data": {"__typename": "Query"}}, headers=cors)
@@ -123,9 +123,9 @@ def hardened_app(request: httpx.Request) -> httpx.Response:
             return _json(
                 {"errors": [{"message": "query exceeds maximum complexity"}]}, headers=headers
             )
-        if "aegisNoSuchField" in query:
+        if "kervyNoSuchField" in query:
             return _json(
-                {"errors": [{"message": 'Cannot query field "aegisNoSuchField" on type "Query".'}]},
+                {"errors": [{"message": 'Cannot query field "kervyNoSuchField" on type "Query".'}]},
                 headers=headers,
             )
         return _json({"data": {"__typename": "Query"}}, headers=headers)

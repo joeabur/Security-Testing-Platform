@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { serverApiFetch } from "@/lib/api-server";
 import type { AgentToolCatalogEntry } from "@/lib/types";
 
-export const metadata: Metadata = { title: "Agent — Aegis AI Security" };
+export const metadata: Metadata = { title: "Agent — Kervy Security" };
 
 export default async function AgentPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;

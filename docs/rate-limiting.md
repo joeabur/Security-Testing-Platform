@@ -65,7 +65,7 @@ So the header is ignored unless an operator states how many proxies sit in
 front:
 
 ```bash
-AEGIS_TRUSTED_PROXY_COUNT=1   # one load balancer in front
+KERVY_TRUSTED_PROXY_COUNT=1   # one load balancer in front
 ```
 
 The default is `0`: the socket address and nothing else. With N trusted
@@ -86,7 +86,7 @@ unkeyed digest is reversible with a wordlist by anyone who can read the store.
 Normalizing first (trimmed, lower-cased) matters as much — without it the limit
 is one capitalization away from being doubled.
 
-The pepper defaults to `JWT_SECRET`; set `AEGIS_RATE_LIMIT_PEPPER` to separate
+The pepper defaults to `JWT_SECRET`; set `KERVY_RATE_LIMIT_PEPPER` to separate
 them. Requiring a second secret to be configured is how a deployment ends up
 with neither.
 
@@ -115,9 +115,9 @@ Alert on that event.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `AEGIS_RATE_LIMIT_ENABLED` | `true` | Off only when an operator says so, in their environment |
-| `AEGIS_TRUSTED_PROXY_COUNT` | `0` | Proxies in front; `0` ignores `X-Forwarded-For` entirely |
-| `AEGIS_RATE_LIMIT_PEPPER` | `JWT_SECRET` | Pepper for identity bucket keys |
+| `KERVY_RATE_LIMIT_ENABLED` | `true` | Off only when an operator says so, in their environment |
+| `KERVY_TRUSTED_PROXY_COUNT` | `0` | Proxies in front; `0` ignores `X-Forwarded-For` entirely |
+| `KERVY_RATE_LIMIT_PEPPER` | `JWT_SECRET` | Pepper for identity bucket keys |
 | `REDIS_URL` | `redis://localhost:6379/0` | Where the counters live |
 
 ## What is not limited

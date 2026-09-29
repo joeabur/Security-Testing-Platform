@@ -1,4 +1,4 @@
-"""The Aegis risk model (docs/BUILD_SPEC.md §12).
+"""The Kervy risk model (docs/BUILD_SPEC.md §12).
 
     risk = impact × likelihood × confidence_weight × exposure_modifier
 
@@ -12,7 +12,7 @@ Two properties this module exists to guarantee:
   generated from the same inputs that produced the score, in the same call.
   A hand-written rationale beside a computed score drifts the first time
   either changes, and a reader who spots the mismatch stops trusting both.
-* **Scoring systems are never blended.** This produces the Aegis score and
+* **Scoring systems are never blended.** This produces the Kervy score and
   nothing else. CVSS and AIVSS live in their own fields, carry their own
   vectors, and are never averaged into this number (§12).
 
@@ -26,7 +26,7 @@ from enum import StrEnum
 
 from app.core.probes.models import Confidence, Severity
 
-RISK_MODEL_VERSION = "aegis-v1"
+RISK_MODEL_VERSION = "kervy-v1"
 
 
 class Impact(StrEnum):

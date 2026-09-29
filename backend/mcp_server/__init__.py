@@ -4,7 +4,7 @@ Satisfies the "External AI/API Integration... MCP-compatible interfaces"
 requirement (Agent Phase 6) and the pentest module's own pending "external
 API / MCP surface" task: one package, not two, serving both.
 
-Built the same way `aegis_cli` is: a thin client over the platform's own
+Built the same way `kervy_cli` is: a thin client over the platform's own
 authenticated REST API, via an API key, with no other way to reach the
 platform. There is no import of `app.core.agent` anywhere in this package
 — an external MCP client gets exactly what

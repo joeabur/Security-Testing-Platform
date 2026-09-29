@@ -12,7 +12,7 @@ instead of returning another organization's rows.
 ## How the current organization reaches Postgres
 
 A Postgres RLS policy reads a *session-local* setting
-(`current_setting('aegis.org_id', true)`), not an application variable — the
+(`current_setting('kervy.org_id', true)`), not an application variable — the
 database has no idea what "the current request" is. The bridge is:
 
 1. `set_current_organization(org_id)` stores the id in a `ContextVar`, set
@@ -35,7 +35,7 @@ database has no idea what "the current request" is. The bridge is:
 
 ## Why this fails closed, not open
 
-The policy an unset or wrong `aegis.org_id` produces is `organization_id =
+The policy an unset or wrong `kervy.org_id` produces is `organization_id =
 NULL`, which matches no row. A code path that forgot to call
 `set_current_organization` does not see another organization's data — it
 sees nothing, and the resulting empty response is generally very quickly
@@ -69,7 +69,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 # concurrent requests for two different organizations do not see each
 # other's value.
 _current_organization: ContextVar[str | None] = ContextVar(
-    "aegis_current_organization", default=None
+    "kervy_current_organization", default=None
 )
 
 
@@ -113,6 +113,6 @@ def register_tenant_context_listener(engine: AsyncEngine) -> None:
         # `%(name)s` pyformat style SQLAlchemy normally accepts) so this
         # works regardless of which DBAPI/dialect is behind the engine.
         connection.execute(
-            text("SELECT set_config('aegis.org_id', :org_id, true)"),
+            text("SELECT set_config('kervy.org_id', :org_id, true)"),
             {"org_id": organization_id or ""},
         )

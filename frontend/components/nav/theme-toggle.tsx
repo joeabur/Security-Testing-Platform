@@ -50,7 +50,7 @@ export function ThemeToggle() {
     const next: Theme = currentTheme() === "light" ? "dark" : "light";
     document.documentElement.setAttribute("data-theme", next);
     try {
-      localStorage.setItem("aegis-theme", next);
+      localStorage.setItem("kervy-theme", next);
     } catch {
       // Private mode / storage disabled: the choice still applies to this
       // page view, just is not remembered for the next one.

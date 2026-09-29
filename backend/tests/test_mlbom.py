@@ -49,7 +49,7 @@ def test_things_that_look_like_models_are_declared_as_not_models() -> None:
     declarations = build()["declarations"]
     stub = next(item for item in declarations if "stub" in item["name"])
     flags = {prop["name"]: prop["value"] for prop in stub["properties"]}
-    assert flags["aegis:is-ml-model"] == "false"
+    assert flags["kervy:is-ml-model"] == "false"
     assert "not a machine-learning model" in stub["description"]
 
 
@@ -70,11 +70,11 @@ def test_the_external_provider_is_a_service_not_a_component() -> None:
         service for service in document["services"] if service["name"] == "assistant-model-provider"
     )
     flags = {prop["name"]: prop["value"] for prop in provider["properties"]}
-    assert flags["aegis:ships-with-release"] == "false"
+    assert flags["kervy:ships-with-release"] == "false"
     # Variable names, never values — the same rule every credential on this
     # platform follows.
     for variable in PROVIDER_ENV_VARS:
-        assert variable in flags["aegis:configured-by"]
+        assert variable in flags["kervy:configured-by"]
 
     # And no endpoint or model identifier is recorded anywhere in the document,
     # because neither is knowable at build time.
@@ -91,9 +91,9 @@ def test_the_document_says_what_kind_of_bom_it_is() -> None:
     """
     metadata = build()["metadata"]
     flags = {prop["name"]: prop["value"] for prop in metadata["properties"]}
-    assert flags["aegis:bom-kind"] == "ml-bom"
-    assert flags["aegis:model-count"] == "0"
-    assert "ships no machine-learning model" in flags["aegis:statement"]
+    assert flags["kervy:bom-kind"] == "ml-bom"
+    assert flags["kervy:model-count"] == "0"
+    assert "ships no machine-learning model" in flags["kervy:statement"]
 
 
 def test_the_model_count_property_matches_the_actual_inventory() -> None:
@@ -104,7 +104,7 @@ def test_the_model_count_property_matches_the_actual_inventory() -> None:
     """
     document = build()
     flags = {prop["name"]: prop["value"] for prop in document["metadata"]["properties"]}
-    assert int(flags["aegis:model-count"]) == len(document["components"])
+    assert int(flags["kervy:model-count"]) == len(document["components"])
 
 
 def test_the_spec_version_matches_what_the_tooling_can_emit() -> None:

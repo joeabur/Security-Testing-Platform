@@ -44,7 +44,7 @@ _WEBHOOK_KEY_B64 = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="  # 32 zero byt
 
 @pytest.fixture(autouse=True)
 def _webhook_encryption_key(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("AEGIS_WEBHOOK_SECRET_ENCRYPTION_KEY", _WEBHOOK_KEY_B64)
+    monkeypatch.setenv("KERVY_WEBHOOK_SECRET_ENCRYPTION_KEY", _WEBHOOK_KEY_B64)
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()
@@ -421,14 +421,14 @@ def _finding_fields(target_id: uuid.UUID, organization_id: uuid.UUID) -> dict[st
         "fingerprint": f"fp-{uuid.uuid4().hex}",
         "title": "A critical finding",
         "category": Category.API_SECURITY,
-        "probe_id": "AEGIS-API-999",
+        "probe_id": "KERVY-API-999",
         "probe_version": "1.0.0",
         "surface": "GET /ping",
         "severity": Severity.CRITICAL,
         "severity_rationale": "unauthenticated critical exposure",
         "confidence": Confidence.HIGH,
         "stability": Stability.DETERMINISTIC,
-        "risk_model": "aegis-ordinal-v1",
+        "risk_model": "kervy-ordinal-v1",
         "risk_score": 10,
         "description": "Critical exposure.",
         "impact": "Full compromise.",

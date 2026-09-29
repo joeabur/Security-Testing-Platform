@@ -66,7 +66,7 @@ class RateLimitPresenceProbe:
         surface = surface_label(operation)
         return [
             ScanResult(
-                id="AEGIS-API-020",
+                id="KERVY-API-020",
                 title="No rate limit is advertised",
                 category=Category.API_SECURITY,
                 severity=Severity.LOW,
@@ -145,7 +145,7 @@ class PaginationLimitProbe:
             surface = surface_label(operation)
             results.append(
                 ScanResult(
-                    id="AEGIS-API-021",
+                    id="KERVY-API-021",
                     title="Oversized page size is accepted",
                     category=Category.API_SECURITY,
                     severity=Severity.MEDIUM,

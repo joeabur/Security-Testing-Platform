@@ -146,7 +146,7 @@ class SemgrepEngine:
         message = str(item.get("message", {}).get("text", "")).strip()
 
         return ScanResult(
-            id=f"AEGIS-SAST-{rule_id.split('.')[-1][:40]}",
+            id=f"KERVY-SAST-{rule_id.split('.')[-1][:40]}",
             title=f"{rule_id}: {message}"[:300] or rule_id,
             category=Category.INFRASTRUCTURE,
             severity=severity_from(

@@ -68,7 +68,7 @@ class ToolResult:
 # Variables a scanner subprocess has no reason to read. Removing them keeps a
 # tool's crash report or telemetry from carrying this platform's own
 # credentials off the machine.
-_STRIPPED_ENV_PREFIXES = ("AEGIS_", "JWT_", "DATABASE_", "REDIS_", "POSTGRES_")
+_STRIPPED_ENV_PREFIXES = ("KERVY_", "JWT_", "DATABASE_", "REDIS_", "POSTGRES_")
 _STRIPPED_ENV_NAMES = frozenset({"AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "GITHUB_TOKEN"})
 
 

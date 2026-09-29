@@ -112,7 +112,7 @@ class MassAssignmentProbe:
         if bindable:
             results.append(
                 ScanResult(
-                    id="AEGIS-API-030",
+                    id="KERVY-API-030",
                     title="Request body binds privileged fields",
                     category=Category.API_SECURITY,
                     severity=Severity.MEDIUM,
@@ -160,7 +160,7 @@ class MassAssignmentProbe:
         if read_only_in_write:
             results.append(
                 ScanResult(
-                    id="AEGIS-API-031",
+                    id="KERVY-API-031",
                     title="Write operation reuses a read schema",
                     category=Category.API_SECURITY,
                     severity=Severity.LOW,

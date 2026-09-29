@@ -40,7 +40,7 @@ class VmCheck:
         except Exception as exc:  # noqa: BLE001 - one engine must not lose the run
             self.scan_results.append(
                 ScanResult(
-                    id="AEGIS-VM-199",
+                    id="KERVY-VM-199",
                     title="VM engine failed to complete",
                     category=Category.INFRASTRUCTURE,
                     severity=Severity.INFORMATIONAL,

@@ -261,7 +261,7 @@ async def test_channel(
         event_type=EventType.ASSESSMENT_COMPLETED,
         organization_id=organization_id,
         occurred_at_iso=datetime.now(UTC).isoformat(),
-        title="Aegis test notification",
+        title="Kervy test notification",
         severity=None,
         resource_type="notification_channel",
         resource_id=str(channel.id),

@@ -56,7 +56,7 @@ and its guardrail is what a "success" is allowed to mean
 (`docs/ai-security-testing.md`, `docs/BUILD_SPEC.md` §2.2):
 
 - **Marker-based detection only.** Every run mints a random canary
-  (`AEGIS-CANARY-<random>`); a probe succeeds when *that token* appears
+  (`KERVY-CANARY-<random>`); a probe succeeds when *that token* appears
   where it should not, or a response is structurally what was being tested
   for — never when the model produces something judged "harmful." There is
   no harmful-content corpus in the repository, and no scoring rubric to
@@ -215,7 +215,7 @@ data only. `docs/security-model.md` guarantee #21.
 
 **A missing tool is a visible gap, never a silent pass.** Every check
 (probe, AppSec engine, plugin, AI probe) wraps its execution so that one
-failure is recorded as `AEGIS-*-099 — not tested` and the run continues —
+failure is recorded as `KERVY-*-099 — not tested` and the run continues —
 because a run that loses fifteen good probes to one crashing probe is worse
 for the operator than a run with a hole it can see, and a scanner that goes
 quiet on failure is the most dangerous kind of false negative. See

@@ -2,7 +2,7 @@
 
 **Template:** compliance  
 **Generated:** 2026-03-04T09:30:00+00:00  
-**Tool:** Aegis AI Security 0.1.0  
+**Tool:** Kervy Security 0.1.0  
 **Run:** `22222222-2222-2222-2222-222222222222`
 
 ## Executive summary
@@ -90,7 +90,7 @@ A category listed as reported against means at least one finding cited it. It do
      Do not edit by hand: a table maintained separately from the scorer
      is wrong the first time a weight changes. -->
 
-**Model version:** `aegis-v1`
+**Model version:** `kervy-v1`
 
 ```
 risk = impact × likelihood × confidence_weight × exposure_modifier
@@ -155,7 +155,7 @@ established fact.
 
 ## Three scoring systems, never blended
 
-1. **Aegis risk score** — always present, the model above.
+1. **Kervy risk score** — always present, the model above.
 2. **CVSS 4.0** — only for findings that genuinely fit CVSS. A vector is
    never manufactured for something like "the model followed an injected
    instruction", which CVSS has no way to express.
@@ -167,5 +167,5 @@ They appear in separate fields and are never averaged together.
 
 ### Tool versions
 
-- aegis: 0.1.0
 - bandit: 1.7.9
+- kervy: 0.1.0

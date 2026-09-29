@@ -28,7 +28,7 @@ import redis.asyncio as redis_async
 from app.core.config import get_settings
 from app.core.integrations.signing import DEFAULT_TOLERANCE_SECONDS
 
-_KEY_PREFIX = "aegis:workflow:webhook-seen:"
+_KEY_PREFIX = "kervy:workflow:webhook-seen:"
 TTL_SECONDS = DEFAULT_TOLERANCE_SECONDS * 2
 
 

@@ -33,7 +33,7 @@ with no code path that could reach a network host at all.
 ## Adding one
 
 ```
-aegis-ai repo add \
+kervy-ai repo add \
   --name "Payments service" \
   --url https://github.com/acme/payments.git \
   --branch main \
@@ -60,21 +60,21 @@ allowlisted to exactly the host the repository names, not a general list.
 ## Scanning one
 
 ```
-aegis-ai repo scan <repository-id>
+kervy-ai repo scan <repository-id>
 ```
 
 Queues an `AssessmentRun` against the connected repository's `Target`,
 through the same `queue_run` every other scan uses — it shows up in
-`aegis-ai runs list`, has the same audit trail, and its findings promote
+`kervy-ai runs list`, has the same audit trail, and its findings promote
 into the same `Finding` rows the findings board and remediation/retest
 workflow already work with.
 
 ## Listing, reading, removing
 
 ```
-aegis-ai repo list
-aegis-ai repo show <repository-id>
-aegis-ai repo remove <repository-id>
+kervy-ai repo list
+kervy-ai repo show <repository-id>
+kervy-ai repo remove <repository-id>
 ```
 
 `repo show` includes the repository's ten most recent scans and a count of
@@ -96,6 +96,6 @@ A per-organization quota, an auto-discovery flow that lists every repository
 in a connected GitHub org, or a replacement for the full workflow. An
 operator who needs a live network target's own authorization/RoE
 machinery — a signed-off grant from someone else, a real validity window
-someone reviews, network-scope controls — still uses `aegis-ai target
+someone reviews, network-scope controls — still uses `kervy-ai target
 add`/`auth grant`/`target roe` exactly as before. This is the alternative
 for the one case that workflow was never shaped for: source code.

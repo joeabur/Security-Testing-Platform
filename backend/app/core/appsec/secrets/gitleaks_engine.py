@@ -65,7 +65,7 @@ class GitleaksEngine:
         return (workspace.root / ".git").exists()
 
     async def run(self, workspace: Workspace) -> list[ScanResult]:
-        report = workspace.root / ".aegis-gitleaks.json"
+        report = workspace.root / ".kervy-gitleaks.json"
         try:
             result = await run_tool(
                 ToolInvocation(
@@ -150,7 +150,7 @@ class GitleaksEngine:
         in_history = bool(commit) and commit != _WORKING_TREE
 
         return ScanResult(
-            id=f"AEGIS-SECRET-GL-{rule_id.upper()[:40]}",
+            id=f"KERVY-SECRET-GL-{rule_id.upper()[:40]}",
             title=f"Committed credential: {item.get('Description') or rule_id}"[:300],
             category=Category.INFRASTRUCTURE,
             severity=Severity.MEDIUM if generic else Severity.CRITICAL,
@@ -233,4 +233,4 @@ def _int_or_none(value: Any) -> int | None:
 
 def report_path(workspace: Workspace) -> Path:
     """Exposed for the tests, which assert the report never survives a run."""
-    return workspace.root / ".aegis-gitleaks.json"
+    return workspace.root / ".kervy-gitleaks.json"

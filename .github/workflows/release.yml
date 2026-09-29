@@ -42,7 +42,7 @@ jobs:
         image: postgres:16
         env:
           POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: aegis_test
+          POSTGRES_DB: kervy_test
         options: >-
           --health-cmd pg_isready --health-interval 10s
           --health-timeout 5s --health-retries 5
@@ -54,7 +54,7 @@ jobs:
           --health-timeout 5s --health-retries 5
         ports: ["6379:6379"]
     env:
-      DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/aegis_test
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/kervy_test
       REDIS_URL: redis://localhost:6379/0
       ENVIRONMENT: ci
       JWT_SECRET: ci-only-secret-not-used-anywhere-else
@@ -94,16 +94,16 @@ jobs:
       - name: Lint, types, tests
         working-directory: backend
         run: |
-          ruff check app aegis_cli mcp_server tests scripts
-          ruff format --check app aegis_cli mcp_server tests scripts
-          mypy app aegis_cli mcp_server
+          ruff check app kervy_cli mcp_server tests scripts
+          ruff format --check app kervy_cli mcp_server tests scripts
+          mypy app kervy_cli mcp_server
           pytest -q
 
       - name: Security scanners
         working-directory: backend
         run: |
-          bandit -r app aegis_cli mcp_server -ll
-          semgrep --config app/core/appsec/sast/rules --error --metrics=off app aegis_cli
+          bandit -r app kervy_cli mcp_server -ll
+          semgrep --config app/core/appsec/sast/rules --error --metrics=off app kervy_cli
 
   build:
     needs: verify
@@ -141,7 +141,7 @@ jobs:
         run: |
           pip install -e . cyclonedx-bom
           cyclonedx-py environment --output-format json \
-            --outfile ../dist/aegis-sbom.cdx.json
+            --outfile ../dist/kervy-sbom.cdx.json
 
       - name: Generate the ML-BOM as its own document
         working-directory: backend
@@ -150,7 +150,7 @@ jobs:
         run: |
           python -m scripts.mlbom \
             --version "${{ github.event.inputs.tag || github.ref_name }}" \
-            --out ../dist/aegis-mlbom.cdx.json
+            --out ../dist/kervy-mlbom.cdx.json
 
       - name: Record the artifact digests
         id: hashes

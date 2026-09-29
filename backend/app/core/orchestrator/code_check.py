@@ -76,7 +76,7 @@ class CodeScanCheck:
 
 def _engine_error(engine: AppSecEngine, exc: Exception) -> ScanResult:
     return ScanResult(
-        id="AEGIS-APPSEC-099",
+        id="KERVY-APPSEC-099",
         title=f"Engine {engine.meta.id} failed to complete",
         category=Category.INFRASTRUCTURE,
         severity=Severity.INFORMATIONAL,

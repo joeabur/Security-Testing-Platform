@@ -139,7 +139,7 @@ def _subdomain_discovery_finding(root_domain: str, items: list[DiscoveredSubdoma
     ordered = sorted(items, key=lambda item: item.hostname)
     listed = "\n".join(f"{item.hostname}  ({item.source.value})" for item in ordered[:50])
     return ScanResult(
-        id="AEGIS-DOMAIN-001",
+        id="KERVY-DOMAIN-001",
         title=f"{len(items)} subdomain(s) discovered for {root_domain}",
         category=Category.INFRASTRUCTURE,
         severity=Severity.INFORMATIONAL,
@@ -165,7 +165,7 @@ def _subdomain_discovery_finding(root_domain: str, items: list[DiscoveredSubdoma
 
 def _coverage_marker(surface: str, reason: str) -> ScanResult:
     return ScanResult(
-        id="AEGIS-DOMAIN-009",
+        id="KERVY-DOMAIN-009",
         title=f"Not tested: {surface}",
         category=Category.INFRASTRUCTURE,
         severity=Severity.INFORMATIONAL,
@@ -182,7 +182,7 @@ def _coverage_marker(surface: str, reason: str) -> ScanResult:
 
 def _missing_headers_finding(hostname: str, missing: list[str]) -> ScanResult:
     return ScanResult(
-        id="AEGIS-DOMAIN-002",
+        id="KERVY-DOMAIN-002",
         title=f"{hostname} is missing {len(missing)} security header(s)",
         category=Category.INFRASTRUCTURE,
         severity=Severity.LOW,
@@ -224,7 +224,7 @@ def _tls_finding(hostname: str, cert: TlsCertificateInfo) -> ScanResult | None:
         return None
 
     return ScanResult(
-        id="AEGIS-DOMAIN-003",
+        id="KERVY-DOMAIN-003",
         title=f"{hostname} has a TLS configuration issue",
         category=Category.INFRASTRUCTURE,
         severity=severity,

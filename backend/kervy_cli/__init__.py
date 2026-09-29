@@ -1,4 +1,4 @@
-"""The `aegis-ai` command line interface (docs/BUILD_SPEC.md §20).
+"""The `kervy-ai` command line interface (docs/BUILD_SPEC.md §20).
 
 Deliberately its own top-level package rather than a module inside `app/`.
 §26 Phase 10 requires that "the CLI exercises the same API/scope engine as the

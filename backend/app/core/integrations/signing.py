@@ -21,9 +21,9 @@ import hashlib
 import hmac
 import time
 
-SIGNATURE_HEADER = "X-Aegis-Signature"
-TIMESTAMP_HEADER = "X-Aegis-Timestamp"
-EVENT_HEADER = "X-Aegis-Event"
+SIGNATURE_HEADER = "X-Kervy-Signature"
+TIMESTAMP_HEADER = "X-Kervy-Timestamp"
+EVENT_HEADER = "X-Kervy-Event"
 SIGNATURE_VERSION = "v1"
 
 #: How much clock skew a receiver should tolerate. Five minutes is the usual

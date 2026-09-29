@@ -115,7 +115,7 @@ def _teams(event: IntegrationEvent, base_url: str | None) -> RenderedMessage:
         payload["potentialAction"] = [
             {
                 "@type": "OpenUri",
-                "name": "Open in Aegis",
+                "name": "Open in Kervy",
                 "targets": [{"os": "default", "uri": link}],
             }
         ]
@@ -150,7 +150,7 @@ def _generic(event: IntegrationEvent, base_url: str | None) -> RenderedMessage:
 
 def _email(event: IntegrationEvent, base_url: str | None) -> RenderedMessage:
     summary = _safe("\n".join(summary_lines(event, base_url)))
-    subject = _safe(f"[Aegis] {event.severity or event.event_type.value}: {event.title}"[:200])
+    subject = _safe(f"[Kervy] {event.severity or event.event_type.value}: {event.title}"[:200])
     return RenderedMessage(
         body=summary.encode("utf-8"),
         content_type="text/plain; charset=utf-8",

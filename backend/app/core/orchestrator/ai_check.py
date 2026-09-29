@@ -111,7 +111,7 @@ class AiSecurityCheck:
 
     def _judging_note(self) -> ScanResult:
         return ScanResult(
-            id="AEGIS-AI-900",
+            id="KERVY-AI-900",
             title="Detection methodology",
             category=Category.AI_SECURITY,
             severity=Severity.INFORMATIONAL,
@@ -136,7 +136,7 @@ class AiSecurityCheck:
 
     def _probe_error(self, probe_id: str, exc: Exception) -> ScanResult:
         return ScanResult(
-            id="AEGIS-AI-099",
+            id="KERVY-AI-099",
             title=f"Probe {probe_id} failed to complete",
             category=Category.AI_SECURITY,
             severity=Severity.INFORMATIONAL,

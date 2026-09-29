@@ -11,7 +11,7 @@ from typing import Any
 
 import pytest
 
-from aegis_cli.client import CliError
+from kervy_cli.client import CliError
 from mcp_server.server import PROTOCOL_VERSION, McpDispatcher
 
 
@@ -49,7 +49,7 @@ def test_initialize_reports_protocol_version_and_server_info() -> None:
 
     assert response is not None
     assert response["result"]["protocolVersion"] == PROTOCOL_VERSION
-    assert response["result"]["serverInfo"]["name"] == "aegis-ai-security"
+    assert response["result"]["serverInfo"]["name"] == "kervy-security"
 
 
 def test_tools_list_translates_the_catalog_into_mcp_tool_descriptors() -> None:

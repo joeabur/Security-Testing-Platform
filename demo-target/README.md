@@ -1,4 +1,4 @@
-# Aegis demo target lab
+# Kervy demo target lab
 
 **Everything in this directory is intentionally vulnerable.** It exists to be
 attacked by the scanner. Do not deploy it, do not expose it, and do not put

@@ -43,7 +43,7 @@ redacted but real exchanges with a customer's system.
 - Shared across API and worker replicas — both read it.
 - Back it up with the same care as the database; a report without its evidence
   is unverifiable.
-- **Unencrypted at rest unless `AEGIS_EVIDENCE_ENCRYPTION_KEY` is set**
+- **Unencrypted at rest unless `KERVY_EVIDENCE_ENCRYPTION_KEY` is set**
   (`docs/configuration.md`); off is the default. Set it, or use an encrypted
   volume regardless — this is a stated residual either way
   (`docs/threat-model.md`).
@@ -77,8 +77,8 @@ See `docs/configuration.md`. The production-specific items:
   secret, which is the intended behaviour.
 - `SESSION_COOKIE_SECURE=true` behind TLS.
 - Credential variables in the **worker's** environment, not only the API's.
-- `AEGIS_NOTIFY_ALLOWED_WEBHOOK_HOSTS`, `AEGIS_NOTIFY_ALLOWED_SMTP_HOSTS`,
-  `AEGIS_VCS_ALLOWED_HOSTS` set to the minimum. These are the operator's control
+- `KERVY_NOTIFY_ALLOWED_WEBHOOK_HOSTS`, `KERVY_NOTIFY_ALLOWED_SMTP_HOSTS`,
+  `KERVY_VCS_ALLOWED_HOSTS` set to the minimum. These are the operator's control
   over where data may go; an empty list is the safe default.
 - `PLUGINS_CONFIG` only if you use plugins. There is no sandbox.
 

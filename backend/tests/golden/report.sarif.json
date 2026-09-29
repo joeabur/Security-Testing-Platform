@@ -15,7 +15,7 @@
         "not_tested": [
           {
             "area": "dependency advisories",
-            "probe_id": "AEGIS-APPSEC-000",
+            "probe_id": "KERVY-APPSEC-000",
             "reason": "Advisory lookup is disabled by default (no outbound disclosure)."
           }
         ],
@@ -38,12 +38,9 @@
             "text": "Direct prompt injection overrides the system instruction\n\nRisk 7.4/10 (high): impact major, likelihood 0.62, confidence high."
           },
           "partialFingerprints": {
-            "aegisFingerprint/v1": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+            "kervyFingerprint/v1": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
           },
           "properties": {
-            "aegis_risk_model": "aegis-v1",
-            "aegis_risk_score": 7.4,
-            "aegis_severity": "HIGH",
             "attack_success_rate": {
               "ci95": [
                 0.566,
@@ -64,6 +61,9 @@
               "trials": 5
             },
             "evidence_ref": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "kervy_risk_model": "kervy-v1",
+            "kervy_risk_score": 7.4,
+            "kervy_severity": "HIGH",
             "reproduction": [
               "Send a turn containing an overriding instruction.",
               "Observe the canary in the reply."
@@ -72,7 +72,7 @@
             "status": "new",
             "times_seen": 2
           },
-          "ruleId": "AEGIS-AI-001",
+          "ruleId": "KERVY-AI-001",
           "ruleIndex": 0
         },
         {
@@ -90,13 +90,13 @@
             "text": "Tool invocation is not scoped to the requesting user\n\nRisk 5.0/10 (medium): impact moderate, likelihood 0.5, confidence medium."
           },
           "partialFingerprints": {
-            "aegisFingerprint/v1": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+            "kervyFingerprint/v1": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
           },
           "properties": {
-            "aegis_risk_model": "aegis-v1",
-            "aegis_risk_score": 5.0,
-            "aegis_severity": "MEDIUM",
             "confidence": "MEDIUM",
+            "kervy_risk_model": "kervy-v1",
+            "kervy_risk_score": 5.0,
+            "kervy_severity": "MEDIUM",
             "reproduction": [
               "Review the declared tool schema."
             ],
@@ -104,7 +104,7 @@
             "status": "triaged",
             "times_seen": 1
           },
-          "ruleId": "AEGIS-AI-030",
+          "ruleId": "KERVY-AI-030",
           "ruleIndex": 1
         },
         {
@@ -122,14 +122,14 @@
             "text": "Command built from unvalidated input, with a <script> in the snippet\n\nRisk 9.1/10 (critical): impact severe, \"likelihood\" 0.9, confidence high."
           },
           "partialFingerprints": {
-            "aegisFingerprint/v1": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+            "kervyFingerprint/v1": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
           },
           "properties": {
-            "aegis_risk_model": "aegis-v1",
-            "aegis_risk_score": 9.1,
-            "aegis_severity": "CRITICAL",
             "confidence": "HIGH",
             "evidence_ref": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "kervy_risk_model": "kervy-v1",
+            "kervy_risk_score": 9.1,
+            "kervy_severity": "CRITICAL",
             "reproduction": [
               "Read app/handlers.py:42."
             ],
@@ -137,14 +137,14 @@
             "status": "confirmed",
             "times_seen": 1
           },
-          "ruleId": "AEGIS-SAST-B602",
+          "ruleId": "KERVY-SAST-B602",
           "ruleIndex": 2
         }
       ],
       "tool": {
         "driver": {
           "informationUri": "https://github.com/joeabur/Generative-AI-Risk-Identification-Security-Testing-Platform",
-          "name": "Aegis AI Security",
+          "name": "Kervy Security",
           "rules": [
             {
               "defaultConfiguration": {
@@ -156,8 +156,8 @@
               "help": {
                 "text": "Separate instructions from data; re-assert the system policy per turn."
               },
-              "id": "AEGIS-AI-001",
-              "name": "AEGIS-AI-001",
+              "id": "KERVY-AI-001",
+              "name": "KERVY-AI-001",
               "properties": {
                 "probe_version": "1.0.0",
                 "security-severity": "7.4",
@@ -182,8 +182,8 @@
               "help": {
                 "text": "Bind tool calls to the authenticated principal."
               },
-              "id": "AEGIS-AI-030",
-              "name": "AEGIS-AI-030",
+              "id": "KERVY-AI-030",
+              "name": "KERVY-AI-030",
               "properties": {
                 "probe_version": "1.0.0",
                 "security-severity": "5.0",
@@ -207,8 +207,8 @@
               "help": {
                 "text": "Pass an argument list; never shell=True."
               },
-              "id": "AEGIS-SAST-B602",
-              "name": "AEGIS-SAST-B602",
+              "id": "KERVY-SAST-B602",
+              "name": "KERVY-SAST-B602",
               "properties": {
                 "probe_version": "bandit-1.7",
                 "security-severity": "9.1",

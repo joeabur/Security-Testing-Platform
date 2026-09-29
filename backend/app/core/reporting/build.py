@@ -235,7 +235,7 @@ def _pillar_coverage(results: list[ScanResultRecord], target: Target) -> list[Pi
 def _judge_status(results: list[ScanResultRecord]) -> str:
     """What the run recorded about judging, verbatim where it exists."""
     for row in results:
-        if row.result_code == "AEGIS-AI-900":
+        if row.result_code == "KERVY-AI-900":
             first = row.evidence.strip().splitlines()
             if first:
                 return first[0]
@@ -244,7 +244,7 @@ def _judge_status(results: list[ScanResultRecord]) -> str:
 
 def _permission_graph(results: list[ScanResultRecord]) -> str | None:
     for row in results:
-        if row.result_code == "AEGIS-AI-030" and "```mermaid" in row.evidence:
+        if row.result_code == "KERVY-AI-030" and "```mermaid" in row.evidence:
             return row.evidence.split("```mermaid", 1)[1].split("```", 1)[0].strip()
     return None
 
@@ -383,7 +383,7 @@ async def build_report(db: AsyncSession, *, run: AssessmentRun, target: Target) 
         requests_blocked=run.requests_blocked,
         halted_reason=run.halted_reason,
         risk_model_tables=render_risk_tables(),
-        tool_versions={"aegis": TOOL_VERSION},
+        tool_versions={"kervy": TOOL_VERSION},
         ai_drafted_sections=sorted({draft.field.value for draft in accepted_drafts}),
     )
 
@@ -396,8 +396,8 @@ def to_canonical_json(report: ReportData) -> str:
     snapshot test meaningful.
     """
     payload: dict[str, Any] = {
-        "schema": "aegis.report/v1",
-        "tool": {"name": "Aegis AI Security", "version": report.tool_version},
+        "schema": "kervy.report/v1",
+        "tool": {"name": "Kervy Security", "version": report.tool_version},
         "generated_at": report.generated_at.isoformat(),
         "target": {
             "name": report.target_name,
@@ -506,4 +506,4 @@ def to_canonical_json(report: ReportData) -> str:
 
 
 def report_filename(run_id: uuid.UUID, template: str, extension: str) -> str:
-    return f"aegis-report-{run_id}-{template}.{extension}"
+    return f"kervy-report-{run_id}-{template}.{extension}"

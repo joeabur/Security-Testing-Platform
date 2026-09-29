@@ -18,10 +18,10 @@ statement coverage. Frontend: ESLint, `tsc --noEmit`, Vitest (10/10), and
 
 Deferred out of Phase 1, with reasons:
 
-- **`aegis-ai seed` / demo account seeding** — the Makefile intentionally has
+- **`kervy-ai seed` / demo account seeding** — the Makefile intentionally has
   no `seed` target yet rather than one pointing at a module that doesn't
   exist. Lands with the demo lab (`docs/BUILD_SPEC.md` §19, Phase 12).
-- **CLI (`aegis-ai`)** — Phase 10 per the merged phase plan
+- **CLI (`kervy-ai`)** — Phase 10 per the merged phase plan
   (`docs/BUILD_SPEC.md` §26). The web app and REST API are the Phase 1–9
   surface; the CLI is a client of the same API, not a separate path.
 - **GitHub Actions SHA-pinning** — `.github/workflows/ci.yml` pins actions to
@@ -305,7 +305,7 @@ an oversight:
   `CredentialSet` that exposes it only as a request header. A test asserts
   no credential value appears in any field a report is built from.
 - **A crashed probe is a visible gap, not a silent pass.** A probe that
-  raises produces an `AEGIS-API-099` informational result and the run
+  raises produces an `KERVY-API-099` informational result and the run
   continues. Without it, a probe failing on every endpoint would look
   identical to a probe that found nothing — the most dangerous false
   negative a scanner can have.
@@ -423,7 +423,7 @@ Deferred out of Phase 6, with reasons:
   and ML-BOM work belongs with the SBOM tooling in Phase 12.
 - **Multi-turn escalation is not implemented** — §9 gates it behind
   `allow_multi_turn`, and the adapters do not yet carry conversation state.
-- **`aegis-ai replay <finding-id>` (§7.2) is not implemented** — trial records
+- **`kervy-ai replay <finding-id>` (§7.2) is not implemented** — trial records
   carry the exact prompt and a redacted response, which is what replay needs,
   but the command itself is Phase 10 with the rest of the CLI.
 
@@ -456,7 +456,7 @@ Decisions worth stating:
   outbound path §6.3 governs just as it governs an `httpx` client. A registry
   ruleset remains available as an explicit operator choice. The bundled rules
   are deliberately few, per the addendum's limit on native rules, and include
-  `aegis.ungated-http-client` — this platform dogfooding its own central rule.
+  `kervy.ungated-http-client` — this platform dogfooding its own central rule.
 - **Dependency advisory lookup is off by default.** Matching a dependency
   graph means sending the client's dependency list to whoever runs the
   advisory database. That is a disclosure an operator opts into per
@@ -612,7 +612,7 @@ Deferred out of Phase 16, with reasons:
   not return one. Enforcing a limit against an estimated cost would be
   presenting a guess as a measurement, so the field is carried and the
   enforcement waits for per-model pricing data.
-- **No CLI surface yet** (`aegis assist`, `aegis findings accept-draft`) —
+- **No CLI surface yet** (`kervy assist`, `kervy findings accept-draft`) —
   the CLI is Phase 10 and the API is the tested surface.
 - **No structured-output use yet.** The provider implements
   `structured_output` and it is tested, but every current capability drafts
@@ -624,7 +624,7 @@ Deferred out of Phase 16, with reasons:
 
 ## Phase 7 — findings & risk (this build)
 
-Delivered: the Aegis risk model with published ordinal tables, fingerprinting
+Delivered: the Kervy risk model with published ordinal tables, fingerprinting
 that survives across runs, normalization from `ScanResult` into a stored
 `Finding`, promotion wired into the run pipeline, and the findings API with
 lifecycle transitions.
@@ -750,7 +750,7 @@ Decisions worth stating:
   told. `UPDATE_GOLDEN=1` re-records them and the diff has to be read.
 - **`level` is not severity, and the fingerprint travels.** SARIF has four
   levels and this platform has five severities; critical and high both map to
-  `error`, with the Aegis score kept at full resolution in `properties`. The
+  `error`, with the Kervy score kept at full resolution in `properties`. The
   Phase 7 fingerprint becomes `partialFingerprints`, without which a code
   host shows every run's findings as new.
 - **Two honesty gaps the templates closed.** The developer template had no
@@ -904,8 +904,8 @@ Deferred out of Phase 9, with reasons:
 
 ## Phase 10 — CLI, API keys & CI/CD gate (done)
 
-`aegis-ai` exists as a console script, organizations can mint scoped API keys
-for CI, and `aegis-ai gate` / `aegis-ai ci` fail a build on a seeded critical
+`kervy-ai` exists as a console script, organizations can mint scoped API keys
+for CI, and `kervy-ai gate` / `kervy-ai ci` fail a build on a seeded critical
 finding with the documented exit code.
 
 Decisions worth stating:
@@ -913,7 +913,7 @@ Decisions worth stating:
 - **The CLI is its own package, and a test enforces it.** §26 Phase 10
   requires the CLI to exercise the same API and scope engine as the UI rather
   than a weaker path of its own, and the strongest way to guarantee that is
-  structural: `aegis_cli/` may import `app.core.gate` (pure logic over
+  structural: `kervy_cli/` may import `app.core.gate` (pure logic over
   findings the API returned) and the shared enums, and nothing else from
   `app.core`. It holds no scope engine, no probe, no adapter and no database
   session, so the only way it can reach a target is to ask the API to — which
@@ -993,7 +993,7 @@ Deferred out of Phase 10, with reasons:
 - **Some §20 commands are absent rather than stubbed**: `init`, `test --probe`,
   `replay`, `frameworks`, `probes list` and `evidence purge`. Each needs an
   endpoint the platform does not have yet, and a command printing "not
-  implemented" is still a command people script against — `aegis-ai probes
+  implemented" is still a command people script against — `kervy-ai probes
   list` returning nothing would read as "this build has no probes".
 - **No OIDC.** §21 lists API-key *or* OIDC authentication; only the first is
   built.
@@ -1025,7 +1025,7 @@ Decisions worth stating:
 - **Discovery is off by default.** `pip install` must not be what decides which
   code runs inside the scope engine's process, so the policy loads nothing
   until `PLUGINS_CONFIG` points at a file that names packages.
-  `AEGIS_NO_PLUGINS=1` wins over everything: when something has gone wrong
+  `KERVY_NO_PLUGINS=1` wins over everything: when something has gone wrong
   there should be exactly one thing to set.
 - **A hash pin means "this build".** It is a digest over the installed
   distribution's `RECORD`, so a package silently replaced after it was pinned
@@ -1038,7 +1038,7 @@ Decisions worth stating:
   conclusions about code that never ran; a bundle from a plugin came from
   somewhere the platform cannot vouch for. Both have tests that try it.
 - **Every run that loads a plugin says so** — a banner in the run's own event
-  log and an informational `AEGIS-PLUGIN-900` result naming what loaded. §14's
+  log and an informational `KERVY-PLUGIN-900` result naming what loaded. §14's
   coverage honesty cuts both ways: silence about a plugin is as misleading as
   silence about an untested area.
 - **One bad plugin does not lose the run.** An import that raises, a
@@ -1061,7 +1061,7 @@ Decisions worth stating:
 
 Deferred out of Phase 11, with reasons:
 
-- **Only `aegis.probes` is consumed.** All four groups are discovered,
+- **Only `kervy.probes` is consumed.** All four groups are discovered,
   validated and listed in the banner, but nothing yet runs a third-party
   detector, adapter or reporter: each needs a contract of its own (a detector
   needs the observation shape, a reporter needs the template API), and
@@ -1078,7 +1078,7 @@ Deferred out of Phase 11, with reasons:
   them.
 - **The secrets baseline was wrong when Phase 10 shipped, and is fixed here.**
   It was generated from `git ls-files` before the Phase 10 files were tracked,
-  so `aegis_cli/config.py` (an environment-variable *name*) and the api-keys
+  so `kervy_cli/config.py` (an environment-variable *name*) and the api-keys
   migration's revision hashes were never recorded — `security.yml` would have
   been red on the commit that introduced it. Running the job locally after each
   change is what caught it, and is now the habit: a CI job is not done when it
@@ -1141,9 +1141,9 @@ Decisions worth stating:
 Two test-expectation bugs of my own, worth recording because both were wrong in
 the direction of a false pass:
 
-- the lab e2e asserted `AEGIS-API-001` (unauthenticated access). The lab *does*
+- the lab e2e asserted `KERVY-API-001` (unauthenticated access). The lab *does*
   require authentication on `/api/orders/{id}`; its flaw is skipping the
-  ownership check afterwards. The assertion now names `AEGIS-API-050` (BOLA),
+  ownership check afterwards. The assertion now names `KERVY-API-050` (BOLA),
   which required configuring the lab's synthetic accounts — so the test now
   exercises credentials-from-environment too.
 - the "no opt-in" test asserted zero reportable results, and two appeared. Both
@@ -1206,7 +1206,7 @@ deferred, and unvisited are three different things. Budget says "not now"; scope
 says "not ever". The first implementation filed a budget refusal under
 `refused`, which tells a reader the engagement did not cover an in-scope URL —
 a different and wrong claim. In-scope URLs are now queued regardless of budget
-and surface in `unvisited`, reported as `AEGIS-DAST-009`. A related off-by-one:
+and surface in `unvisited`, reported as `KERVY-DAST-009`. A related off-by-one:
 the page popped from the queue when budget ran out was lost from `unvisited`,
 understating coverage by exactly one page; it is put back before the break.
 
@@ -1269,8 +1269,8 @@ worker, the real scope engine and the lab on a real socket:
 run WITHOUT authorization        409  <- refused, as designed
 run status                       completed
 scan results                     10 results, 10 distinct codes
-   AEGIS-AI-000, AEGIS-AI-020, AEGIS-AI-900, AEGIS-API-002, AEGIS-API-010,
-   AEGIS-API-011, AEGIS-API-013, AEGIS-API-020, AEGIS-API-021, AEGIS-API-050
+   KERVY-AI-000, KERVY-AI-020, KERVY-AI-900, KERVY-API-002, KERVY-API-010,
+   KERVY-API-011, KERVY-API-013, KERVY-API-020, KERVY-API-021, KERVY-API-050
 findings                         7
 download report markdown/sarif/json  200
 evidence chain verify            ok=True
@@ -1291,7 +1291,7 @@ again from its committed form to confirm the shipped artifact works.
 - *Credential variables must be in the **worker's** environment, not the API's.*
   Synthetic accounts are stored by variable name, and the process that resolves
   a name is the one that makes the request. With them exported only in the API
-  shell, BOLA (`AEGIS-API-050`) silently did not appear: 6 findings instead of
+  shell, BOLA (`KERVY-API-050`) silently did not appear: 6 findings instead of
   7. The run still completed and the coverage section still said what was not
   tested, so nothing lied — but it cost a re-run to notice, and it is now called
   out in three places.
@@ -1444,7 +1444,7 @@ vulnerability. "Is this the package you meant" has no identifier at all.
 **Restraint is the design, and it is what the tests check:**
 
 - A runtime or series not in the vendored EOL table is reported as **not
-  assessed** (`AEGIS-SUPPLY-019`), never as supported. Every EOL finding carries
+  assessed** (`KERVY-SUPPLY-019`), never as supported. Every EOL finding carries
   the table's compile date, so "supported as of six months ago" is
   distinguishable from "supported today".
 - EOL severity is **capped below CRITICAL**. A standing exposure is not a
@@ -1461,7 +1461,7 @@ vulnerability. "Is this the package you meant" has no identifier at all.
   *not* flagged against `python-dateutil` — that false positive is what would
   make the check unusable.
 - The container engine scans the **filesystem, not a pulled image**, and emits
-  `AEGIS-CONTAINER-009` saying base layers were not examined. Pulling would mean
+  `KERVY-CONTAINER-009` saying base layers were not examined. Pulling would mean
   reaching an unsanctioned registry as an outbound request the transport never
   sees, and materialising an untrusted image on the worker.
 
@@ -1487,7 +1487,7 @@ vulnerability. "Is this the package you meant" has no identifier at all.
   `FROM crystal:1.9-alpine` produced nothing at all — and nothing at all reads
   as "supported", which is the exact failure the not-assessed marker exists to
   prevent. Now any versioned base image yields a declaration under its own name
-  and comes through as `AEGIS-SUPPLY-019`. Caught by the test that asserts the
+  and comes through as `KERVY-SUPPLY-019`. Caught by the test that asserts the
   not-assessed path, which failed on the first run.
 
 **Deferrals, stated rather than hidden:**
@@ -1511,7 +1511,7 @@ vulnerability. "Is this the package you meant" has no identifier at all.
   reported**: neither declares a version, so there is nothing to compare against
   a support schedule. An unpinned base image is a real finding, just not this
   engine's.
-- **Trivy is not installed in CI**, so `AEGIS-CONTAINER-001` parsing is
+- **Trivy is not installed in CI**, so `KERVY-CONTAINER-001` parsing is
   exercised only against the "tool absent" path there. The test asserts the
   honest-gap behaviour when Trivy is missing and the real parse when it is
   present, so the coverage is visible either way.
@@ -1538,7 +1538,7 @@ no-network-per-supply-chain-engine test now covers this engine too.
 
 **The coverage-honesty pattern, made explicit rather than implied:** every run
 with at least one declared dependency emits a single aggregate
-`AEGIS-SUPPLY-041` finding stating how many dependencies were checked against
+`KERVY-SUPPLY-041` finding stating how many dependencies were checked against
 how many table entries and as of what date — one note rather than one per
 dependency, because the vendored sample here is minuscule next to a real
 dependency list and a per-item repeat would say nothing the aggregate does
@@ -1582,7 +1582,7 @@ customer's repository" stays true under future edits.
 **Egress and credentials** follow the same pattern as notifications: a `github`
 connection reaches `api.github.com` and nothing else, pinned in code so a
 database row cannot redirect it; an Enterprise host needs
-`AEGIS_VCS_ALLOWED_HOSTS` in the environment; `allowed_ip_ranges` stays empty,
+`KERVY_VCS_ALLOWED_HOSTS` in the environment; `allowed_ip_ranges` stays empty,
 so sanctioning a host does not sanction an internal address behind it. The token
 is held by env-var reference and appears in no URL, log, audit record, response
 or error string.
@@ -1609,7 +1609,7 @@ the check run body rather than vanishing, and both counts are recorded.
 
 **Deferrals, stated rather than hidden:**
 
-- **No webhook receiver.** Aegis does not listen for `pull_request` events and
+- **No webhook receiver.** Kervy does not listen for `pull_request` events and
   scan automatically; publishing is invoked by CI or by hand. Ingesting webhooks
   needs an inbound authenticated endpoint, replay protection, and a decision
   about what a push from a fork may trigger — worth doing deliberately.
@@ -2202,7 +2202,7 @@ useful confirmation that the per-token key is truly load-bearing).
 `app/core/csrf/enforce.py` shipped requiring `X-CSRF-Token` on every unsafe,
 cookie-authenticated request, but `frontend/lib/api-client.ts`'s
 `clientApiFetch` — the fetch helper every Client Component uses — was never
-updated to read the `aegis_csrf` cookie and attach that header. Every
+updated to read the `kervy_csrf` cookie and attach that header. Every
 cookie-authenticated browser write has been returning 403 since CSRF
 enforcement landed; `POST /organizations` (the "Create Organization" form)
 is the first one anyone would hit. This was a real, previously-undetected
@@ -2225,7 +2225,7 @@ the CSRF cookie as a second, separate `Cookie:` header entry, with a comment
 claiming the backend compares two cookies (a plain double-submit check).
 Re-reading `enforce.py::check` disproved that: it only ever reads the
 *session* cookie to recompute the expected signature, and compares that
-against whatever arrives in the header — it never looks up `aegis_csrf` by
+against whatever arrives in the header — it never looks up `kervy_csrf` by
 name during verification. The extra forwarding was dead code justified by a
 false claim about the server it was talking to; removed, and the comment
 rewritten to describe the real mechanism.
@@ -2287,13 +2287,13 @@ token unconditionally, on the reasoning that login/register have no
 `Authorization: Bearer` header to signal "not a browser" the way every other
 route does. That reasoning missed something: **login is the request that
 *produces* the Bearer token**, so nothing can ever carry one yet, which means
-that signal cannot distinguish a browser from `aegis-ai login` or any other
+that signal cannot distinguish a browser from `kervy-ai login` or any other
 non-browser caller for these two routes specifically — unlike every other
 route, where Bearer presence already does this job. Requiring the token
 unconditionally would have 403'd the CLI's own login on the very next run.
 
 Caught before committing, by tracing through what the CLI's login path
-actually sends (`aegis_cli/client.py` builds a fresh `httpx.Client` per
+actually sends (`kervy_cli/client.py` builds a fresh `httpx.Client` per
 call — no persistent cookie jar, no browser). Fixed by giving the CLI the
 same front door a browser gets: a new `ApiClient.fetch_anon_csrf_token()`
 does the `GET /auth/csrf` round trip and hands `cmd_login` both the cookie
@@ -2344,8 +2344,8 @@ it." Closing it meant deciding that key model, not just writing the crypto.
 
 ### The key model is the same trade this project already made, not a new one
 
-`AEGIS_EVIDENCE_ENCRYPTION_KEY`, read the same way `JWT_SECRET` and
-`AEGIS_CSRF_SECRET` already are: one static value from an environment
+`KERVY_EVIDENCE_ENCRYPTION_KEY`, read the same way `JWT_SECRET` and
+`KERVY_CSRF_SECRET` already are: one static value from an environment
 variable, `app/core/config.py`. No rotation, no per-tenant key, no KMS
 integration, no tool to re-encrypt bundles already on disk from before the
 key was set. This is stated as plainly in `app/core/evidence/crypto.py`'s
@@ -2535,7 +2535,7 @@ authorization already covered end to end in `tests/security/test_revocation.py`.
 (SAST/SCA/secrets/IaC) previously required the same `Target` →
 `Authorization` → `Rules-of-Engagement` sequence built for a live network
 assessment, even for source code with no network surface at all. This adds
-`aegis-ai repo add|list|show|scan|remove` and the matching
+`kervy-ai repo add|list|show|scan|remove` and the matching
 `/organizations/{id}/repositories` API, which composes the same three rows
 that workflow would eventually produce, from a URL, a branch, and an
 explicit self-affirmed consent — no YAML RoE document, no operator-role
@@ -2834,7 +2834,7 @@ Decisions worth stating:
   `resolve_cloud_scope` already validates `provider` against exactly
   `{"aws", "azure", "gcp"}`, and `CloudEngine`'s dispatch handles all three —
   but calling either unimplemented provider today produces an explicit
-  `AEGIS-CLOUD-109` "not implemented yet" gap finding rather than a
+  `KERVY-CLOUD-109` "not implemented yet" gap finding rather than a
   fabricated result. Each needs its own multi-package SDK integration
   (`azure-identity` + `azure-mgmt-storage` + `azure-storage-blob`;
   `google-cloud-storage` + service-account credential handling), and shipping
@@ -2862,7 +2862,7 @@ Decisions worth stating:
   restriction, matching the schema's own permissive default.
 - **`boto3` is an optional `cloud` extra** (`pip install -e ".[dev,cloud]"`),
   the same reasoning `appsec` already established for its scanners: an
-  engine whose SDK is absent reports `AEGIS-CLOUD-109` rather than crashing
+  engine whose SDK is absent reports `KERVY-CLOUD-109` rather than crashing
   or, worse, silently reporting nothing. The base test suite never imports
   it for real — every test exercises the provider through dependency
   injection.
@@ -2922,7 +2922,7 @@ with the stdlib's `xml.etree.ElementTree` rather than a new dependency);
 `VmEngine` (`engine.py`) dispatching through an injectable `scan` callable —
 the same reason `ContainerEngine` injects `pull`/`scan`/`remove` rather than
 reaching for a real `nmap` binary at call time — emitting an unconditional
-port-inventory finding plus a `AEGIS-VM-101` finding for a small, fixed set
+port-inventory finding plus a `KERVY-VM-101` finding for a small, fixed set
 of ports whose mere reachability is already noteworthy (Telnet, SMB, Redis,
 MongoDB, and similar unencrypted or commonly-unauthenticated services);
 `VmCheck` (`app/core/orchestrator/vm_check.py`), mirroring `ContainerCheck`'s
@@ -2966,7 +2966,7 @@ Decisions worth stating:
   (`xml.etree.ElementTree`), not a new dependency — the same reasoning that
   kept the SBOM/reporting pipeline's XML handling dependency-free
   elsewhere. `nmap` itself, like `trivy`/`docker`, is expected to already be
-  present on the worker; a missing binary reports `AEGIS-VM-109` rather
+  present on the worker; a missing binary reports `KERVY-VM-109` rather
   than crashing, the same graceful-degradation contract every other
   subprocess-based engine on this platform follows.
 - **`ToolInvocationRecord` and `record_tool_invocations` are duplicated
@@ -3090,7 +3090,7 @@ Decisions worth stating:
 Verified: `ruff check`/`mypy app` clean (`defusedxml`/`types-defusedxml`
 added as direct dependencies — the library was already present
 transitively but neither module had imported it directly before); `bandit
--r app aegis_cli -ll` clean (confirmed the B314 finding this phase's own
+-r app kervy_cli -ll` clean (confirmed the B314 finding this phase's own
 work exposed, and fixed it in both `app/core/vm/nmap.py` and
 `app/core/pentest/nmap_scripts.py`); new tests across
 `test_pentest_nmap_scripts.py` (script parsing across both port- and
@@ -3249,7 +3249,7 @@ tier `RUN_WORKFLOW`/`START_SCAN` already require, since approving *is*
 authorizing a scan); `app/core/workflow/webhook_secret.py` (secret
 generation/AES-256-GCM encryption, reusing `app/core/evidence/crypto.py`
 directly rather than a second implementation, keyed by a new *required-
-when-used* `AEGIS_WEBHOOK_SECRET_ENCRYPTION_KEY` — unlike the evidence key,
+when-used* `KERVY_WEBHOOK_SECRET_ENCRYPTION_KEY` — unlike the evidence key,
 not optional encryption, since a webhook secret must never sit in Postgres
 in cleartext) and `app/core/workflow/replay_guard.py` (a 7th Redis-backed
 store, dedup-by-signature, **fails closed** — the opposite of the rate
@@ -3302,7 +3302,7 @@ config` validates the new `beat` service.
   this platform's own minimal, HMAC-signed shape only; translating GitHub's
   or GitLab's own webhook payload into it is a separate, later increment.
 - **No CLI for any workflow operation**, scheduling and webhooks included —
-  `aegis-ai` has no `workflow` subcommand group at all yet, confirmed
+  `kervy-ai` has no `workflow` subcommand group at all yet, confirmed
   absent before this phase; adding CLI support only for the new pieces
   while base workflow CRUD has none would be inconsistent scope creep.
 - **No dashboard UI** for schedule/webhook/approval configuration — matches
@@ -3312,6 +3312,65 @@ config` validates the new `beat` service.
   policies are each a route's own deliberate choice of window/key/fail-
   direction; adding one without that same review would be exactly the
   kind of half-built control this codebase avoids.
+
+## Rebrand — Aegis AI Security → Kervy Security
+
+A user-directed rename, executed as a full technical rebrand rather than a
+branding-only pass: every `AEGIS_*` environment variable, the
+`X-Aegis-Signature`/`X-Aegis-Timestamp`/`X-Aegis-Event` webhook-signing
+headers, the `aegis_session`/`aegis_csrf` cookies, every Redis key prefix,
+every `AEGIS-<engine>-<rule>` finding/probe-ID code, the Celery app/task
+names, the CLI (`aegis-ai`/`aegis-mcp` → `kervy-ai`/`kervy-mcp`,
+`backend/aegis_cli` → `backend/kervy_cli`), the package names in
+`backend/pyproject.toml`/`frontend/package.json`, and every doc/comment
+mention now read `Kervy`/`KERVY`/`kervy`.
+
+The one piece that could not be a text substitution: the Postgres
+Row-Level Security session variable (`app/db/tenant_context.py`) is named
+inside the `USING`/`WITH CHECK` SQL text of every `tenant_isolation`
+policy, baked in by the five historical migrations that each created one
+(`b2e6f4a91c7d`, `e1f4b8c72a90`, `f2a8c91e6b3d`, `a3d7e05c1f92`,
+`d8b3f6a1c2e4`). Editing those files would rewrite what actually ran —
+this codebase's own established discipline for migrations (append-only,
+same reasoning as the audit log's own "no update/delete code path")
+forbids that regardless of the reason. Instead, a new migration
+(`e1d16423a6b1`) reads the live, authoritative table list from
+`pg_policies` (rather than retyping it from five source files) and issues
+one `ALTER POLICY ... USING (...) WITH CHECK (...)` per table, moving
+`aegis.org_id` to `kervy.org_id`; `tenant_context.py` ships the matching
+code change in the same commit, since a deployment running either half
+without the other would see every RLS-covered query return nothing —
+the same fail-closed behaviour an unset session variable already
+produces, never another organization's rows.
+
+Decisions worth stating:
+
+- **Historical Alembic migrations are untouched, on principle** — not
+  merely because it was easier. A migration is the record of what a
+  database actually ran; a bulk rename that rewrote `aegis.org_id`
+  inside five already-applied migration files would make that record
+  say something that never happened.
+- **CHANGELOG.md's `[Unreleased]` section was rewritten in place**
+  (prose mentions of the old name updated to the new one, plus this
+  entry's own sibling documenting the rename itself); the released
+  `[0.1.0]` section's own command-name references
+  (`aegis-ai repo add`, `aegis-ai target roe|...`) were updated too,
+  since the CLI itself no longer answers to those names and a changelog
+  entry that stopped working as a copy-pasted command would be a worse
+  historical record than one accurately renamed.
+- **The GitHub repository's own name was left alone.** Renaming a
+  hosted repository changes its clone URL and is a separate,
+  higher-stakes action than a codebase-content rename; not attempted
+  without being asked.
+
+Verified: `ruff check`/`mypy app kervy_cli mcp_server`/`bandit -r app
+kervy_cli -ll` all clean; frontend `lint`/`typecheck`/`build`/`test` (16
+tests) all clean; a `git grep -i aegis` across every tracked file outside
+`backend/alembic/versions/` returns nothing; the live dev and test
+Postgres databases were renamed (`aegis`→`kervy`, `aegis_test`→
+`kervy_test`) and their RLS policies confirmed via `pg_policies` to
+reference `kervy.org_id` exclusively; full backend suite re-run after the
+rename.
 
 ## Agent framework, Phases 1–6 — native AI agent with zero persistence
 
@@ -3363,7 +3422,7 @@ Delivered across six phases:
    events fanned out through the existing `app.core.integrations`
    pipeline, and `backend/mcp_server/` — a hand-rolled JSON-RPC 2.0 stdio
    server (`initialize`/`tools/list`/`tools/call`), a thin client over the
-   same REST endpoints via `aegis_cli`'s own `ApiClient`, with zero
+   same REST endpoints via `kervy_cli`'s own `ApiClient`, with zero
    imports of `app.core.agent` — a structural proof an external MCP caller
    gets no more access than the authenticated REST API already grants.
 

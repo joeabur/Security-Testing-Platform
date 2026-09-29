@@ -243,7 +243,7 @@ async def test_the_window_expires_so_a_throttle_is_never_a_lockout() -> None:
     Driven through the store directly rather than by sleeping fifteen minutes.
     """
     store = MemoryStore()
-    key = "aegis:rl:login:id:deadbeef"
+    key = "kervy:rl:login:id:deadbeef"
     assert await store.incr(key, 1) == 1
     assert await store.ttl(key) <= 1
 

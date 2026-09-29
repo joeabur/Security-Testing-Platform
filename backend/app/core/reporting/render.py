@@ -47,7 +47,7 @@ def render_markdown(report: ReportData, template: Template = Template.TECHNICAL)
         "",
         f"**Template:** {template.value}  ",
         f"**Generated:** {report.generated_at.isoformat()}  ",
-        f"**Tool:** Aegis AI Security {report.tool_version}  ",
+        f"**Tool:** Kervy Security {report.tool_version}  ",
         f"**Run:** `{report.run_id}`",
         "",
     ]
@@ -215,7 +215,7 @@ def _risk_summary(report: ReportData) -> list[str]:
     out += [f"| {name} | {count} |" for name, count in counts.items()]
     out += [
         "",
-        "Scores come from the Aegis risk model "
+        "Scores come from the Kervy risk model "
         "(`impact × likelihood × confidence_weight × exposure_modifier`). Every "
         "finding carries the inputs that produced its score, and the severity "
         "follows a published banding — see the appendix. CVSS and AIVSS, where "

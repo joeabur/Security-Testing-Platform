@@ -32,7 +32,7 @@ only. That closes the gap signing alone cannot.
 
 ## The cost, stated rather than hidden
 
-`__Host-` mandates `Secure`, so it only works over HTTPS. `AEGIS_SESSION_COOKIE_SECURE`
+`__Host-` mandates `Secure`, so it only works over HTTPS. `KERVY_SESSION_COOKIE_SECURE`
 already exists as this platform's one on/off switch for "are we serving HTTPS
 today", so this module reuses it: secure deployments get the `__Host-` cookie
 and the real protection above; plain-HTTP deployments (local dev, by default)
@@ -41,7 +41,7 @@ double-submit break via signing but **not** the sibling-subdomain one — the
 same residual `docs/csrf.md` already named, just narrowed from "no
 protection" to "no protection against a subdomain attacker specifically, in
 plain-HTTP deployments only". A deployment that sets
-`AEGIS_SESSION_COOKIE_SECURE=true` (as any deployment reachable over the
+`KERVY_SESSION_COOKIE_SECURE=true` (as any deployment reachable over the
 public internet should) gets the full guarantee.
 """
 
@@ -57,8 +57,8 @@ _SEPARATOR = "."
 #: `__Host-` cookies are host-locked by browsers (no `Domain` attribute
 #: allowed) — the mechanism that stops a sibling subdomain from overwriting
 #: it. Only usable when the cookie is also `Secure`, hence the two names.
-COOKIE_NAME_SECURE = "__Host-aegis_csrf_anon"
-COOKIE_NAME_INSECURE = "aegis_csrf_anon"
+COOKIE_NAME_SECURE = "__Host-kervy_csrf_anon"
+COOKIE_NAME_INSECURE = "kervy_csrf_anon"
 
 
 def cookie_name(*, secure: bool) -> str:

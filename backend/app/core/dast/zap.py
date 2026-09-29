@@ -114,7 +114,7 @@ def _finding(alert: dict[str, Any], policy: ToolPolicy, seed: str) -> ScanResult
     cwe = str(alert.get("cweid") or "").strip()
 
     return ScanResult(
-        id=f"AEGIS-DAST-ZAP-{plugin_id}",
+        id=f"KERVY-DAST-ZAP-{plugin_id}",
         title=f"{name} at {uri}",
         category=Category.API_SECURITY,
         severity=_SEVERITY.get(
@@ -203,7 +203,7 @@ async def run_zap(
     # ZAP's JSON report contains response excerpts from the target; leaving it on
     # disk outside the evidence store would put unredacted target data somewhere
     # nothing manages.
-    with tempfile.TemporaryDirectory(prefix="aegis-zap-") as workdir:
+    with tempfile.TemporaryDirectory(prefix="kervy-zap-") as workdir:
         report = Path(workdir) / "zap.json"
         result = await run_tool(
             ToolInvocation(

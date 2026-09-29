@@ -42,7 +42,7 @@ SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "TRACE"})
 #: echo it back. That is safe because the token authenticates nothing on its
 #: own — it proves only that the request came from a page able to read this
 #: site's cookies.
-COOKIE_NAME = "aegis_csrf"
+COOKIE_NAME = "kervy_csrf"
 HEADER_NAME = "X-CSRF-Token"
 #: Server-rendered forms cannot set a header, so a field is accepted too.
 FORM_FIELD = "csrf_token"

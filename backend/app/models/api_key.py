@@ -59,7 +59,7 @@ _SCOPE_ROLES: dict[ApiKeyScope, Role] = {
 # Keys are recognisable on sight so a leaked one can be grepped for, and the
 # id travels in the token so verification is one indexed lookup plus one
 # constant-time compare rather than a scan of every row.
-TOKEN_PREFIX = "aegis_"
+TOKEN_PREFIX = "kervy_"
 _ID_BYTES = 8
 _SECRET_BYTES = 32
 

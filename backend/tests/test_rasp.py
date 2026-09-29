@@ -319,7 +319,7 @@ def test_a_stored_profile_round_trips_and_stays_a_claim() -> None:
     profile = RuntimeProtectionProfile(
         controls=(
             ClaimedControl(kind=ControlKind.WAF, vendor="Example WAF"),
-            ClaimedControl(kind=ControlKind.PROMPT_FIREWALL, telemetry_env_var="AEGIS_WAF_TOKEN"),
+            ClaimedControl(kind=ControlKind.PROMPT_FIREWALL, telemetry_env_var="KERVY_WAF_TOKEN"),
         )
     )
     records = profile.control_records()
@@ -365,7 +365,7 @@ def test_declared_controls_produce_a_visible_not_tested_line() -> None:
         )
     )
     assert marker is not None
-    assert marker.id == "AEGIS-RASP-000"
+    assert marker.id == "KERVY-RASP-000"
     assert "Not tested" in marker.title
     assert "waf" in marker.evidence and "rasp_agent" in marker.evidence
     assert "claimed" in marker.evidence
@@ -464,7 +464,7 @@ async def test_declaring_runtime_protection_stores_it_as_a_claim(
         json={
             "controls": [
                 {"kind": "waf", "vendor": "Example WAF"},
-                {"kind": "prompt_firewall", "telemetry_env_var": "AEGIS_WAF_TOKEN"},
+                {"kind": "prompt_firewall", "telemetry_env_var": "KERVY_WAF_TOKEN"},
             ]
         },
         headers=headers,

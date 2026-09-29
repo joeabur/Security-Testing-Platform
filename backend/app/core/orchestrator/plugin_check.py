@@ -95,7 +95,7 @@ class PluginCheck:
     def _provenance_note(self) -> ScanResult:
         listed = ", ".join(sorted(record.describe() for record in self.plugins))
         return ScanResult(
-            id="AEGIS-PLUGIN-900",
+            id="KERVY-PLUGIN-900",
             title="Third-party plugins contributed to this run",
             category=Category.INFRASTRUCTURE,
             severity=Severity.INFORMATIONAL,
@@ -116,7 +116,7 @@ class PluginCheck:
 
     def _plugin_error(self, record: PluginRecord, exc: Exception) -> ScanResult:
         return ScanResult(
-            id="AEGIS-PLUGIN-099",
+            id="KERVY-PLUGIN-099",
             title=f"Not tested: plugin {record.name} failed to complete",
             category=Category.INFRASTRUCTURE,
             severity=Severity.INFORMATIONAL,

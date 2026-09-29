@@ -193,7 +193,7 @@ class ScopeEngine:
         estimated_tokens_received: int = 0,
         estimated_cost_usd: float = 0.0,
     ) -> ScopeDecision:
-        """`aegis-ai scope explain` / the dry-run preview
+        """`kervy-ai scope explain` / the dry-run preview
         (docs/BUILD_SPEC.md §6.2, §18): reports the decision this request
         *would* get, including whether it would exceed budget, without
         reserving budget, tripping `ctx.halted`, or sending anything.

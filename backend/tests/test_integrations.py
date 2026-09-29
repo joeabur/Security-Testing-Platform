@@ -82,7 +82,7 @@ def make_channel(**overrides: object) -> NotificationChannel:
         organization_id=ORG,
         name="sec-alerts",
         kind=ChannelKind.SLACK_WEBHOOK.value,
-        endpoint_env_var="AEGIS_TEST_SLACK_URL",
+        endpoint_env_var="KERVY_TEST_SLACK_URL",
         endpoint_redacted="https://hooks.slack.com/…/…/…",
         events=[EventType.FINDING_CRITICAL.value],
         enabled=True,
@@ -137,7 +137,7 @@ def test_slack_channel_cannot_point_at_an_arbitrary_host() -> None:
 
 def test_generic_webhook_needs_an_operator_sanctioned_host() -> None:
     """The database alone must never be able to widen egress."""
-    with pytest.raises(IntegrationError, match="AEGIS_NOTIFY_ALLOWED_WEBHOOK_HOSTS"):
+    with pytest.raises(IntegrationError, match="KERVY_NOTIFY_ALLOWED_WEBHOOK_HOSTS"):
         resolve_webhook_destination(
             ChannelKind.GENERIC_WEBHOOK, "VAR", environ={"VAR": "https://siem.internal.test/in"}
         )
@@ -160,12 +160,12 @@ def test_a_channel_endpoint_must_be_https() -> None:
 
 def test_a_missing_secret_is_a_refusal_naming_the_variable_not_a_value() -> None:
     with pytest.raises(IntegrationError) as exc:
-        resolve_secret("AEGIS_ABSENT_VAR", {})
-    assert "AEGIS_ABSENT_VAR" in str(exc.value)
+        resolve_secret("KERVY_ABSENT_VAR", {})
+    assert "KERVY_ABSENT_VAR" in str(exc.value)
 
 
 def test_env_var_names_are_validated_so_a_url_cannot_be_pasted_as_one() -> None:
-    assert valid_env_var_name("AEGIS_SLACK_URL")
+    assert valid_env_var_name("KERVY_SLACK_URL")
     assert not valid_env_var_name("https://hooks.slack.com/x")
     assert not valid_env_var_name("1BAD")
     assert not valid_env_var_name("")
@@ -180,7 +180,7 @@ def test_redacted_url_keeps_the_host_and_drops_every_path_segment() -> None:
 
 
 def test_smtp_host_needs_the_operator_allowlist() -> None:
-    with pytest.raises(IntegrationError, match="AEGIS_NOTIFY_ALLOWED_SMTP_HOSTS"):
+    with pytest.raises(IntegrationError, match="KERVY_NOTIFY_ALLOWED_SMTP_HOSTS"):
         resolve_smtp_host("smtp.example.test")
     assert resolve_smtp_host("smtp.example.test", operator_hosts=["smtp.example.test"]) == (
         "smtp.example.test"
@@ -265,9 +265,9 @@ def test_no_link_is_rendered_when_no_base_url_is_configured() -> None:
 
 def test_a_link_is_built_from_the_configured_base_url() -> None:
     message = render(
-        ChannelKind.SLACK_WEBHOOK, make_event(), base_url="https://aegis.example.test/"
+        ChannelKind.SLACK_WEBHOOK, make_event(), base_url="https://kervy.example.test/"
     )
-    assert "https://aegis.example.test/findings/abc" in message.summary
+    assert "https://kervy.example.test/findings/abc" in message.summary
 
 
 def test_slack_payload_carries_plain_text_as_well_as_blocks() -> None:
@@ -525,7 +525,7 @@ def test_an_investigation_event_round_trips_through_its_snapshot() -> None:
 
 def test_an_event_round_trips_through_its_snapshot() -> None:
     """A retry must send what the first attempt would have sent."""
-    event = make_event(facts={"probe": "AEGIS-API-050", "count": 2})
+    event = make_event(facts={"probe": "KERVY-API-050", "count": 2})
     rebuilt = event_from_snapshot(ORG, event_snapshot(event))
     assert event_snapshot(rebuilt) == event_snapshot(event)
 
@@ -701,7 +701,7 @@ async def test_an_smtp_relay_resolving_to_the_metadata_service_is_refused() -> N
         result = await send_email(
             message,
             host="smtp.example.test",
-            from_address="aegis@example.test",
+            from_address="kervy@example.test",
             recipients=["soc@example.test"],
             engine=ScopeEngine(),
         )

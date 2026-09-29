@@ -1,6 +1,6 @@
 # Security review
 
-A self-review of Aegis AI Security, written for someone deciding whether to
+A self-review of Kervy Security, written for someone deciding whether to
 run it. It states what the controls are, how each one was verified, and what is
 deliberately not covered. Where a control is weaker than it might appear, that
 is said here rather than left to be discovered.
@@ -11,7 +11,7 @@ added and what it deliberately left out.
 
 ## What this thing is, and why that matters
 
-Aegis launches network requests on behalf of its caller and runs third-party
+Kervy launches network requests on behalf of its caller and runs third-party
 scanners against source it was pointed at. **It is SSRF-shaped by design.** The
 scope engine is the only thing between it and abuse, so most of this document
 is about that engine and the ways it could be circumvented.
@@ -28,9 +28,9 @@ Every outbound request — API, worker, CLI, plugin, AI provider — goes throug
 
 - a static test greps `app/` for `httpx.Client(`/`httpx.AsyncClient(` and fails
   on any construction outside `app/core/scope/transport.py`;
-- the platform's own Semgrep rule (`aegis.ungated-http-client`) runs against
+- the platform's own Semgrep rule (`kervy.ungated-http-client`) runs against
   this repository in `security.yml`, with exactly two annotated suppressions —
-  the transport itself and the CLI's client, which talks to the Aegis API
+  the transport itself and the CLI's client, which talks to the Kervy API
   rather than to a target;
 - the plugin tests assert that nothing reachable from the plugin contract is an
   HTTP client, that a plugin pointed at an out-of-scope host gets nothing, and
@@ -156,7 +156,7 @@ Stated plainly, because a review that lists only strengths is marketing.
 | Gap | Consequence |
 |---|---|
 | Rate limiting fails open when Redis is unavailable | Guessing is then bounded only by Argon2's cost; logged at error level, alert on it |
-| Evidence encryption at rest is opt-in, not the default | `AEGIS_EVIDENCE_ENCRYPTION_KEY` unset (the out-of-the-box state) means a bundle is protected only by filesystem permissions and redaction, same as before this existed |
+| Evidence encryption at rest is opt-in, not the default | `KERVY_EVIDENCE_ENCRYPTION_KEY` unset (the out-of-the-box state) means a bundle is protected only by filesystem permissions and redaction, same as before this existed |
 | No signature verification for plugins | The allowlist and an optional hash are the controls |
 | DAST scanners are not gated at the socket | Nuclei and ZAP open their own connections — see the Phase 15 section below |
 | Advisory lookup off by default | SCA reports what is installed, not what is vulnerable, unless enabled |
@@ -224,8 +224,8 @@ source .venv/bin/activate                    # so the scanners are on PATH
 pytest -q                                    # everything
 pytest tests/security -q                     # scope, authz, tenant isolation
 pytest -m lab_e2e -q                         # a real assessment against the lab
-semgrep --config app/core/appsec/sast/rules --error app aegis_cli
-bandit -r app aegis_cli -ll
+semgrep --config app/core/appsec/sast/rules --error app kervy_cli
+bandit -r app kervy_cli -ll
 detect-secrets-hook --baseline .secrets.baseline $(git ls-files)
 ```
 
@@ -499,7 +499,7 @@ without it is refused, not silently exempted from revocation.
 The backend's CSRF middleware (§ CSRF protection above) went live requiring
 `X-CSRF-Token` on unsafe, cookie-authenticated requests, but the browser
 fetch helper every Client Component uses — `clientApiFetch` in
-`frontend/lib/api-client.ts` — was never updated to read the `aegis_csrf`
+`frontend/lib/api-client.ts` — was never updated to read the `kervy_csrf`
 cookie and send it. Every cookie-authenticated write from the browser has
 been silently 403ing since that middleware shipped; `POST /organizations`
 is the first one a user would hit. This was a genuine, previously-unnoticed
@@ -544,9 +544,9 @@ gated both routes unconditionally, on the same "no Bearer header means
 check the cookie" logic every other route uses. That logic does not apply
 here — login is the request that *produces* the Bearer token, so no caller,
 browser or CLI, can ever present one when calling it. Shipped as written,
-it would have 403'd `aegis-ai login` on its very next invocation. Fixed by
+it would have 403'd `kervy-ai login` on its very next invocation. Fixed by
 giving the CLI the same token round trip a browser gets
-(`ApiClient.fetch_anon_csrf_token` in `aegis_cli/client.py`).
+(`ApiClient.fetch_anon_csrf_token` in `kervy_cli/client.py`).
 
 Closing this touched 66 call sites across 24 test files that had relied on
 the old exemption. That migration — fetch the token, send the header,
@@ -558,7 +558,7 @@ than accepted on report alone.
 ## Evidence encryption at rest, made available (§13)
 
 The "no encryption at rest" gap row above used to have no mitigation to
-point to at all. There is now one, opt-in: `AEGIS_EVIDENCE_ENCRYPTION_KEY`
+point to at all. There is now one, opt-in: `KERVY_EVIDENCE_ENCRYPTION_KEY`
 (`app/core/config.py`) turns on AES-256-GCM for every bundle written from
 then on (`app/core/evidence/crypto.py`, wired into
 `app/core/evidence/store.py`). Unset — the out-of-the-box state, and what
@@ -568,7 +568,7 @@ the redaction that already ran before it was built.
 
 **This is deliberately not a general secrets-management feature.** One
 static key, read from an environment variable exactly the way `JWT_SECRET`
-and `AEGIS_CSRF_SECRET` already are; no rotation, no per-tenant key, no KMS
+and `KERVY_CSRF_SECRET` already are; no rotation, no per-tenant key, no KMS
 integration, and no tool to re-encrypt bundles that already exist on disk
 before the key was set. `docs/roadmap.md`'s account of this explains why
 that is the honest scope rather than an omission: a half-built key-rotation

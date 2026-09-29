@@ -681,7 +681,7 @@ async def execute_assessment_run(
         return run.status
 
 
-@celery_app.task(name="aegis.run_assessment")
+@celery_app.task(name="kervy.run_assessment")
 def run_assessment(run_id: str) -> str:
     """Celery's synchronous entry point.
 
@@ -745,7 +745,7 @@ async def gate_workflow_run_if_linked_async(run_id: str) -> None:
         await db.commit()
 
 
-@celery_app.task(name="aegis.gate_workflow_run_if_linked")
+@celery_app.task(name="kervy.gate_workflow_run_if_linked")
 def gate_workflow_run_if_linked(run_id: str) -> None:
     async def _run() -> None:
         try:
@@ -795,7 +795,7 @@ async def dispatch_scheduled_workflows_async() -> int:
     return dispatched
 
 
-@celery_app.task(name="aegis.dispatch_scheduled_workflows")
+@celery_app.task(name="kervy.dispatch_scheduled_workflows")
 def dispatch_scheduled_workflows() -> int:
     async def _run() -> int:
         try:
@@ -833,7 +833,7 @@ async def run_scheduled_workflow_async(workflow_id: str) -> None:
         await db.commit()
 
 
-@celery_app.task(name="aegis.run_scheduled_workflow")
+@celery_app.task(name="kervy.run_scheduled_workflow")
 def run_scheduled_workflow(workflow_id: str) -> None:
     async def _run() -> None:
         try:

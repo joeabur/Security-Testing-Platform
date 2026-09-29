@@ -106,9 +106,9 @@ class InputValidationProbe:
                     _Case(
                         what=(
                             f"query parameter {parameter.name} is declared {declared} "
-                            "but was sent the string 'aegis'"
+                            "but was sent the string 'kervy'"
                         ),
-                        url=f"{url}?{urlencode({parameter.name: 'aegis'})}",
+                        url=f"{url}?{urlencode({parameter.name: 'kervy'})}",
                         method=operation.method,
                     )
                 )
@@ -133,7 +133,7 @@ class InputValidationProbe:
                     url=url,
                     method=operation.method,
                     headers={"Content-Type": "application/json"},
-                    content=b'{"aegis": ',
+                    content=b'{"kervy": ',
                 )
             )
             cases.extend(self._body_field_cases(operation, url))
@@ -157,10 +157,10 @@ class InputValidationProbe:
                 payload = {field.name: field.minimum - 1}
                 what = f"body field {field.name} is below its declared minimum {field.minimum}"
             elif field.enum_values:
-                payload = {field.name: "aegis-not-in-enum"}
+                payload = {field.name: "kervy-not-in-enum"}
                 what = f"body field {field.name} is outside its declared enum"
             elif declared in ("integer", "number"):
-                payload = {field.name: "aegis"}
+                payload = {field.name: "kervy"}
                 what = f"body field {field.name} is declared {declared} but was sent a string"
 
             if payload is not None:
@@ -179,7 +179,7 @@ class InputValidationProbe:
         status_code = observation.status_code
         body = body_text(observation)
         return ScanResult(
-            id="AEGIS-API-040",
+            id="KERVY-API-040",
             title="Invalid input causes a server error",
             category=Category.API_SECURITY,
             severity=Severity.MEDIUM,
@@ -224,7 +224,7 @@ class InputValidationProbe:
     def _accepted(self, surface: str, case: _Case, observation: Observation) -> ScanResult:
         status_code = observation.status_code
         return ScanResult(
-            id="AEGIS-API-041",
+            id="KERVY-API-041",
             title="Input violating the declared schema is accepted",
             category=Category.API_SECURITY,
             severity=Severity.LOW,

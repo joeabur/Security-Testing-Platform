@@ -26,7 +26,7 @@ behaviour that an in-memory substitute does not reproduce.
 
 ```bash
 make lint        # ruff
-make typecheck   # mypy --strict on app and aegis_cli
+make typecheck   # mypy --strict on app and kervy_cli
 make test-backend
 ```
 

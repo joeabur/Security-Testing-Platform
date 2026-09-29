@@ -134,7 +134,7 @@ class PipAuditEngine:
                 primary = advisories[0]
                 findings.append(
                     ScanResult(
-                        id=f"AEGIS-SCA-{primary}",
+                        id=f"KERVY-SCA-{primary}",
                         title=f"{name} {installed} is affected by {primary}",
                         category=Category.INFRASTRUCTURE,
                         severity=Severity.HIGH if fixes else Severity.MEDIUM,
@@ -201,7 +201,7 @@ class PipAuditEngine:
 
     def _lookup_disabled(self, manifests: list[str]) -> ScanResult:
         return ScanResult(
-            id="AEGIS-APPSEC-000",
+            id="KERVY-APPSEC-000",
             title="Not tested: dependency advisory matching",
             category=Category.INFRASTRUCTURE,
             severity=Severity.INFORMATIONAL,

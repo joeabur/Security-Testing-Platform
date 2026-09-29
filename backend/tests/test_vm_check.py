@@ -38,7 +38,7 @@ async def test_vm_check_reports_an_engine_failure_without_losing_the_run() -> No
 
     assert len(results) == 1
     assert results[0].ok is False
-    assert check.scan_results[0].id == "AEGIS-VM-199"
+    assert check.scan_results[0].id == "KERVY-VM-199"
 
 
 async def test_vm_check_summarizes_a_clean_run() -> None:

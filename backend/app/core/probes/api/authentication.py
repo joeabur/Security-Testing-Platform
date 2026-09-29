@@ -87,7 +87,7 @@ class UnauthenticatedAccessProbe:
                 surface = surface_label(operation)
                 results.append(
                     ScanResult(
-                        id="AEGIS-API-001",
+                        id="KERVY-API-001",
                         title="Authenticated endpoint answers unauthenticated requests",
                         category=Category.API_SECURITY,
                         severity=Severity.HIGH,
@@ -172,7 +172,7 @@ class TransportSecurityProbe:
 
         return [
             ScanResult(
-                id="AEGIS-API-002",
+                id="KERVY-API-002",
                 title="API is served over plaintext HTTP",
                 category=Category.API_SECURITY,
                 severity=Severity.HIGH,
@@ -232,7 +232,7 @@ class KeyMaterialInUrlProbe:
             surface = surface_label(operation)
             results.append(
                 ScanResult(
-                    id="AEGIS-API-003",
+                    id="KERVY-API-003",
                     title="Credentials are passed in the URL",
                     category=Category.API_SECURITY,
                     severity=Severity.MEDIUM,

@@ -72,6 +72,6 @@ GET …/runs/{id}/evidence/verify   → re-walks the chain AND re-hashes the fil
 ```
 
 Re-hashing matters: a check that only walked the chain would pass after someone
-replaced a bundle's contents without touching the manifest. `aegis-ai evidence
+replaced a bundle's contents without touching the manifest. `kervy-ai evidence
 verify` exits non-zero on a broken chain, because evidence that cannot be
 trusted makes the report that rests on it worthless.

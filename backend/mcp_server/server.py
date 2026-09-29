@@ -2,7 +2,7 @@
 
 Separated from the stdio transport (`main.py`) so it can be tested by
 feeding it request dicts directly and reading back response dicts — no
-process, no real stdin/stdout — the same reason `aegis_cli.main` keeps its
+process, no real stdin/stdout — the same reason `kervy_cli.main` keeps its
 command functions apart from argv parsing.
 
 Only three real methods: `initialize`, `tools/list`, `tools/call`. A
@@ -16,10 +16,10 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from aegis_cli.client import ApiClient, CliError
+from kervy_cli.client import ApiClient, CliError
 
 PROTOCOL_VERSION = "2024-11-05"
-SERVER_NAME = "aegis-ai-security"
+SERVER_NAME = "kervy-security"
 SERVER_VERSION = "0.1.0"
 
 # JSON-RPC 2.0 reserved server-error range, matching the codes most MCP

@@ -4,7 +4,7 @@
      Do not edit by hand: a table maintained separately from the scorer
      is wrong the first time a weight changes. -->
 
-**Model version:** `aegis-v1`
+**Model version:** `kervy-v1`
 
 ```
 risk = impact × likelihood × confidence_weight × exposure_modifier
@@ -69,7 +69,7 @@ established fact.
 
 ## Three scoring systems, never blended
 
-1. **Aegis risk score** — always present, the model above.
+1. **Kervy risk score** — always present, the model above.
 2. **CVSS 4.0** — only for findings that genuinely fit CVSS. A vector is
    never manufactured for something like "the model followed an injected
    instruction", which CVSS has no way to express.

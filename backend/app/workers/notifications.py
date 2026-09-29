@@ -62,7 +62,7 @@ async def _deliver_due(limit: int = SWEEP_LIMIT) -> int:
     return delivered
 
 
-@celery_app.task(name="aegis.deliver_notifications")
+@celery_app.task(name="kervy.deliver_notifications")
 def deliver_notifications(limit: int = SWEEP_LIMIT) -> int:
     """Sweep due deliveries. Scheduled, and also called after a run finishes."""
 
@@ -144,11 +144,11 @@ async def _notify_run(run_id: uuid.UUID) -> int:
     return await _deliver_due(limit=max(len(queued), SWEEP_LIMIT))
 
 
-@celery_app.task(name="aegis.notify_run_finished")
+@celery_app.task(name="kervy.notify_run_finished")
 def notify_run_finished(run_id: str) -> int:
     """Fan a finished run out to its organization's subscribed channels.
 
-    Separate from `aegis.run_assessment` so that a channel that hangs cannot
+    Separate from `kervy.run_assessment` so that a channel that hangs cannot
     hold a run's task open, and so a notification failure is never recorded as
     an assessment failure.
     """

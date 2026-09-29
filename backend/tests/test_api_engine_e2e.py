@@ -43,8 +43,8 @@ def _stub_broker(monkeypatch: pytest.MonkeyPatch) -> None:
 def _lab_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
     """The worker resolves credentials from its own environment — the same
     mechanism an operator uses, exercised rather than bypassed."""
-    monkeypatch.setenv("AEGIS_LAB_TOKEN_A", TOKEN_A)
-    monkeypatch.setenv("AEGIS_LAB_TOKEN_B", TOKEN_B)
+    monkeypatch.setenv("KERVY_LAB_TOKEN_A", TOKEN_A)
+    monkeypatch.setenv("KERVY_LAB_TOKEN_B", TOKEN_B)
 
 
 def _worker_transport() -> GatedTransport:
@@ -128,8 +128,8 @@ async def _setup(client: AsyncClient, password: str) -> tuple[str, str, dict[str
         headers=headers,
     )
     for label, env_var, owned in (
-        ("account_a", "AEGIS_LAB_TOKEN_A", [ORDER_OWNED_BY_A]),
-        ("account_b", "AEGIS_LAB_TOKEN_B", []),
+        ("account_a", "KERVY_LAB_TOKEN_A", [ORDER_OWNED_BY_A]),
+        ("account_b", "KERVY_LAB_TOKEN_B", []),
     ):
         response = await client.put(
             f"{base}/accounts/{label}",
@@ -170,9 +170,9 @@ async def test_a_run_against_the_lab_stores_real_findings(
 
     # A representative slice across the OWASP API categories, proving the
     # results came from the probes and not from a fixture.
-    assert {"AEGIS-API-001", "AEGIS-API-030", "AEGIS-API-050", "AEGIS-API-060"} <= codes
+    assert {"KERVY-API-001", "KERVY-API-030", "KERVY-API-050", "KERVY-API-060"} <= codes
 
-    bola = next(result for result in results if result["result_code"] == "AEGIS-API-050")
+    bola = next(result for result in results if result["result_code"] == "KERVY-API-050")
     assert bola["severity"] == "CRITICAL"
     assert "OWASP-API-2023:API1" in bola["frameworks"]
     assert bola["reproduction"]

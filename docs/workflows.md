@@ -90,7 +90,7 @@ POST   /api/v1/webhooks/workflows/{id}                                    HMAC s
 Creating one:
 
 ```bash
-curl -X POST "$AEGIS/organizations/$ORG/workflows" \
+curl -X POST "$KERVY/organizations/$ORG/workflows" \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{
         "name": "main branch",
@@ -104,7 +104,7 @@ Triggering one. A caller may describe the trigger and nothing else — not the
 plan, not the actions, not the gate:
 
 ```bash
-curl -X POST "$AEGIS/organizations/$ORG/workflows/$WF/runs" \
+curl -X POST "$KERVY/organizations/$ORG/workflows/$WF/runs" \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"ref": "refs/heads/main", "commit": "'"$GITHUB_SHA"'"}'
 ```
@@ -132,7 +132,7 @@ arbitrary number) when creating or updating a workflow. `next_run_at` is
 computed and re-armed automatically; there is no cron-expression support —
 a fixed interval matches this module's own "not a general workflow engine"
 stance. Celery Beat ticks every 60 seconds and fires
-`aegis.dispatch_scheduled_workflows`, which advances each due workflow's
+`kervy.dispatch_scheduled_workflows`, which advances each due workflow's
 `next_run_at` *before* its run executes, so a slow run never causes a
 duplicate dispatch on the next tick.
 
@@ -142,7 +142,7 @@ session for any organization, so its authentication is an HMAC signature,
 not membership. Enable it with `POST .../webhook-secret` (admin), which
 returns a secret **once**, in plaintext, never again. Sign the request the
 same way `app/core/integrations/signing.py` already signs this platform's
-own *outbound* webhooks — `X-Aegis-Signature`/`X-Aegis-Timestamp`,
+own *outbound* webhooks — `X-Kervy-Signature`/`X-Kervy-Timestamp`,
 HMAC-SHA256 over `v1:<timestamp>:<body>` — because this is the first thing
 in the codebase to call that module's own `verify()` as a receiver rather
 than only document it as the reference one should be written against. The
@@ -179,10 +179,10 @@ phase.
 A security engineer resolves a paused run:
 
 ```bash
-curl -X POST "$AEGIS/organizations/$ORG/workflows/$WF/runs/$RUN/approve" \
+curl -X POST "$KERVY/organizations/$ORG/workflows/$WF/runs/$RUN/approve" \
   -H "Authorization: Bearer $TOKEN"
 # or
-curl -X POST "$AEGIS/organizations/$ORG/workflows/$WF/runs/$RUN/reject" \
+curl -X POST "$KERVY/organizations/$ORG/workflows/$WF/runs/$RUN/reject" \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"reason": "not authorized this week"}'
 ```
@@ -210,7 +210,7 @@ Stated rather than implied:
 * **No vendor-specific webhook translators.** The inbound endpoint accepts
   this platform's own minimal, HMAC-signed shape only — translating GitHub's
   or GitLab's own webhook payload into it is a separate, later increment.
-* **No CLI for any workflow operation.** `aegis-ai` has no `workflow`
+* **No CLI for any workflow operation.** `kervy-ai` has no `workflow`
   subcommand group at all yet, scheduling and webhooks included.
 * **No rate limit on the inbound webhook.** `app.core.ratelimit`'s
   per-route policies are each a route's own dependency, and this endpoint

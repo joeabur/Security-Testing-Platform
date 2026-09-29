@@ -1,7 +1,7 @@
 [project]
-name = "aegis-ai-security-backend"
+name = "kervy-security-backend"
 version = "0.1.0"
-description = "Aegis AI Security — backend API, orchestrator, and security testing engine"
+description = "Kervy Security — backend API, orchestrator, and security testing engine"
 requires-python = ">=3.12"
 license = { text = "Apache-2.0" }
 dependencies = [
@@ -85,15 +85,15 @@ cloud = [
 ]
 
 [project.scripts]
-aegis-ai = "aegis_cli.main:main"
-aegis-mcp = "mcp_server.main:main"
+kervy-ai = "kervy_cli.main:main"
+kervy-mcp = "mcp_server.main:main"
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["app*", "aegis_cli*", "mcp_server*"]
+include = ["app*", "kervy_cli*", "mcp_server*"]
 
 [tool.ruff]
 line-length = 100

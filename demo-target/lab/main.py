@@ -23,7 +23,7 @@ SERVICES = {
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="lab",
-        description="Run one Aegis demo-target service. Everything here is "
+        description="Run one Kervy demo-target service. Everything here is "
         "intentionally vulnerable.",
     )
     parser.add_argument("service", choices=sorted(SERVICES))

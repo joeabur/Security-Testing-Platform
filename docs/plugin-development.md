@@ -1,10 +1,10 @@
-# Writing an Aegis plugin
+# Writing an Kervy plugin
 
 > `docs/BUILD_SPEC.md` §16 is the contract; this page is how to satisfy it.
 
 ## What a plugin is, and what it is not
 
-A plugin is Python code that runs **inside the Aegis worker process**. There is
+A plugin is Python code that runs **inside the Kervy worker process**. There is
 no sandbox, and this project does not claim one. A plugin can import anything,
 open a socket, and read the filesystem — exactly like any other package in the
 environment.
@@ -62,7 +62,7 @@ in this repository — a test asserts that the code below and that file are
 identical, so what you are reading cannot drift from what actually runs.
 
 ```python
-"""An example Aegis probe plugin.
+"""An example Kervy probe plugin.
 
 Reports endpoints that reflect an arbitrary request header back to the caller.
 Reflection is not itself a vulnerability, but it is the primitive behind
@@ -84,12 +84,12 @@ class HeaderReflectionProbe:
     name = "Request header reflected in the response"
     category = Category.API_SECURITY.value
 
-    HEADER = "X-Aegis-Example"
+    HEADER = "X-Kervy-Example"
 
     async def run(self, target: ProbeTarget, context: PluginContext) -> list[ScanResult]:
         # A fresh marker per run, so a reflection found here cannot be a stale
         # value cached from an earlier assessment.
-        marker = "aegis-" + secrets.token_hex(8)
+        marker = "kervy-" + secrets.token_hex(8)
         findings: list[ScanResult] = []
 
         for operation in target.operations:
@@ -159,24 +159,24 @@ class HeaderReflectionProbe:
 ```toml
 # pyproject.toml
 [project]
-name = "aegis-plugin-example"
+name = "kervy-plugin-example"
 version = "0.1.0"
-dependencies = ["aegis-ai-security-backend"]
+dependencies = ["kervy-security-backend"]
 
-[project.entry-points."aegis.probes"]
-header-reflection = "aegis_plugin_example:HeaderReflectionProbe"
+[project.entry-points."kervy.probes"]
+header-reflection = "kervy_plugin_example:HeaderReflectionProbe"
 ```
 
 The four groups from §16:
 
 | Group | For |
 |---|---|
-| `aegis.probes` | checks that produce findings |
-| `aegis.detectors` | verdicts on an observation |
-| `aegis.adapters` | ways to reach a target, or third-party tool wrappers |
-| `aegis.reporters` | additional report formats |
+| `kervy.probes` | checks that produce findings |
+| `kervy.detectors` | verdicts on an observation |
+| `kervy.adapters` | ways to reach a target, or third-party tool wrappers |
+| `kervy.reporters` | additional report formats |
 
-Only `aegis.probes` is wired into a run today; the other three are discovered
+Only `kervy.probes` is wired into a run today; the other three are discovered
 and listed but nothing consumes them yet. `docs/roadmap.md` says so rather
 than leaving you to find out.
 
@@ -187,7 +187,7 @@ than leaving you to find out.
 plugins:
   enabled: true
   allowlist:
-    - name: aegis-plugin-example
+    - name: kervy-plugin-example
       sha256: 3f786850e387550fdab836ed7e6dc881de23001b…   # optional
 ```
 
@@ -199,14 +199,14 @@ plugins:
 
   ```bash
   python -c "from app.plugins.allowlist import distribution_hash; \
-      print(distribution_hash('aegis-plugin-example'))"
+      print(distribution_hash('kervy-plugin-example'))"
   ```
 
-- `AEGIS_NO_PLUGINS=1` turns discovery off regardless of any configuration.
+- `KERVY_NO_PLUGINS=1` turns discovery off regardless of any configuration.
   When something has gone wrong there should be exactly one thing to set.
 
 Every run that loads a plugin records a banner in its own event log, and files
-an informational `AEGIS-PLUGIN-900` result naming what loaded — so a report
+an informational `KERVY-PLUGIN-900` result naming what loaded — so a report
 reader can see that non-native code contributed to it.
 
 ## Attribution is not yours to set

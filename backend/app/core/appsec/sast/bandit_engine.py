@@ -120,7 +120,7 @@ class BanditEngine:
         cwes = verified_cwes([cwe_raw.get("id")] if isinstance(cwe_raw, dict) else [])
 
         return ScanResult(
-            id=f"AEGIS-SAST-{rule_id}",
+            id=f"KERVY-SAST-{rule_id}",
             title=f"{rule_id}: {item.get('issue_text', 'static analysis finding')}"[:300],
             category=Category.INFRASTRUCTURE,
             severity=(
