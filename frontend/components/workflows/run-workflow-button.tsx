@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { clientApiFetch } from "@/lib/api-client";
 import { ApiError } from "@/lib/errors";
@@ -38,18 +39,22 @@ export function RunWorkflowButton({
   }
 
   return (
-    <div className="flex flex-col items-end gap-1">
-      <Button type="button" size="sm" variant="outline" onClick={onRun} disabled={isRunning}>
+    <div className="flex flex-col items-end gap-1.5">
+      <Button type="button" size="sm" variant="outline" onClick={onRun} isLoading={isRunning}>
         {isRunning ? "Running..." : "Run now"}
       </Button>
       {lastResult && (
-        <p className="text-xs text-muted-foreground">
-          Last trigger: {lastResult.status}
-          {lastResult.gate_passed !== null && (lastResult.gate_passed ? " · gate passed" : " · gate failed")}
-        </p>
+        <div className="flex items-center gap-1.5">
+          <span className="text-xs text-muted-foreground">Last trigger: {lastResult.status}</span>
+          {lastResult.gate_passed !== null && (
+            <Badge tone={lastResult.gate_passed ? "success" : "destructive"}>
+              {lastResult.gate_passed ? "Gate passed" : "Gate failed"}
+            </Badge>
+          )}
+        </div>
       )}
       {error && (
-        <p className="text-xs text-destructive" role="alert">
+        <p className="max-w-[16rem] text-right text-xs text-destructive" role="alert">
           {error}
         </p>
       )}

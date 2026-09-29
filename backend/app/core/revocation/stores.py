@@ -17,7 +17,7 @@ import redis.asyncio as redis_async
 from app.core.config import get_settings
 from app.core.revocation.contract import RevocationStoreUnavailable
 
-_KEY_PREFIX = "aegis:revoked:jti"
+_KEY_PREFIX = "kervy:revoked:jti"
 
 
 class MemoryStore:

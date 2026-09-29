@@ -3,14 +3,14 @@
 The crawl is not just reconnaissance for the scanners — it produces findings of
 its own, and two of them matter more than any template match:
 
-* **`AEGIS-DAST-001`, out-of-scope links.** The application links somewhere the
+* **`KERVY-DAST-001`, out-of-scope links.** The application links somewhere the
   engagement does not cover. That is how you discover a third-party tracker, or
   that the authorization covers less than the application spans.
-* **`AEGIS-DAST-009`, incomplete coverage.** The crawl stopped at a bound.
+* **`KERVY-DAST-009`, incomplete coverage.** The crawl stopped at a bound.
   Without this a report listing three findings from five pages reads as though
   the whole application was assessed.
 
-`AEGIS-DAST-002` records the state-changing forms found and *not* submitted,
+`KERVY-DAST-002` records the state-changing forms found and *not* submitted,
 because a reviewer wants to know they exist even when nothing touched them.
 """
 
@@ -43,7 +43,7 @@ def crawl_findings(result: CrawlResult, policy: ToolPolicy) -> list[ScanResult]:
         )
         findings.append(
             ScanResult(
-                id="AEGIS-DAST-001",
+                id="KERVY-DAST-001",
                 title=(
                     f"Application links to {len(result.refused)} location(s) outside "
                     "the rules of engagement"
@@ -78,7 +78,7 @@ def crawl_findings(result: CrawlResult, policy: ToolPolicy) -> list[ScanResult]:
     if forms:
         findings.append(
             ScanResult(
-                id="AEGIS-DAST-002",
+                id="KERVY-DAST-002",
                 title=f"{len(forms)} state-changing form(s) found and not submitted",
                 category=Category.DESIGN,
                 severity=Severity.INFORMATIONAL,
@@ -109,7 +109,7 @@ def crawl_findings(result: CrawlResult, policy: ToolPolicy) -> list[ScanResult]:
     if not result.complete():
         findings.append(
             ScanResult(
-                id="AEGIS-DAST-009",
+                id="KERVY-DAST-009",
                 title=f"Not tested: crawl stopped ({result.outcome.value})",
                 category=Category.INFRASTRUCTURE,
                 severity=Severity.INFORMATIONAL,

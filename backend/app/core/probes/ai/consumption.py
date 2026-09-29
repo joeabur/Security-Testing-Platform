@@ -164,7 +164,7 @@ class ConsumptionProbe:
 
         return [
             ScanResult(
-                id="AEGIS-AI-020",
+                id="KERVY-AI-020",
                 title=title,
                 category=Category.AI_SECURITY,
                 severity=severity,
@@ -198,7 +198,7 @@ class ConsumptionProbe:
 
     def _untested(self, target: AiProbeTarget, taken: int) -> ScanResult:
         return ScanResult(
-            id="AEGIS-AI-000",
+            id="KERVY-AI-000",
             title="Not tested: unbounded consumption",
             category=Category.AI_SECURITY,
             severity=Severity.INFORMATIONAL,

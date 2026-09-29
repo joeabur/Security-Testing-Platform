@@ -2,7 +2,7 @@
 
 The assertions that matter: a token never reaches the database or a response,
 a connection cannot be pointed at a host nobody sanctioned, and a publish that
-fails still leaves a record — because "did Aegis comment on that PR?" is a
+fails still leaves a record — because "did Kervy comment on that PR?" is a
 question someone asks after the fact.
 """
 
@@ -20,7 +20,7 @@ from app.models.audit import AuditEvent
 from app.models.vcs import PullRequestPost, VcsConnection
 
 TOKEN = "ghp_exampleexampleexampleexample5678"
-TOKEN_ENV = "AEGIS_TEST_VCS_TOKEN"
+TOKEN_ENV = "KERVY_TEST_VCS_TOKEN"
 
 
 @pytest.fixture(autouse=True)
@@ -139,7 +139,7 @@ async def test_an_enterprise_host_outside_the_operator_allowlist_is_refused(
         headers=headers,
     )
     assert response.status_code == 422
-    assert "AEGIS_VCS_ALLOWED_HOSTS" in response.json()["error"]["message"]
+    assert "KERVY_VCS_ALLOWED_HOSTS" in response.json()["error"]["message"]
 
     # The attempt to add an outbound destination is recorded even though it
     # failed — that is the shape of someone probing for an egress path.
@@ -162,11 +162,11 @@ async def test_a_missing_token_variable_is_refused_at_creation(
     org_id, headers = await _owner(client, strong_password, "d")
     response = await client.post(
         f"/api/v1/organizations/{org_id}/vcs-connections",
-        json=connection_payload(token_env_var="AEGIS_TEST_VCS_ABSENT"),
+        json=connection_payload(token_env_var="KERVY_TEST_VCS_ABSENT"),
         headers=headers,
     )
     assert response.status_code == 422
-    assert "AEGIS_TEST_VCS_ABSENT" in response.json()["error"]["message"]
+    assert "KERVY_TEST_VCS_ABSENT" in response.json()["error"]["message"]
     assert TOKEN not in response.text
 
 

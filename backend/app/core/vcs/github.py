@@ -91,7 +91,7 @@ class GitHubClient:
             "Authorization": f"Bearer {self._destination.token}",
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": API_VERSION,
-            "User-Agent": "aegis-ai-security",
+            "User-Agent": "kervy-security",
         }
 
     async def _request(

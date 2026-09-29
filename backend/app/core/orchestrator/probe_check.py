@@ -75,7 +75,7 @@ def _probe_error(probe_id: str, probe_version: str, exc: Exception) -> ScanResul
     false negative a scanner can have.
     """
     return ScanResult(
-        id="AEGIS-API-099",
+        id="KERVY-API-099",
         title=f"Probe {probe_id} failed to complete",
         category=Category.API_SECURITY,
         severity=Severity.INFORMATIONAL,

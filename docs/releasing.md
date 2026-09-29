@@ -40,7 +40,7 @@ repository's release workflow", which is checkable.
 ```bash
 pip install sigstore
 
-sigstore verify identity aegis_ai-0.2.0-py3-none-any.whl \
+sigstore verify identity kervy_ai-0.2.0-py3-none-any.whl \
   --cert-identity "https://github.com/joeabur/Generative-AI-Risk-Identification-Security-Testing-Platform/.github/workflows/release.yml@refs/tags/v0.2.0" \
   --cert-oidc-issuer "https://token.actions.githubusercontent.com"
 ```
@@ -53,7 +53,7 @@ something.
 Provenance, using the GitHub CLI:
 
 ```bash
-gh attestation verify aegis_ai-0.2.0-py3-none-any.whl \
+gh attestation verify kervy_ai-0.2.0-py3-none-any.whl \
   --repo joeabur/Generative-AI-Risk-Identification-Security-Testing-Platform
 ```
 

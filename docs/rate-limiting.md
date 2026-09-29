@@ -11,9 +11,21 @@ most likely to matter first in a real deployment.
 | `POST /auth/login` | per identity | 10 failures / 15 min |
 | `POST /auth/login` | per IP | 60 failures / 15 min |
 | `POST /auth/register` | per IP | 10 / hour |
+| `GET /auth/oauth/{provider}/callback` | per IP | 30 / hour |
+| `POST /auth/forgot-password` | per IP | 10 / hour |
 
-An attempt consumes from **both** dimensions, because either alone is
-bypassable. Per-IP alone falls to a botnet — a thousand hosts making three
+`forgot-password` and the OAuth callback are IP-only, for a reason distinct
+from "the per-IP budget is enough": neither has an identity to key a second
+bucket on without breaking its own non-enumeration property.
+`forgot-password` never looks up the address until *after* the budget is
+already charged — same ordering as `login`, for the same reason — so there is
+nothing to key an identity dimension on that would not itself leak whether
+the address exists. The callback's "identity" is a one-time authorization
+code, never reused, so an identity bucket on it would never accumulate
+anything.
+
+Every other listed route consumes from **both** dimensions, because either
+alone is bypassable. Per-IP alone falls to a botnet — a thousand hosts making three
 attempts each against one account is a thousand times the budget. Per-identity
 alone falls to spraying — one host trying one common password against ten
 thousand accounts never exceeds any account's budget.
@@ -65,7 +77,7 @@ So the header is ignored unless an operator states how many proxies sit in
 front:
 
 ```bash
-AEGIS_TRUSTED_PROXY_COUNT=1   # one load balancer in front
+KERVY_TRUSTED_PROXY_COUNT=1   # one load balancer in front
 ```
 
 The default is `0`: the socket address and nothing else. With N trusted
@@ -86,7 +98,7 @@ unkeyed digest is reversible with a wordlist by anyone who can read the store.
 Normalizing first (trimmed, lower-cased) matters as much — without it the limit
 is one capitalization away from being doubled.
 
-The pepper defaults to `JWT_SECRET`; set `AEGIS_RATE_LIMIT_PEPPER` to separate
+The pepper defaults to `JWT_SECRET`; set `KERVY_RATE_LIMIT_PEPPER` to separate
 them. Requiring a second secret to be configured is how a deployment ends up
 with neither.
 
@@ -115,9 +127,9 @@ Alert on that event.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `AEGIS_RATE_LIMIT_ENABLED` | `true` | Off only when an operator says so, in their environment |
-| `AEGIS_TRUSTED_PROXY_COUNT` | `0` | Proxies in front; `0` ignores `X-Forwarded-For` entirely |
-| `AEGIS_RATE_LIMIT_PEPPER` | `JWT_SECRET` | Pepper for identity bucket keys |
+| `KERVY_RATE_LIMIT_ENABLED` | `true` | Off only when an operator says so, in their environment |
+| `KERVY_TRUSTED_PROXY_COUNT` | `0` | Proxies in front; `0` ignores `X-Forwarded-For` entirely |
+| `KERVY_RATE_LIMIT_PEPPER` | `JWT_SECRET` | Pepper for identity bucket keys |
 | `REDIS_URL` | `redis://localhost:6379/0` | Where the counters live |
 
 ## What is not limited

@@ -45,7 +45,7 @@ reviewer's judgement.
 
 ## Markers, not harmful content
 
-Detection uses a per-run random canary (`AEGIS-CANARY-<random>`). A probe
+Detection uses a per-run random canary (`KERVY-CANARY-<random>`). A probe
 succeeds when the marker appears where it should not. There is no harmful-content
 corpus, no jailbreak library, and no rubric to disagree about — see
 `docs/ai-security-testing.md`.
@@ -62,7 +62,7 @@ the tool did not actually report, so it is dropped rather than fixed up. There
 are no invented identifiers anywhere in a report.
 
 **A missing tool is a visible gap.** If semgrep, trivy or gitleaks is not
-installed, the engine emits `AEGIS-APPSEC-000 — not tested` naming the tool,
+installed, the engine emits `KERVY-APPSEC-000 — not tested` naming the tool,
 rather than returning nothing. An empty result set reads as "clean", which is a
 very different claim from "not checked".
 

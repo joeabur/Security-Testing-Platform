@@ -190,7 +190,7 @@ async def clone_repository(ref: RepositoryRef, destination: Path, *, depth: int 
 
 
 def make_checkout_dir() -> Path:
-    return Path(tempfile.mkdtemp(prefix="aegis-checkout-"))
+    return Path(tempfile.mkdtemp(prefix="kervy-checkout-"))
 
 
 def discard_checkout(path: Path) -> None:

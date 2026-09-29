@@ -3,18 +3,28 @@ import { GitBranch } from "lucide-react";
 
 import { AddRepositoryForm } from "@/components/repositories/add-repository-form";
 import { ScanRepositoryButton } from "@/components/repositories/scan-repository-button";
+import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { serverApiFetch } from "@/lib/api-server";
 import type { Repository } from "@/lib/types";
 
-export const metadata: Metadata = { title: "Repositories — Aegis AI Security" };
+const SCAN_STATUS_TONE: Record<string, BadgeProps["tone"]> = {
+  completed: "success",
+  running: "primary",
+  queued: "neutral",
+  failed: "destructive",
+  cancelled: "neutral",
+  expired: "destructive",
+};
+
+export const metadata: Metadata = { title: "Repositories — Kervy Security" };
 
 export default async function RepositoriesPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const repositories = await serverApiFetch<Repository[]>(`/organizations/${id}/repositories`);
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex animate-fade-in flex-col gap-6">
       <Card>
         <CardHeader>
           <CardTitle>Connect a repository</CardTitle>
@@ -32,15 +42,17 @@ export default async function RepositoriesPage({ params }: { params: Promise<{ i
       <div className="flex flex-col gap-3">
         <h2 className="text-lg font-semibold">Connected repositories</h2>
         {repositories.length === 0 ? (
-          <Card>
-            <CardHeader className="items-center text-center">
-              <GitBranch className="h-8 w-8 text-muted-foreground" aria-hidden />
-              <CardDescription>No repositories connected yet.</CardDescription>
+          <Card className="border-dashed shadow-none">
+            <CardHeader className="items-center py-10 text-center">
+              <span className="flex h-12 w-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                <GitBranch className="h-6 w-6" aria-hidden />
+              </span>
+              <CardDescription className="mt-1">No repositories connected yet.</CardDescription>
             </CardHeader>
           </Card>
         ) : (
           repositories.map((repo) => (
-            <Card key={repo.id}>
+            <Card key={repo.id} className="transition-shadow duration-150 hover:shadow-elevated">
               <CardContent className="flex flex-wrap items-center justify-between gap-4 py-4">
                 <div>
                   <p className="font-medium">{repo.name}</p>
@@ -48,11 +60,15 @@ export default async function RepositoriesPage({ params }: { params: Promise<{ i
                     {repo.url}
                     {repo.branch ? ` @ ${repo.branch}` : ""}
                   </p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {repo.latest_scan
-                      ? `Latest scan: ${repo.latest_scan.status}`
-                      : "No scans yet"}
-                  </p>
+                  <div className="mt-2">
+                    {repo.latest_scan ? (
+                      <Badge tone={SCAN_STATUS_TONE[repo.latest_scan.status] ?? "neutral"} dot>
+                        Latest scan: {repo.latest_scan.status}
+                      </Badge>
+                    ) : (
+                      <Badge tone="outline">No scans yet</Badge>
+                    )}
+                  </div>
                 </div>
                 <ScanRepositoryButton organizationId={id} repositoryId={repo.id} />
               </CardContent>

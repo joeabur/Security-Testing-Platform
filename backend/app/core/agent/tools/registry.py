@@ -7,7 +7,16 @@ here, never because a module happened to define one.
 
 from __future__ import annotations
 
-from app.core.agent.tools import analysis, assets, findings, reports, runs, scans, workflows
+from app.core.agent.tools import (
+    analysis,
+    assets,
+    correlation,
+    findings,
+    reports,
+    runs,
+    scans,
+    workflows,
+)
 from app.core.agent.tools.contract import Tool
 
 
@@ -19,6 +28,9 @@ def agent_tools() -> list[Tool]:
         findings.SEARCH_FINDINGS,
         findings.GET_FINDING,
         analysis.ANALYZE_FINDING,
+        analysis.ANSWER_EVIDENCE_QUESTION,
+        correlation.CORRELATE_FINDINGS,
+        correlation.PRIORITISE_FINDINGS,
         runs.GET_SCAN_STATUS,
         runs.GET_SCAN_RESULTS,
         workflows.GET_WORKFLOW_STATUS,

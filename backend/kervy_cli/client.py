@@ -51,7 +51,7 @@ class ApiClient:
     def _headers(self) -> dict[str, str]:
         if not self._token:
             raise CliError(
-                "not authenticated: run `aegis-ai login`, or set AEGIS_API_KEY",
+                "not authenticated: run `kervy-ai login`, or set KERVY_API_KEY",
                 ExitCode.AUTH_ERROR,
             )
         return {"Authorization": f"Bearer {self._token}"}
@@ -64,8 +64,8 @@ class ApiClient:
         back as *both* the cookie and the header on the next request.
 
         Returns `(cookie_name, value)`: the name matters too, because the
-        server chooses between `__Host-aegis_csrf_anon` and
-        `aegis_csrf_anon` depending on its own `AEGIS_SESSION_COOKIE_SECURE`
+        server chooses between `__Host-kervy_csrf_anon` and
+        `kervy_csrf_anon` depending on its own `KERVY_SESSION_COOKIE_SECURE`
         setting, which this client has no independent way to know — it reads
         back whichever one the response actually set.
 
@@ -76,7 +76,7 @@ class ApiClient:
         """
         url = f"{self._base_url}/auth/csrf"
         try:
-            # nosemgrep: aegis.ungated-http-client
+            # nosemgrep: kervy.ungated-http-client
             with httpx.Client(timeout=self._timeout, follow_redirects=False) as client:
                 response = client.get(url)
         except httpx.HTTPError as exc:
@@ -87,7 +87,7 @@ class ApiClient:
                 _STATUS_CODES.get(response.status_code, ExitCode.CONFIG_ERROR),
             )
         for cookie in response.cookies.jar:
-            if cookie.name in ("__Host-aegis_csrf_anon", "aegis_csrf_anon") and cookie.value:
+            if cookie.name in ("__Host-kervy_csrf_anon", "kervy_csrf_anon") and cookie.value:
                 return cookie.name, cookie.value
         raise CliError("GET /auth/csrf did not set a CSRF cookie", ExitCode.CONFIG_ERROR)
 
@@ -108,14 +108,14 @@ class ApiClient:
         url = f"{self._base_url}{path}"
         try:
             # The one client outside the scope engine, and deliberately so:
-            # this talks to the Aegis API at an address the operator
+            # this talks to the Kervy API at an address the operator
             # configured, never to a target. The scope engine exists to gate
             # requests *at* a system under test, and routing an operator's
             # call to their own platform through it would be theatre. The CLI
             # has no other HTTP path — `tests/test_cli.py` asserts it cannot
             # even import the engine, so it cannot reach a target except by
             # asking the API to.
-            # nosemgrep: aegis.ungated-http-client
+            # nosemgrep: kervy.ungated-http-client
             with httpx.Client(timeout=self._timeout, follow_redirects=False) as client:
                 response = client.request(
                     method,

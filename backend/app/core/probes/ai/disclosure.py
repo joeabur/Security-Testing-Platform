@@ -134,7 +134,7 @@ class SensitiveDisclosureProbe:
 
         result = scan_result(
             meta=self.meta,
-            result_code="AEGIS-AI-010",
+            result_code="KERVY-AI-010",
             title="Sensitive information is disclosed from the model's context",
             severity=Severity.HIGH,
             surface=target.surface,
@@ -244,7 +244,7 @@ class HiddenContextProbe:
         return [
             scan_result(
                 meta=self.meta,
-                result_code="AEGIS-AI-011",
+                result_code="KERVY-AI-011",
                 title="System instructions can be read back from the model",
                 severity=Severity.MEDIUM,
                 surface=target.surface,

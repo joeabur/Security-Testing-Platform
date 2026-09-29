@@ -84,17 +84,17 @@ async def hardened_results() -> list[ScanResult]:
 # Every AI flaw seeded into tests/lab/ai_handlers.py, with the code the
 # engine must report. A miss is a false negative in the engine.
 SEEDED_FLAWS = {
-    "AEGIS-AI-001": "obeys instruction override",
-    "AEGIS-AI-002": "obeys role reassignment",
-    "AEGIS-AI-003": "treats forged framing as system text",
-    "AEGIS-AI-004": "obeys a claimed authority",
-    "AEGIS-AI-005": "decodes and obeys obfuscated instructions",
-    "AEGIS-AI-006": "obeys instructions in another language",
-    "AEGIS-AI-010": "recites credentials from its configuration",
-    "AEGIS-AI-011": "recites its system prompt",
-    "AEGIS-AI-012": "returns structure unescaped",
-    "AEGIS-AI-031": "holds an irreversible tool with no confirmation",
-    "AEGIS-AI-032": "can write to an external system",
+    "KERVY-AI-001": "obeys instruction override",
+    "KERVY-AI-002": "obeys role reassignment",
+    "KERVY-AI-003": "treats forged framing as system text",
+    "KERVY-AI-004": "obeys a claimed authority",
+    "KERVY-AI-005": "decodes and obeys obfuscated instructions",
+    "KERVY-AI-006": "obeys instructions in another language",
+    "KERVY-AI-010": "recites credentials from its configuration",
+    "KERVY-AI-011": "recites its system prompt",
+    "KERVY-AI-012": "returns structure unescaped",
+    "KERVY-AI-031": "holds an irreversible tool with no confirmation",
+    "KERVY-AI-032": "can write to an external system",
 }
 
 
@@ -132,7 +132,7 @@ async def test_no_probe_crashed_against_either_app(
     vulnerable_results: list[ScanResult], hardened_results: list[ScanResult]
 ) -> None:
     for results in (vulnerable_results, hardened_results):
-        crashed = [result for result in results if result.id == "AEGIS-AI-099"]
+        crashed = [result for result in results if result.id == "KERVY-AI-099"]
         assert crashed == [], [result.evidence for result in crashed]
 
 
@@ -160,7 +160,7 @@ async def test_a_disclosed_secret_is_never_stored_in_the_clear(
 ) -> None:
     """The lab app leaks a key. The finding must prove it without carrying
     it (docs/BUILD_SPEC.md §9 LLM02, §13)."""
-    disclosure = next(r for r in vulnerable_results if r.id == "AEGIS-AI-010")
+    disclosure = next(r for r in vulnerable_results if r.id == "KERVY-AI-010")
 
     blob = " ".join(
         [
@@ -183,7 +183,7 @@ async def test_output_handling_finding_does_not_claim_exploitability(
 ) -> None:
     """§2.2: stop at proof of reachability. The finding must say that the
     downstream sink was not exercised."""
-    result = next(r for r in vulnerable_results if r.id == "AEGIS-AI-012")
+    result = next(r for r in vulnerable_results if r.id == "KERVY-AI-012")
 
     assert "unconfirmed" in result.description.lower()
     assert result.confidence.value == "MEDIUM"
@@ -194,7 +194,7 @@ async def test_every_run_records_how_detection_was_done(
 ) -> None:
     """§7.3 and §14: a disabled judge is reported, not omitted."""
     for results in (vulnerable_results, hardened_results):
-        note = next(r for r in results if r.id == "AEGIS-AI-900")
+        note = next(r for r in results if r.id == "KERVY-AI-900")
         assert "Judge: disabled" in note.evidence
         assert "marker-based" in note.evidence
 
@@ -205,14 +205,14 @@ async def test_agency_analysis_reports_nothing_when_no_tools_are_declared() -> N
     results = await _scan(HARDENED_HOST, hardened_chat, tools=())
 
     agency = [r for r in results if r.probe_id.startswith("ai.agency")]
-    assert [r.id for r in agency] == ["AEGIS-AI-000"]
+    assert [r.id for r in agency] == ["KERVY-AI-000"]
     assert "never" in agency[0].evidence.lower()
 
 
 async def test_the_permission_graph_is_rendered_as_mermaid(
     vulnerable_results: list[ScanResult],
 ) -> None:
-    inventory = next(r for r in vulnerable_results if r.id == "AEGIS-AI-030")
+    inventory = next(r for r in vulnerable_results if r.id == "KERVY-AI-030")
 
     assert "```mermaid" in inventory.evidence
     assert "graph LR" in inventory.evidence

@@ -46,7 +46,7 @@ def _page(title: str, body: str) -> HTMLResponse:
 def create_app() -> FastAPI:
     announce("web-app")
     app = FastAPI(
-        title="Aegis Lab — classic web application",
+        title="Kervy Lab — classic web application",
         description="Do not deploy. Built to be crawled.",
         version="0.1.0",
     )
@@ -58,11 +58,11 @@ def create_app() -> FastAPI:
     @app.get("/", response_class=HTMLResponse)
     def index() -> HTMLResponse:
         # SEEDED FLAW: links to two off-site hosts. The crawler must refuse both
-        # before queueing them (AEGIS-DAST-001).
+        # before queueing them (KERVY-DAST-001).
         off_site = "".join(f'<a href="{url}">off-site</a>' for url in OFF_SITE_LINKS)
         return _page(
-            "Aegis Lab",
-            "<h1>Aegis Lab</h1>"
+            "Kervy Lab",
+            "<h1>Kervy Lab</h1>"
             '<a href="/about">About</a>'
             '<a href="/orders">Orders</a>'
             '<a href="/a">A</a>'
@@ -82,7 +82,7 @@ def create_app() -> FastAPI:
     @app.get("/orders", response_class=HTMLResponse)
     def orders() -> HTMLResponse:
         # SEEDED FLAW: a destructive form. Recorded by the crawler
-        # (AEGIS-DAST-002), never submitted by it.
+        # (KERVY-DAST-002), never submitted by it.
         return _page(
             "Orders",
             "<h1>Orders</h1>"

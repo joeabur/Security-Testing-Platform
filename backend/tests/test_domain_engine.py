@@ -232,8 +232,8 @@ async def test_engine_discovers_subdomains_but_only_probes_allowed_patterns(
     assert "https://hidden.example.test/" not in transport.requested
 
     finding_ids = [item.id for item in findings]
-    assert "AEGIS-DOMAIN-001" in finding_ids  # discovery
-    discovery = next(item for item in findings if item.id == "AEGIS-DOMAIN-001")
+    assert "KERVY-DOMAIN-001" in finding_ids  # discovery
+    discovery = next(item for item in findings if item.id == "KERVY-DOMAIN-001")
     assert "hidden.example.test" in discovery.evidence
     assert "www.example.test" in discovery.evidence
     assert discovery.severity is Severity.INFORMATIONAL
@@ -242,7 +242,7 @@ async def test_engine_discovers_subdomains_but_only_probes_allowed_patterns(
     missing_headers = [
         item
         for item in findings
-        if item.id == "AEGIS-DOMAIN-002" and item.endpoint == f"domain/{ROOT}"
+        if item.id == "KERVY-DOMAIN-002" and item.endpoint == f"domain/{ROOT}"
     ]
     assert len(missing_headers) == 1
     assert missing_headers[0].severity is Severity.LOW
@@ -251,11 +251,11 @@ async def test_engine_discovers_subdomains_but_only_probes_allowed_patterns(
     assert not [
         item
         for item in findings
-        if item.id == "AEGIS-DOMAIN-002" and item.endpoint == "domain/www.example.test"
+        if item.id == "KERVY-DOMAIN-002" and item.endpoint == "domain/www.example.test"
     ]
 
     # example.test: expired certificate -> HIGH. www: fine -> no finding.
-    tls_findings = {item.endpoint: item for item in findings if item.id == "AEGIS-DOMAIN-003"}
+    tls_findings = {item.endpoint: item for item in findings if item.id == "KERVY-DOMAIN-003"}
     assert tls_findings[f"domain/{ROOT}"].severity is Severity.HIGH
     assert "domain/www.example.test" not in tls_findings
 
@@ -278,7 +278,7 @@ async def test_engine_records_a_coverage_marker_for_a_scope_blocked_host(
             hostname=ROOT, source=SubdomainSource.SEED, resolved_ips=("203.0.113.5",), probed=True
         )
     ]
-    markers = [item for item in findings if item.id == "AEGIS-DOMAIN-009"]
+    markers = [item for item in findings if item.id == "KERVY-DOMAIN-009"]
     assert any("refused by scope" in item.evidence for item in markers)
 
 
@@ -295,7 +295,7 @@ async def test_domain_check_reports_an_engine_failure_without_losing_the_run() -
 
     assert len(results) == 1
     assert results[0].ok is False
-    assert check.scan_results[0].id == "AEGIS-DOMAIN-099"
+    assert check.scan_results[0].id == "KERVY-DOMAIN-099"
 
 
 async def test_domain_check_summarizes_findings_and_discoveries() -> None:

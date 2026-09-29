@@ -95,7 +95,7 @@ def test_runtime_declarations_come_from_every_file_that_pins_one() -> None:
 
 async def test_eol_findings_state_when_the_table_was_compiled() -> None:
     results = await EndOfLifeRuntimeEngine().run(workspace())
-    eol = [result for result in results if result.id == "AEGIS-SUPPLY-010"]
+    eol = [result for result in results if result.id == "KERVY-SUPPLY-010"]
     assert eol, ids(results)
     finding = next(result for result in eol if "3.8" in result.title)
     # Both dates must be present: "EOL on X" without "as of Y" leaves a reader
@@ -108,7 +108,7 @@ async def test_eol_findings_state_when_the_table_was_compiled() -> None:
 async def test_a_runtime_outside_the_table_is_reported_as_not_assessed() -> None:
     """Absence of data must never read as support."""
     results = await EndOfLifeRuntimeEngine().run(workspace())
-    not_assessed = [result for result in results if result.id == "AEGIS-SUPPLY-019"]
+    not_assessed = [result for result in results if result.id == "KERVY-SUPPLY-019"]
     assert not_assessed, ids(results)
     assert "crystal" in not_assessed[0].evidence
     assert "not a statement that they are" in not_assessed[0].description
@@ -117,7 +117,7 @@ async def test_a_runtime_outside_the_table_is_reported_as_not_assessed() -> None
 
 async def test_a_runtime_within_a_year_of_eol_is_informational() -> None:
     results = await EndOfLifeRuntimeEngine().run(workspace())
-    approaching = [result for result in results if result.id == "AEGIS-SUPPLY-011"]
+    approaching = [result for result in results if result.id == "KERVY-SUPPLY-011"]
     assert approaching, ids(results)
     assert approaching[0].severity is Severity.INFORMATIONAL
 
@@ -202,7 +202,7 @@ def test_trove_classifiers_map_to_spdx_rather_than_being_trimmed() -> None:
 
 async def test_network_copyleft_is_reported_and_permissive_is_not() -> None:
     licences = {
-        "aegis-fixture-agpl": "AGPL-3.0",
+        "kervy-fixture-agpl": "AGPL-3.0",
         "requests": "Apache-2.0",
         "1odash": "MIT",
         "exprses": "MIT",
@@ -210,18 +210,18 @@ async def test_network_copyleft_is_reported_and_permissive_is_not() -> None:
     }
     engine = LicenseRiskEngine(lookup=lambda _workspace, dependency: licences.get(dependency.name))
     results = await engine.run(workspace())
-    assert "AEGIS-SUPPLY-020" in ids(results)
-    finding = next(result for result in results if result.id == "AEGIS-SUPPLY-020")
-    assert "aegis-fixture-agpl" in finding.evidence
+    assert "KERVY-SUPPLY-020" in ids(results)
+    finding = next(result for result in results if result.id == "KERVY-SUPPLY-020")
+    assert "kervy-fixture-agpl" in finding.evidence
     # No finding per MIT dependency: that is noise which buries the one above.
     assert "requests" not in finding.evidence
-    assert "AEGIS-SUPPLY-021" not in ids(results)
+    assert "KERVY-SUPPLY-021" not in ids(results)
 
 
 async def test_a_licence_finding_reports_an_obligation_not_a_violation() -> None:
     engine = LicenseRiskEngine(lookup=lambda _w, _d: "AGPL-3.0")
     finding = next(
-        result for result in await engine.run(workspace()) if result.id == "AEGIS-SUPPLY-020"
+        result for result in await engine.run(workspace()) if result.id == "KERVY-SUPPLY-020"
     )
     assert "not a finding that it has been breached" in finding.description
     assert "violation" not in finding.title.lower()
@@ -232,7 +232,7 @@ async def test_a_licence_finding_reports_an_obligation_not_a_violation() -> None
 async def test_an_undeterminable_licence_is_reported_as_unknown() -> None:
     engine = LicenseRiskEngine(lookup=lambda _w, _d: None)
     results = await engine.run(workspace())
-    unknown = next(result for result in results if result.id == "AEGIS-SUPPLY-023")
+    unknown = next(result for result in results if result.id == "KERVY-SUPPLY-023")
     assert unknown.confidence is Confidence.DESIGN_REVIEW
     assert "absence of a grant" in unknown.description
     assert "not stated" in unknown.evidence
@@ -282,7 +282,7 @@ def test_unpinned_recognises_the_wildcards(spec: str, expected: bool) -> None:
 
 async def test_name_confusion_findings_never_claim_malware() -> None:
     results = await NameConfusionEngine().run(workspace())
-    assert "AEGIS-SUPPLY-030" in ids(results)
+    assert "KERVY-SUPPLY-030" in ids(results)
     for result in results:
         blob = f"{result.title} {result.description} {result.impact}".lower()
         assert "malicious package" not in blob
@@ -294,11 +294,11 @@ async def test_name_confusion_findings_never_claim_malware() -> None:
 
 async def test_unpinned_and_install_hooks_are_reported_separately() -> None:
     results = await NameConfusionEngine().run(workspace())
-    assert "AEGIS-SUPPLY-031" in ids(results)
-    assert "AEGIS-SUPPLY-032" in ids(results)
-    unpinned_finding = next(r for r in results if r.id == "AEGIS-SUPPLY-031")
+    assert "KERVY-SUPPLY-031" in ids(results)
+    assert "KERVY-SUPPLY-032" in ids(results)
+    unpinned_finding = next(r for r in results if r.id == "KERVY-SUPPLY-031")
     assert "some-internal-lib" in unpinned_finding.evidence
-    hook = next(r for r in results if r.id == "AEGIS-SUPPLY-032")
+    hook = next(r for r in results if r.id == "KERVY-SUPPLY-032")
     assert "postinstall" in hook.evidence
 
 
@@ -306,7 +306,7 @@ async def test_name_confusion_says_it_consulted_no_registry() -> None:
     """Without a registry lookup, dependency confusion cannot be established,
     and the finding must not imply it was."""
     results = await NameConfusionEngine().run(workspace())
-    finding = next(result for result in results if result.id == "AEGIS-SUPPLY-030")
+    finding = next(result for result in results if result.id == "KERVY-SUPPLY-030")
     assert "No registry was consulted" in finding.description
 
 
@@ -359,7 +359,7 @@ async def test_malware_engine_flags_a_dependency_matching_a_published_advisory(
     assert engine.applies_to(engine_workspace)
     results = await engine.run(engine_workspace)
 
-    matched = [result for result in results if result.id == "AEGIS-SUPPLY-040"]
+    matched = [result for result in results if result.id == "KERVY-SUPPLY-040"]
     assert len(matched) == 1, ids(results)
     finding = matched[0]
     assert "my-private-pkg" in finding.title
@@ -374,7 +374,7 @@ async def test_malware_engine_always_emits_a_coverage_note() -> None:
     """Even a run with no match must say what was actually checked, so a clean
     result cannot be read as "confirmed safe"."""
     results = await MaliciousPackageEngine().run(workspace())
-    note = next(result for result in results if result.id == "AEGIS-SUPPLY-041")
+    note = next(result for result in results if result.id == "KERVY-SUPPLY-041")
     assert note.severity is Severity.INFORMATIONAL
     assert "not a statement that it is clean" in note.description
     assert MALWARE_AS_OF.isoformat() in note.description
@@ -390,7 +390,7 @@ async def test_malware_engine_dedupes_repeated_declarations(tmp_path: Path) -> N
         build_manifest_paths=("requirements.txt",),
     )
     results = await MaliciousPackageEngine().run(engine_workspace)
-    assert len([r for r in results if r.id == "AEGIS-SUPPLY-040"]) == 1
+    assert len([r for r in results if r.id == "KERVY-SUPPLY-040"]) == 1
 
 
 # --- container ---------------------------------------------------------------
@@ -410,9 +410,9 @@ async def test_the_container_engine_states_that_base_layers_were_not_scanned() -
     results = await ContainerScanEngine().run(workspace())
     if not tool_available("trivy"):
         # Absent tool: a visible gap, not an empty result set.
-        assert ids(results) == {"AEGIS-APPSEC-000"}
+        assert ids(results) == {"KERVY-APPSEC-000"}
         return
-    gap = next(result for result in results if result.id == "AEGIS-CONTAINER-009")
+    gap = next(result for result in results if result.id == "KERVY-CONTAINER-009")
     assert "did not pull or examine" in gap.description
     assert "python:3.8-slim" in gap.evidence
 

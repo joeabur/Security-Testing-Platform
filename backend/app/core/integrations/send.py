@@ -191,7 +191,7 @@ async def send_email(
     mail = EmailMessage()
     mail["From"] = from_address
     mail["To"] = ", ".join(recipients)
-    mail["Subject"] = message.headers.get("Subject", "Aegis notification")
+    mail["Subject"] = message.headers.get("Subject", "Kervy notification")
     mail.set_content(message.summary)
 
     try:

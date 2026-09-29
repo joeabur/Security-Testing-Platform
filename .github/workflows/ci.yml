@@ -23,13 +23,13 @@ jobs:
       postgres:
         image: postgres:16-alpine
         env:
-          POSTGRES_USER: aegis
-          POSTGRES_PASSWORD: aegis-ci-only
-          POSTGRES_DB: aegis_test
+          POSTGRES_USER: kervy
+          POSTGRES_PASSWORD: kervy-ci-only
+          POSTGRES_DB: kervy_test
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U aegis -d aegis_test"
+          --health-cmd "pg_isready -U kervy -d kervy_test"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
@@ -43,7 +43,7 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     env:
-      DATABASE_URL: postgresql+asyncpg://aegis:aegis-ci-only@localhost:5432/aegis_test
+      DATABASE_URL: postgresql+asyncpg://kervy:kervy-ci-only@localhost:5432/kervy_test
       REDIS_URL: redis://localhost:6379/0
       ENVIRONMENT: ci
       JWT_SECRET: ci-only-secret-do-not-use-elsewhere
@@ -87,7 +87,7 @@ jobs:
         # floors (core/ and core/scope/) are checked by the step below, because
         # an overall number can stay healthy while the part that matters most
         # rots.
-        run: python -m pytest -q --cov=app --cov=aegis_cli --cov-report=term-missing
+        run: python -m pytest -q --cov=app --cov=kervy_cli --cov=mcp_server --cov-report=term-missing
              --cov-report=json:coverage.json --cov-fail-under=80
 
       - name: Per-package coverage floors

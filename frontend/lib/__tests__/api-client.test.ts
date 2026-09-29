@@ -15,9 +15,9 @@ function mockFetchOnce(body: unknown = {}, init: ResponseInit = { status: 200 })
 
 describe("clientApiFetch CSRF header attachment", () => {
   beforeEach(() => {
-    document.cookie = "aegis_csrf=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/";
-    document.cookie = "aegis_session=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/";
-    document.cookie = "aegis_csrf_anon=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/";
+    document.cookie = "kervy_csrf=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/";
+    document.cookie = "kervy_session=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/";
+    document.cookie = "kervy_csrf_anon=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/";
   });
 
   afterEach(() => {
@@ -26,7 +26,7 @@ describe("clientApiFetch CSRF header attachment", () => {
   });
 
   it("attaches X-CSRF-Token on an unsafe method when the CSRF cookie is present", async () => {
-    document.cookie = "aegis_csrf=signed-token-value";
+    document.cookie = "kervy_csrf=signed-token-value";
     const fetchMock = mockFetchOnce({ id: "org-1" });
 
     const { clientApiFetch } = await import("@/lib/api-client");
@@ -40,7 +40,7 @@ describe("clientApiFetch CSRF header attachment", () => {
   });
 
   it("does not attach a CSRF header for safe methods, even with the cookie present", async () => {
-    document.cookie = "aegis_csrf=signed-token-value";
+    document.cookie = "kervy_csrf=signed-token-value";
     const fetchMock = mockFetchOnce({ id: "org-1" });
 
     const { clientApiFetch } = await import("@/lib/api-client");
@@ -67,7 +67,7 @@ describe("clientApiFetch CSRF header attachment", () => {
       if (url.endsWith("/auth/csrf")) {
         // Simulates the browser applying the real Set-Cookie response header,
         // which this stub (unlike a real fetch) does not do on its own.
-        document.cookie = "aegis_csrf_anon=anon-token-value";
+        document.cookie = "kervy_csrf_anon=anon-token-value";
         return new Response(null, { status: 204 });
       }
       return new Response(JSON.stringify({ ok: true }), {
@@ -89,7 +89,7 @@ describe("clientApiFetch CSRF header attachment", () => {
   });
 
   it("does not re-fetch the anonymous token when the cookie is already present", async () => {
-    document.cookie = "aegis_csrf_anon=already-have-one";
+    document.cookie = "kervy_csrf_anon=already-have-one";
     const fetchMock = mockFetchOnce({ ok: true });
 
     const { clientApiFetch } = await import("@/lib/api-client");
@@ -102,7 +102,7 @@ describe("clientApiFetch CSRF header attachment", () => {
   });
 
   it("does not override a caller-supplied CSRF header", async () => {
-    document.cookie = "aegis_csrf=signed-token-value";
+    document.cookie = "kervy_csrf=signed-token-value";
     const fetchMock = mockFetchOnce({ id: "org-1" });
 
     const { clientApiFetch } = await import("@/lib/api-client");

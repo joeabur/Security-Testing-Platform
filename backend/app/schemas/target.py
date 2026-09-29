@@ -1,11 +1,12 @@
 import re
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.core.rasp.contract import ControlKind
+from app.core.scope.asset_scope import TestDepth
 from app.models.target import TargetEnvironment, TargetKind
 
 if TYPE_CHECKING:
@@ -71,6 +72,77 @@ class DomainScopeIn(BaseModel):
 
     root_domain: str = Field(min_length=1, max_length=253)
     allowed_subdomain_patterns: list[str] = Field(default_factory=list, max_length=50)
+
+
+class ContainerScopeIn(BaseModel):
+    """What a `CONTAINER` target's engine may pull and scan.
+
+    `allowed_registries` has no default — the same "an unstated allowlist is
+    not a permissive one" rule `resolve_container_scope` enforces at run
+    time; this schema does not relax it, it only moves the same refusal
+    earlier, to the point of configuration rather than the point of a run.
+    `allow_live_pull` defaults to `False`: declaring a registry allowlist is
+    not, by itself, authorization to reach the network — an operator opts
+    in to the live pull explicitly, a separate decision from which
+    registries would be acceptable if they did.
+    """
+
+    image_ref: str = Field(min_length=1, max_length=2048)
+    allowed_registries: list[str] = Field(default_factory=list, max_length=20)
+    allow_live_pull: bool = False
+
+
+class CloudScopeIn(BaseModel):
+    """What a `CLOUD_ACCOUNT` target's engine may inventory.
+
+    `provider` has no default — declaring a cloud scope always means one
+    specific provider, never "try all three." `read_only` is not a field
+    here at all: `resolve_cloud_scope` refuses anything but a read-only
+    assessment at resolve time, so this schema does not offer a knob that
+    would only be rejected later.
+    """
+
+    provider: Literal["aws", "azure", "gcp"]
+    account_ref: str = Field(min_length=1, max_length=200)
+    credential_env_var: str = Field(min_length=1, max_length=128)
+    allowed_regions: list[str] = Field(default_factory=list, max_length=50)
+
+
+class PentestScopeIn(BaseModel):
+    """The pentest-tool architecture's own, additive scope
+    (`app/core/pentest/`, Pentest module Phase 6).
+
+    Layered on whichever asset kind's scope it is nested under — `VmScopeIn`
+    today, a later asset kind's scope-in schema in the future — never a
+    scope of its own, mirroring how `resolve_pentest_scope` reads it from
+    the same `asset_scope` document a `VmScope`/etc. also reads from.
+    `max_depth` defaults to the least invasive tier: an operator who never
+    touches this gets the pentest-tool architecture's `discovery`-tier
+    modules and nothing deeper, never a refusal — the same "silence means
+    the least invasive tier, not an abort" rule the Phase 1 foundation's
+    own `PentestScope` already documents.
+    """
+
+    max_depth: TestDepth = TestDepth.DISCOVERY
+    approved_modules: list[str] = Field(default_factory=list, max_length=50)
+
+
+class VmScopeIn(BaseModel):
+    """What a `VIRTUAL_MACHINE` target's engine may port-scan.
+
+    `allowed_ports` has no default — the same "an unstated allowlist is not
+    a permissive one" rule `resolve_vm_scope` enforces at run time, and the
+    same rule `ContainerScopeIn.allowed_registries` already applies. Unlike
+    `ContainerScopeIn.allow_live_pull`, there is no separate opt-in flag
+    here: declaring a port already is the explicit authorization to probe
+    it.
+    """
+
+    host: str = Field(min_length=1, max_length=253)
+    allowed_ports: list[Annotated[int, Field(ge=1, le=65535)]] = Field(
+        min_length=1, max_length=1000
+    )
+    pentest: PentestScopeIn = Field(default_factory=PentestScopeIn)
 
 
 class ClaimedControlIn(BaseModel):

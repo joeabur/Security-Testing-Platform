@@ -42,9 +42,9 @@ Three different things, kept apart because conflating them misreports coverage:
 
 | | Meaning | Where it lands |
 |---|---|---|
-| **Refused** | Out of scope. Not ever. | `refused`, reported as `AEGIS-DAST-001` |
+| **Refused** | Out of scope. Not ever. | `refused`, reported as `KERVY-DAST-001` |
 | **Deferred** | In scope, but budget ran out or the run halted | queued, then `unvisited` |
-| **Unvisited** | In scope, queued, never fetched | `unvisited`, reported as `AEGIS-DAST-009` |
+| **Unvisited** | In scope, queued, never fetched | `unvisited`, reported as `KERVY-DAST-009` |
 
 Budget says "not now"; scope says "not ever". Filing an in-scope URL under
 `refused` would tell a reader the engagement did not cover it, which is a
@@ -78,7 +78,7 @@ and is separate from `safe_mode` on purpose: safe mode bounds how a probe
 behaves, this decides whether state-changing tooling may run at all.
 
 **The crawler never submits a form**, under either setting. It records form
-actions (`AEGIS-DAST-002`) because their existence is useful to a reviewer, and
+actions (`KERVY-DAST-002`) because their existence is useful to a reviewer, and
 issues `GET` only — a test greps the module to confirm there is no code path
 sending anything else.
 
@@ -123,15 +123,15 @@ identifier that had to be repaired is one the tool did not actually report.
 
 | Code | Meaning |
 |---|---|
-| `AEGIS-DAST-001` | The application links outside the rules of engagement |
-| `AEGIS-DAST-002` | State-changing forms found and not submitted |
-| `AEGIS-DAST-009` | **Not tested** — the crawl stopped at a bound |
-| `AEGIS-DAST-<template>` | A Nuclei template matched |
-| `AEGIS-DAST-ZAP-<rule>` | A ZAP rule matched |
-| `AEGIS-APPSEC-000` | A tool did not run, naming which |
-| `AEGIS-DAST-099` | The engine raised |
+| `KERVY-DAST-001` | The application links outside the rules of engagement |
+| `KERVY-DAST-002` | State-changing forms found and not submitted |
+| `KERVY-DAST-009` | **Not tested** — the crawl stopped at a bound |
+| `KERVY-DAST-<template>` | A Nuclei template matched |
+| `KERVY-DAST-ZAP-<rule>` | A ZAP rule matched |
+| `KERVY-APPSEC-000` | A tool did not run, naming which |
+| `KERVY-DAST-099` | The engine raised |
 
-`AEGIS-DAST-001` is not a vulnerability and does not claim to be — nothing was
+`KERVY-DAST-001` is not a vulnerability and does not claim to be — nothing was
 sent to those URLs. It is reported because an application linking outside the
 engagement is worth a human's attention: a third-party tracker nobody authorized
 testing of, or a sign the authorization covers less than the application spans.

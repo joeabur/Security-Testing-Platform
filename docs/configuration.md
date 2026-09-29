@@ -16,7 +16,7 @@ that disables scope enforcement** — that is deliberate and permanent.
 | `CORS_ALLOWED_ORIGINS` | local frontend | |
 | `SESSION_COOKIE_SECURE` | `false` | Opt-in so local HTTP development works; set it in production |
 | `EVIDENCE_ROOT` | `var/evidence` | A path, not a URL. Evidence never leaves the deployment by default |
-| `AEGIS_EVIDENCE_ENCRYPTION_KEY` | unset (plaintext) | Base64, 32 bytes (AES-256). One static key, no rotation — set before a deployment starts collecting evidence, not partway through |
+| `KERVY_EVIDENCE_ENCRYPTION_KEY` | unset (plaintext) | Base64, 32 bytes (AES-256). One static key, no rotation — set before a deployment starts collecting evidence, not partway through |
 
 ## Credentials are held by reference
 
@@ -56,15 +56,15 @@ No mode does; see `docs/ai-security-testing.md`.
 | Variable | Notes |
 |---|---|
 | `PLUGINS_CONFIG` | Path to the allowlist file. Absent → no plugins load |
-| `AEGIS_NO_PLUGINS` | `1` wins over any configuration — the one thing to set when something has gone wrong |
+| `KERVY_NO_PLUGINS` | `1` wins over any configuration — the one thing to set when something has gone wrong |
 
 ## Outbound notifications
 
 | Variable | Notes |
 |---|---|
-| `AEGIS_NOTIFY_ALLOWED_WEBHOOK_HOSTS` | JSON list. Required for a generic webhook; vendor kinds are pinned in code |
-| `AEGIS_NOTIFY_ALLOWED_SMTP_HOSTS` | JSON list. No vendor defaults exist for SMTP |
-| `AEGIS_PUBLIC_BASE_URL` | Used to build links in notifications. Absent → no link rendered, rather than a guessed one |
+| `KERVY_NOTIFY_ALLOWED_WEBHOOK_HOSTS` | JSON list. Required for a generic webhook; vendor kinds are pinned in code |
+| `KERVY_NOTIFY_ALLOWED_SMTP_HOSTS` | JSON list. No vendor defaults exist for SMTP |
+| `KERVY_PUBLIC_BASE_URL` | Used to build links in notifications. Absent → no link rendered, rather than a guessed one |
 
 These live in the environment, not the database, on purpose: an organization
 admin may choose *which* sanctioned destination to notify; adding a brand-new
@@ -74,7 +74,42 @@ outbound destination is an operator decision.
 
 | Variable | Notes |
 |---|---|
-| `AEGIS_VCS_ALLOWED_HOSTS` | JSON list, for GitHub Enterprise only. `api.github.com` is pinned in code |
+| `KERVY_VCS_ALLOWED_HOSTS` | JSON list, for GitHub Enterprise only. `api.github.com` is pinned in code |
+
+## Social OAuth login (optional)
+
+Leave a provider's client id/secret unset and its button never appears —
+`GET /api/v1/auth/oauth/providers` reports it as unavailable, and its
+`/authorize`/`/callback` routes 404 rather than half-working. The client
+*secret* is never a setting: only the name of the environment variable
+holding it is, read fresh at call time the same way `AI_API_KEY_ENV_VAR` is.
+
+| Variable | Notes |
+|---|---|
+| `GOOGLE_OAUTH_CLIENT_ID` | From the Google Cloud Console OAuth client |
+| `GOOGLE_OAUTH_CLIENT_SECRET_ENV_VAR` | Name of the variable holding the secret |
+| `GITHUB_OAUTH_CLIENT_ID` | From a GitHub OAuth App |
+| `GITHUB_OAUTH_CLIENT_SECRET_ENV_VAR` | Name of the variable holding the secret |
+| `KERVY_OAUTH_CALLBACK_BASE_URL` | This backend's own externally-reachable origin — where a provider redirects back to. Required for either provider to work; distinct from `KERVY_PUBLIC_BASE_URL` below, which is the frontend's |
+
+Register `{KERVY_OAUTH_CALLBACK_BASE_URL}/api/v1/auth/oauth/google/callback`
+(and the `github` equivalent) as the provider's own allowed redirect URI —
+it refuses any other.
+
+## Password reset (optional)
+
+Leave `KERVY_PLATFORM_SMTP_HOST` unset and `POST /auth/forgot-password`
+still answers 202 (never disclosing whether an address is registered — see
+`docs/security-model.md`), but issues no token and sends no mail.
+
+| Variable | Notes |
+|---|---|
+| `KERVY_PLATFORM_SMTP_HOST` | The platform's own outbound relay — distinct from any per-organization notification channel |
+| `KERVY_PLATFORM_SMTP_PORT` | Default `587` |
+| `KERVY_PLATFORM_SMTP_FROM_ADDRESS` | Required alongside the host |
+| `KERVY_PLATFORM_SMTP_USERNAME` | Optional |
+| `KERVY_PLATFORM_SMTP_PASSWORD_ENV_VAR` | Name of the variable holding the password, not the value itself |
+| `KERVY_PASSWORD_RESET_TOKEN_TTL_MINUTES` | Default `30` |
 
 ## Frontend
 
@@ -88,11 +123,11 @@ outbound destination is an operator decision.
 - `ENVIRONMENT=production` and a real `JWT_SECRET` (startup refuses otherwise).
 - `SESSION_COOKIE_SECURE=true` behind TLS.
 - `EVIDENCE_ROOT` on storage you have a retention and deletion policy for.
-- `AEGIS_EVIDENCE_ENCRYPTION_KEY` set before the first run, if evidence
+- `KERVY_EVIDENCE_ENCRYPTION_KEY` set before the first run, if evidence
   encryption at rest is required — there is no tool to encrypt bundles
   already written without it.
 - Separate database credentials for the app role; consider revoking `UPDATE` and
   `DELETE` on `audit_logs` at the database level. The application never issues
   them, but defence in depth here is cheap (tracked in `docs/roadmap.md`).
 - Every credential variable present in the **worker's** environment.
-- Allowlists (`AEGIS_NOTIFY_*`, `AEGIS_VCS_ALLOWED_HOSTS`) set to the minimum.
+- Allowlists (`KERVY_NOTIFY_*`, `KERVY_VCS_ALLOWED_HOSTS`) set to the minimum.

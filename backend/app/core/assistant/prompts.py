@@ -18,8 +18,8 @@ from dataclasses import dataclass
 # An unguessable delimiter would be better still, but a fixed one is
 # checkable in a test and readable in an audit record. The stripping below
 # is what prevents evidence from closing the block early.
-EVIDENCE_OPEN = "<<<AEGIS-EVIDENCE-BEGIN>>>"
-EVIDENCE_CLOSE = "<<<AEGIS-EVIDENCE-END>>>"
+EVIDENCE_OPEN = "<<<KERVY-EVIDENCE-BEGIN>>>"
+EVIDENCE_CLOSE = "<<<KERVY-EVIDENCE-END>>>"
 
 SYSTEM_PREAMBLE = (
     "You are a security-analysis assistant inside an authorized assessment "
@@ -115,9 +115,53 @@ SUMMARISE_RUN = PromptTemplate(
     ),
 )
 
+CORRELATE_FINDINGS = PromptTemplate(
+    id="assistant.correlate_findings",
+    version="1.0.0",
+    system=SYSTEM_PREAMBLE,
+    template=(
+        "Look for relationships between these findings from the same assessment: "
+        "a shared root cause, one finding that enables another, or a pattern across "
+        "the same surface or component. If you see none, say so plainly rather than "
+        "inventing a connection.\n\n"
+        "Findings:\n{findings}"
+    ),
+)
+
+PRIORITISE_FINDINGS = PromptTemplate(
+    id="assistant.prioritise_findings",
+    version="1.0.0",
+    system=SYSTEM_PREAMBLE,
+    template=(
+        "Propose a remediation order for these findings and say why. Base it only on "
+        "what is given below — severity, surface, and description — not on a stored "
+        "priority field this platform already has, since your ordering is a "
+        "recommendation for a human to weigh, not a change to any finding's real "
+        "severity or status.\n\n"
+        "Findings:\n{findings}"
+    ),
+)
+
+ANSWER_EVIDENCE_QUESTION = PromptTemplate(
+    id="assistant.answer_evidence_question",
+    version="1.0.0",
+    system=SYSTEM_PREAMBLE,
+    template=(
+        "Answer the question using only the finding and captured evidence below. If "
+        "the evidence does not establish an answer, say that plainly rather than "
+        "guessing.\n\n"
+        "Probe: {probe_id}\nSurface: {endpoint}\nSeverity: {severity}\nTitle: {title}\n\n"
+        "Captured evidence:\n{evidence}\n\n"
+        "Question:\n{question}"
+    ),
+)
+
 ALL_TEMPLATES = (
     EXPLAIN_FINDING,
     DRAFT_REMEDIATION,
     DRAFT_SEVERITY_RATIONALE,
     SUMMARISE_RUN,
+    CORRELATE_FINDINGS,
+    PRIORITISE_FINDINGS,
+    ANSWER_EVIDENCE_QUESTION,
 )

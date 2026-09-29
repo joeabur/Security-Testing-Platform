@@ -7,8 +7,8 @@ proved it cannot drift apart.
     python docs/examples/quickstart.py
 
 Expects: the API on 127.0.0.1:8400, the demo lab on 127.0.0.1:8481, and a Celery
-worker with AEGIS_LAB_ACME_TOKEN and AEGIS_LAB_GLOBEX_TOKEN exported. Override
-the two URLs with AEGIS_API_URL and AEGIS_LAB_URL.
+worker with KERVY_LAB_ACME_TOKEN and KERVY_LAB_GLOBEX_TOKEN exported. Override
+the two URLs with KERVY_API_URL and KERVY_LAB_URL.
 """
 
 import os
@@ -19,8 +19,8 @@ from datetime import UTC, datetime, timedelta
 
 import httpx
 
-API = os.environ.get("AEGIS_API_URL", "http://127.0.0.1:8400") + "/api/v1"
-LAB = os.environ.get("AEGIS_LAB_URL", "http://127.0.0.1:8481")
+API = os.environ.get("KERVY_API_URL", "http://127.0.0.1:8400") + "/api/v1"
+LAB = os.environ.get("KERVY_LAB_URL", "http://127.0.0.1:8481")
 c = httpx.Client(base_url=API, timeout=30.0)
 step = lambda n, r: print(f"{n:<34} {r.status_code}") or (r.raise_for_status() or r)
 
@@ -30,7 +30,7 @@ SUFFIX = uuid.uuid4().hex[:8]
 
 csrf = c.get("/auth/csrf")
 anon_token = next(
-    v for k, v in csrf.cookies.items() if k in ("__Host-aegis_csrf_anon", "aegis_csrf_anon")
+    v for k, v in csrf.cookies.items() if k in ("__Host-kervy_csrf_anon", "kervy_csrf_anon")
 )
 r = c.post(
     "/auth/register",
@@ -138,8 +138,8 @@ step(
 # Two synthetic accounts, by environment-variable NAME. `ord-7001` belongs to
 # globex, so reading it with the acme token is the BOLA the lab seeds.
 for label, var, owned in (
-    ("acme_user", "AEGIS_LAB_ACME_TOKEN", ["ord-5001"]),
-    ("globex_user", "AEGIS_LAB_GLOBEX_TOKEN", ["ord-7001"]),
+    ("acme_user", "KERVY_LAB_ACME_TOKEN", ["ord-5001"]),
+    ("globex_user", "KERVY_LAB_GLOBEX_TOKEN", ["ord-7001"]),
 ):
     step(
         f"9 synthetic account {label}",
@@ -182,7 +182,7 @@ fnd = c.get(f"/organizations/{org}/findings", headers=h).json()
 print(f"{'13 findings':<34} {len(fnd)}")
 assert fnd, "no findings"
 
-OUT = pathlib.Path(os.environ.get("AEGIS_OUT_DIR", "."))
+OUT = pathlib.Path(os.environ.get("KERVY_OUT_DIR", "."))
 OUT.mkdir(parents=True, exist_ok=True)
 for fmt, ext in (("markdown", "md"), ("sarif", "sarif.json"), ("json", "json")):
     rp = c.get(

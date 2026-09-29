@@ -4,7 +4,7 @@ import { RunDetail } from "@/components/runs/run-detail";
 import { serverApiFetch } from "@/lib/api-server";
 import type { Run } from "@/lib/types";
 
-export const metadata: Metadata = { title: "Run — Aegis AI Security" };
+export const metadata: Metadata = { title: "Run — Kervy Security" };
 
 export default async function RunDetailPage({
   params,

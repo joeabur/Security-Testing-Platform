@@ -30,7 +30,7 @@ async def test_register_creates_user_and_sets_session_cookie(
     body = response.json()
     assert body["user"]["email"] == "alice@example.test"
     assert "access_token" in body
-    assert "aegis_session" in response.cookies
+    assert "kervy_session" in response.cookies
 
 
 async def test_register_duplicate_email_rejected(client: AsyncClient, strong_password: str) -> None:

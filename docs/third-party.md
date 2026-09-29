@@ -18,7 +18,7 @@ used. Exact pinned versions for the Python dependencies are in
 | **Trivy** | Apache-2.0 | Container packages | Run offline (`--skip-db-update --offline-scan`) |
 | **CodeQL** | GitHub terms | CI analysis of this repository | Our own CI only, not run against targets |
 
-If a tool is not installed, its engine reports `AEGIS-APPSEC-000 — not tested`
+If a tool is not installed, its engine reports `KERVY-APPSEC-000 — not tested`
 naming the tool, rather than returning nothing.
 
 ## Runtime dependencies

@@ -8,7 +8,7 @@ import asyncio
 import hashlib
 import json
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -27,7 +27,11 @@ from app.core.appsec.checkout import (
 )
 from app.core.appsec.registry import appsec_engines
 from app.core.appsec.workspace import CodeScopeError
+from app.core.cloud.contract import CloudTarget
+from app.core.cloud.service import promote_discovered_buckets
 from app.core.config import get_settings
+from app.core.container.contract import ContainerTarget
+from app.core.container.service import record_tool_invocations
 from app.core.dast.contract import DastTarget
 from app.core.domain.contract import DomainTarget
 from app.core.domain.service import promote_discovered_subdomains
@@ -35,7 +39,9 @@ from app.core.evidence.store import EvidenceError, EvidenceStore
 from app.core.findings.service import promote_run_results
 from app.core.orchestrator.ai_check import AiSecurityCheck
 from app.core.orchestrator.checks import Check, Endpoint, ReachabilityCheck
+from app.core.orchestrator.cloud_check import CloudCheck
 from app.core.orchestrator.code_check import CodeScanCheck
+from app.core.orchestrator.container_check import ContainerCheck
 from app.core.orchestrator.context_builder import (
     build_ai_probe_target,
     build_conversational_adapter,
@@ -45,14 +51,23 @@ from app.core.orchestrator.context_builder import (
 )
 from app.core.orchestrator.dast_check import DastCheck
 from app.core.orchestrator.domain_check import DomainCheck
+from app.core.orchestrator.pentest_check import PentestCheck
 from app.core.orchestrator.plugin_check import PluginCheck
 from app.core.orchestrator.probe_check import ProbeCheck
 from app.core.orchestrator.runner import RunEventPayload, execute_run
+from app.core.orchestrator.vm_check import VmCheck
+from app.core.pentest import service as pentest_service
 from app.core.probes.api.registry import build_api_registry
 from app.core.probes.models import ScanResult, Severity
 from app.core.rasp.contract import RuntimeProtectionProfile, untested_marker
 from app.core.retest.service import record_retest
-from app.core.scope.asset_scope import resolve_domain_scope
+from app.core.scope.asset_scope import (
+    resolve_cloud_scope,
+    resolve_container_scope,
+    resolve_domain_scope,
+    resolve_pentest_scope,
+    resolve_vm_scope,
+)
 from app.core.scope.errors import (
     AssetScopeValidationError,
     AuthorizationRequiredError,
@@ -60,6 +75,10 @@ from app.core.scope.errors import (
 )
 from app.core.scope.kill_switch import KillSwitch
 from app.core.scope.transport import GatedTransport
+from app.core.vm import service as vm_service
+from app.core.vm.contract import VmTarget
+from app.core.workflow import service as workflow_service
+from app.core.workflow.contract import WorkflowStatus
 from app.db.session import dispose_engine, get_session_factory
 from app.db.tenant_context import set_current_organization
 from app.models.assessment_run import (
@@ -74,6 +93,7 @@ from app.models.scan_result import ScanResultRecord
 from app.models.surface_endpoint import SurfaceEndpoint
 from app.models.synthetic_account import SyntheticAccount
 from app.models.target import Target, TargetKind
+from app.models.workflow import Workflow, WorkflowRun
 from app.plugins.allowlist import policy_from_settings
 from app.plugins.contract import PluginKind
 from app.plugins.registry import discover
@@ -303,6 +323,132 @@ async def execute_assessment_run(
                 )
                 checks.append(domain_check)
 
+        # CONTAINER runs only for `kind: container`, and only once the RoE's
+        # asset_scope resolves — same fail-closed-but-do-not-abort-the-run
+        # handling as DOMAIN above. `resolve_container_scope` itself refuses
+        # an empty `allowed_registries`, so a target that never declared one
+        # skips the check here rather than the engine reaching an
+        # unauthorized registry.
+        container_check: ContainerCheck | None = None
+        if target.kind is TargetKind.CONTAINER:
+            try:
+                container_scope = resolve_container_scope(
+                    target.rules_of_engagement.asset_scope
+                    if target.rules_of_engagement is not None
+                    else None
+                )
+            except AssetScopeValidationError as exc:
+                await _record_event(
+                    db,
+                    run.id,
+                    RunEventKind.CHECK_COMPLETED,
+                    f"Container scanning skipped: {exc}",
+                    {"reason": str(exc)},
+                )
+            else:
+                container_check = ContainerCheck(
+                    target=ContainerTarget(
+                        image_ref=container_scope.image_ref,
+                        allowed_registries=tuple(container_scope.allowed_registries),
+                        allow_live_pull=container_scope.allow_live_pull,
+                    )
+                )
+                checks.append(container_check)
+
+        # CLOUD_ACCOUNT runs only for `kind: cloud_account`, and only once
+        # the RoE's asset_scope resolves — same fail-closed-but-do-not-
+        # abort-the-run handling as CONTAINER above. `resolve_cloud_scope`
+        # itself refuses `read_only: false`, so a target that asked for
+        # anything but a read-only assessment skips the check here rather
+        # than the engine attempting a mutating call.
+        cloud_check: CloudCheck | None = None
+        if target.kind is TargetKind.CLOUD_ACCOUNT:
+            try:
+                cloud_scope = resolve_cloud_scope(
+                    target.rules_of_engagement.asset_scope
+                    if target.rules_of_engagement is not None
+                    else None
+                )
+            except AssetScopeValidationError as exc:
+                await _record_event(
+                    db,
+                    run.id,
+                    RunEventKind.CHECK_COMPLETED,
+                    f"Cloud scanning skipped: {exc}",
+                    {"reason": str(exc)},
+                )
+            else:
+                cloud_check = CloudCheck(
+                    target=CloudTarget(
+                        provider=cloud_scope.provider,
+                        account_ref=cloud_scope.account_ref,
+                        credential_env_var=cloud_scope.credential_env_var,
+                        allowed_regions=tuple(cloud_scope.allowed_regions),
+                    )
+                )
+                checks.append(cloud_check)
+
+        # VIRTUAL_MACHINE runs only for `kind: virtual_machine`, and only
+        # once the RoE's asset_scope resolves — same fail-closed-but-do-not-
+        # abort-the-run handling as CONTAINER/CLOUD above. `resolve_vm_scope`
+        # itself refuses an empty `allowed_ports`, so a target that never
+        # declared one skips the check here rather than the engine scanning
+        # an unauthorized port range.
+        vm_check: VmCheck | None = None
+        if target.kind is TargetKind.VIRTUAL_MACHINE:
+            try:
+                vm_scope = resolve_vm_scope(
+                    target.rules_of_engagement.asset_scope
+                    if target.rules_of_engagement is not None
+                    else None
+                )
+            except AssetScopeValidationError as exc:
+                await _record_event(
+                    db,
+                    run.id,
+                    RunEventKind.CHECK_COMPLETED,
+                    f"VM scanning skipped: {exc}",
+                    {"reason": str(exc)},
+                )
+            else:
+                vm_check = VmCheck(
+                    target=VmTarget(
+                        host=vm_scope.host,
+                        allowed_ports=tuple(vm_scope.allowed_ports),
+                    )
+                )
+                checks.append(vm_check)
+
+        # PENTEST tooling is additive on top of whichever asset kind is
+        # already being scanned (Phase 1 foundation's own decision) — this
+        # phase wires it only to a VM target's already-discovered open
+        # services (see app/core/pentest/engine.py's own docstring for why
+        # extending it to other asset kinds later is a caller-side wiring
+        # change, not a change to the engine). It is appended to `checks`
+        # only when `vm_check` is, and always after it — `execute_run`
+        # (app/core/orchestrator/runner.py) runs every check sequentially
+        # in this exact order, so `vm_check.discovered` is already
+        # populated by the time `pentest_check.run()` reads it.
+        pentest_check: PentestCheck | None = None
+        if vm_check is not None:
+            try:
+                pentest_scope = resolve_pentest_scope(
+                    target.rules_of_engagement.asset_scope
+                    if target.rules_of_engagement is not None
+                    else None
+                )
+            except AssetScopeValidationError as exc:
+                await _record_event(
+                    db,
+                    run.id,
+                    RunEventKind.CHECK_COMPLETED,
+                    f"Pentest tooling skipped: {exc}",
+                    {"reason": str(exc)},
+                )
+            else:
+                pentest_check = PentestCheck(vm_check=vm_check, scope=pentest_scope)
+                checks.append(pentest_check)
+
         # The code engines need a checkout. It is created here and removed in
         # the `finally` below whatever happens: a working copy of a client's
         # repository is precisely what must not be left on a worker, since it
@@ -394,6 +540,14 @@ async def execute_assessment_run(
             all_results.extend(dast_check.scan_results)
         if domain_check is not None:
             all_results.extend(domain_check.scan_results)
+        if container_check is not None:
+            all_results.extend(container_check.scan_results)
+        if cloud_check is not None:
+            all_results.extend(cloud_check.scan_results)
+        if vm_check is not None:
+            all_results.extend(vm_check.scan_results)
+        if pentest_check is not None:
+            all_results.extend(pentest_check.scan_results)
         if plugin_check is not None:
             all_results.extend(plugin_check.scan_results)
 
@@ -426,6 +580,64 @@ async def execute_assessment_run(
                 organization_id=run.organization_id,
                 parent_target_id=target.id,
                 subdomains=domain_check.discovered,
+            )
+
+        # Same idea for the container engine's subprocess calls, but into
+        # `run_tool_invocations` — the first engine to actually populate the
+        # table Pentest module Phase 1 added as schema-only foundation.
+        if container_check is not None and container_check.tool_invocations:
+            await record_tool_invocations(
+                db,
+                organization_id=run.organization_id,
+                run_id=run.id,
+                invocations=container_check.tool_invocations,
+            )
+
+        # Same idea for the cloud engine's inventoried buckets, but into the
+        # discovered-asset inventory rather than the findings table — a
+        # bucket is something found, not itself a vulnerability (whether it
+        # is public is what the finding, not the discovery row, says).
+        if cloud_check is not None and cloud_check.discovered:
+            await promote_discovered_buckets(
+                db,
+                organization_id=run.organization_id,
+                parent_target_id=target.id,
+                target=cloud_check.target,
+                exposures=cloud_check.discovered,
+            )
+
+        # Same idea for the VM engine's subprocess calls and discovered open
+        # services — `vm_service.record_tool_invocations` mirrors the
+        # container engine's own function of the same name, and
+        # `vm_service.promote_discovered_open_services` mirrors
+        # `promote_discovered_buckets`: an open port is something found, not
+        # itself a vulnerability.
+        if vm_check is not None and vm_check.tool_invocations:
+            await vm_service.record_tool_invocations(
+                db,
+                organization_id=run.organization_id,
+                run_id=run.id,
+                invocations=vm_check.tool_invocations,
+            )
+        if vm_check is not None and vm_check.discovered:
+            await vm_service.promote_discovered_open_services(
+                db,
+                organization_id=run.organization_id,
+                parent_target_id=target.id,
+                target=vm_check.target,
+                open_ports=vm_check.discovered,
+            )
+
+        # Same idea for the pentest engine's subprocess calls — it has no
+        # discoveries of its own to promote; a script result becomes a
+        # finding (already collected above) or nothing, never a new
+        # DiscoveredAsset.
+        if pentest_check is not None and pentest_check.tool_invocations:
+            await pentest_service.record_tool_invocations(
+                db,
+                organization_id=run.organization_id,
+                run_id=run.id,
+                invocations=pentest_check.tool_invocations,
             )
 
         run.status = RunStatus(outcome.status.value)
@@ -469,7 +681,7 @@ async def execute_assessment_run(
         return run.status
 
 
-@celery_app.task(name="aegis.run_assessment")
+@celery_app.task(name="kervy.run_assessment")
 def run_assessment(run_id: str) -> str:
     """Celery's synchronous entry point.
 
@@ -491,7 +703,145 @@ def run_assessment(run_id: str) -> str:
     from app.workers.notifications import notify_run_finished
 
     notify_run_finished.delay(run_id)
+    # Same reasoning, a second decoupled follow-up: if this assessment run
+    # was queued on a workflow run's behalf (pentest-module Phase 8), gate
+    # it now that it has reached a terminal state. A no-op for the
+    # overwhelming majority of assessment runs, which have no linked
+    # workflow run at all.
+    gate_workflow_run_if_linked.delay(run_id)
     return status.value
+
+
+async def gate_workflow_run_if_linked_async(run_id: str) -> None:
+    """The async implementation `gate_workflow_run_if_linked` (the Celery
+    task below) delegates to — tests call this directly, the same way
+    `execute_assessment_run` is called directly rather than through
+    `run_assessment`.
+
+    If `run_id` is the assessment run a `WorkflowRun` queued
+    (`app.core.workflow.service.queue_scan_for_workflow_run`), gate it now
+    over the findings that scan just produced — the same `finish()` a
+    manual trigger's synchronous call already uses. Nothing to do, and
+    nothing recorded, when no workflow run references this assessment run.
+    """
+    session_factory = get_session_factory()
+    async with session_factory() as db:
+        workflow_run = (
+            await db.execute(
+                select(WorkflowRun).where(WorkflowRun.assessment_run_id == uuid.UUID(run_id))
+            )
+        ).scalar_one_or_none()
+        if workflow_run is None:
+            return
+        set_current_organization(workflow_run.organization_id)
+        workflow = await db.get(Workflow, workflow_run.workflow_id)
+        if workflow is None:
+            logger.warning(
+                "workflow_run_gate_skipped_missing_workflow",
+                workflow_run_id=str(workflow_run.id),
+            )
+            return
+        await workflow_service.gate_run_once_scan_finished(db, workflow_run, workflow)
+        await db.commit()
+
+
+@celery_app.task(name="kervy.gate_workflow_run_if_linked")
+def gate_workflow_run_if_linked(run_id: str) -> None:
+    async def _run() -> None:
+        try:
+            await gate_workflow_run_if_linked_async(run_id)
+        finally:
+            await dispose_engine()
+
+    asyncio.run(_run())
+
+
+async def dispatch_scheduled_workflows_async() -> int:
+    """The async implementation `dispatch_scheduled_workflows` delegates
+    to. Celery Beat's own entry point (pentest-module Phase 8), ticked
+    every 60 seconds (`app/workers/celery_app.py`) against a ≥60-minute-
+    interval floor — ample headroom, not a tight race. Advances each due
+    workflow's `next_run_at` immediately, before its run task executes, so
+    a slow or stuck run never causes a duplicate dispatch on the next
+    tick. Returns the number of workflows dispatched.
+    """
+    session_factory = get_session_factory()
+    dispatched = 0
+    async with session_factory() as db:
+        due = (
+            (
+                await db.execute(
+                    select(Workflow).where(
+                        Workflow.enabled.is_(True),
+                        Workflow.trigger_kind == "schedule",
+                        Workflow.schedule_interval_minutes.is_not(None),
+                        Workflow.next_run_at.is_not(None),
+                        Workflow.next_run_at <= datetime.now(UTC),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for workflow in due:
+            assert workflow.schedule_interval_minutes is not None
+            workflow.next_run_at = datetime.now(UTC) + timedelta(
+                minutes=workflow.schedule_interval_minutes
+            )
+            dispatched += 1
+        await db.commit()
+        for workflow in due:
+            run_scheduled_workflow.delay(str(workflow.id))
+    return dispatched
+
+
+@celery_app.task(name="kervy.dispatch_scheduled_workflows")
+def dispatch_scheduled_workflows() -> int:
+    async def _run() -> int:
+        try:
+            return await dispatch_scheduled_workflows_async()
+        finally:
+            await dispose_engine()
+
+    return asyncio.run(_run())
+
+
+async def run_scheduled_workflow_async(workflow_id: str) -> None:
+    """The async implementation `run_scheduled_workflow` delegates to.
+    Fires one `SCHEDULE`-kind workflow. No human is present for this call,
+    so `unattended=True` — a plan that would queue a scan-touching action
+    pauses for approval (`start_and_maybe_pause`) rather than proceeding;
+    a plan that would not (only correlating/notifying over findings that
+    already exist) completes exactly as a manual trigger's synchronous
+    call already does.
+    """
+    session_factory = get_session_factory()
+    async with session_factory() as db:
+        workflow = await db.get(Workflow, uuid.UUID(workflow_id))
+        if workflow is None or not workflow.enabled:
+            logger.warning("scheduled_workflow_not_runnable", workflow_id=workflow_id)
+            return
+        set_current_organization(workflow.organization_id)
+        trigger = workflow_service.trigger_from(
+            workflow, actor="system:celery-beat", unattended=True
+        )
+        run, outcome = await workflow_service.start_and_maybe_pause(db, workflow, trigger)
+        if run.status != WorkflowStatus.AWAITING_APPROVAL.value:
+            await workflow_service.finish(
+                db, run, workflow, outcome, actions_detail="triggered by Celery Beat"
+            )
+        await db.commit()
+
+
+@celery_app.task(name="kervy.run_scheduled_workflow")
+def run_scheduled_workflow(workflow_id: str) -> None:
+    async def _run() -> None:
+        try:
+            await run_scheduled_workflow_async(workflow_id)
+        finally:
+            await dispose_engine()
+
+    asyncio.run(_run())
 
 
 async def _prepare_code_check(target: Target, checkout_dir: "Path") -> CodeScanCheck:

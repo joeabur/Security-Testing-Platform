@@ -18,9 +18,9 @@ Nearly always a missing input. Check, in this order:
 1. **No OpenAPI document uploaded.** The API probes derive their surface from
    it. Without one you get a handful of transport-level findings and nothing
    else. `PUT …/targets/{id}/openapi`.
-2. **No synthetic accounts.** BOLA (`AEGIS-API-050`) and function-level
-   authorization (`AEGIS-API-051`) need two identities. Without them the report
-   says `AEGIS-API-000 — not tested`.
+2. **No synthetic accounts.** BOLA (`KERVY-API-050`) and function-level
+   authorization (`KERVY-API-051`) need two identities. Without them the report
+   says `KERVY-API-000 — not tested`.
 3. **No adapter configured.** No AI findings without one.
 4. **Credential variables missing from the worker.** See below.
 
@@ -38,7 +38,7 @@ with no authorization findings.
 
 ```bash
 # In the worker's shell, before starting it
-export AEGIS_LAB_ACME_TOKEN=... AEGIS_LAB_GLOBEX_TOKEN=...
+export KERVY_LAB_ACME_TOKEN=... KERVY_LAB_GLOBEX_TOKEN=...
 ```
 
 ## Every request to the demo lab is refused as out of scope
@@ -56,7 +56,7 @@ Use the dry run to see the decision without sending anything:
 
 ```
 POST /organizations/{org}/targets/{id}/scope/explain
-aegis-ai scope explain --target <id> --url https://...
+kervy-ai scope explain --target <id> --url https://...
 ```
 
 It names the rule that refused. Common causes: the hostname is not in
@@ -76,7 +76,7 @@ The hostname did not resolve, so the engine cannot prove it is not internal and
 refuses. It is not a halt — the rest of the run continues. Check the name from
 the worker's network.
 
-## An AppSec engine reports `AEGIS-APPSEC-000 — not tested`
+## An AppSec engine reports `KERVY-APPSEC-000 — not tested`
 
 Its tool is not on the worker's `PATH`. The marker names which one. Install it
 and re-run, or record that pillar as out of scope for the engagement.
@@ -90,7 +90,7 @@ guess which files they may read.
 
 - `422` with "not permitted": the host is not sanctioned. Vendor kinds are
   pinned in code; a generic webhook host must be in
-  `AEGIS_NOTIFY_ALLOWED_WEBHOOK_HOSTS`.
+  `KERVY_NOTIFY_ALLOWED_WEBHOOK_HOSTS`.
 - `422` naming a variable: that environment variable is not set in the API
   process. The channel is checked at creation so it cannot fail later during an
   incident.

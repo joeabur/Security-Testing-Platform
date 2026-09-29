@@ -17,7 +17,7 @@ import redis
 
 from app.core.config import get_settings
 
-_KEY_TEMPLATE = "aegis:run:{run_id}:cancel"
+_KEY_TEMPLATE = "kervy:run:{run_id}:cancel"
 # Long enough to outlive any run permitted by the wall-clock budget cap.
 _TTL_SECONDS = 24 * 60 * 60
 

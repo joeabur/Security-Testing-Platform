@@ -44,7 +44,7 @@ export async function serverApiFetch<T>(path: string, init: RequestInit = {}): P
   // The backend's verification (app/core/csrf/enforce.py::check) recomputes
   // the expected signature from the *session* cookie alone and compares it
   // against whatever arrives in this header — it never looks up the
-  // `aegis_csrf` cookie by name. So only the header needs forwarding here;
+  // `kervy_csrf` cookie by name. So only the header needs forwarding here;
   // the cookie's sole job was getting a same-origin-readable copy of the
   // value in front of whichever script needs to echo it, which already
   // happened when it was issued to this same server-rendered request's

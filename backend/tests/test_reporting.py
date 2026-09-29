@@ -85,7 +85,7 @@ def test_every_result_carries_a_fingerprint_a_consumer_can_track() -> None:
     """Without this a code host shows every run's findings as brand new."""
     document = to_sarif(sample_report())
     for result in document["runs"][0]["results"]:
-        assert result["partialFingerprints"]["aegisFingerprint/v1"].startswith("sha256:")
+        assert result["partialFingerprints"]["kervyFingerprint/v1"].startswith("sha256:")
 
 
 def test_sarif_records_what_was_not_tested() -> None:
@@ -139,8 +139,8 @@ def test_the_executive_template_omits_probe_ids() -> None:
     technical = render_markdown(report, Template.TECHNICAL)
 
     assert not shows_probe_ids(Template.EXECUTIVE)
-    assert "AEGIS-AI-001" in technical
-    assert "AEGIS-AI-001" not in executive
+    assert "KERVY-AI-001" in technical
+    assert "KERVY-AI-001" not in executive
 
 
 def test_every_template_states_its_authorization_and_its_gaps() -> None:

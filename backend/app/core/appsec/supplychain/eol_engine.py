@@ -88,7 +88,7 @@ class EndOfLifeRuntimeEngine:
             if is_end_of_life(entry, today=self._today):
                 results.append(
                     ScanResult(
-                        id="AEGIS-SUPPLY-010",
+                        id="KERVY-SUPPLY-010",
                         title=(
                             f"End-of-life runtime: {declaration.runtime} "
                             f"{entry.series} in {declaration.source}"
@@ -128,7 +128,7 @@ class EndOfLifeRuntimeEngine:
             elif -days <= APPROACHING_DAYS:
                 results.append(
                     ScanResult(
-                        id="AEGIS-SUPPLY-011",
+                        id="KERVY-SUPPLY-011",
                         title=(
                             f"Runtime approaching end of life: {declaration.runtime} {entry.series}"
                         ),
@@ -160,7 +160,7 @@ class EndOfLifeRuntimeEngine:
             )
             results.append(
                 ScanResult(
-                    id="AEGIS-SUPPLY-019",
+                    id="KERVY-SUPPLY-019",
                     title="Not assessed: runtimes outside the end-of-life table",
                     category=Category.INFRASTRUCTURE,
                     severity=Severity.INFORMATIONAL,

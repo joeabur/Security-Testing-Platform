@@ -97,14 +97,14 @@ this API.
 
 ```bash
 # End this session only. Other tokens for this user keep working.
-curl -X POST "$AEGIS/auth/logout" -H "Authorization: Bearer $TOKEN"
+curl -X POST "$KERVY/auth/logout" -H "Authorization: Bearer $TOKEN"
 
 # End every session — the response to "I think this leaked".
-curl -X POST "$AEGIS/auth/logout-all" -H "Authorization: Bearer $TOKEN"
+curl -X POST "$KERVY/auth/logout-all" -H "Authorization: Bearer $TOKEN"
 
 # What is currently active, and end one specific *other* one by id.
-curl "$AEGIS/auth/sessions" -H "Authorization: Bearer $TOKEN"
-curl -X DELETE "$AEGIS/auth/sessions/$SESSION_ID" -H "Authorization: Bearer $TOKEN"
+curl "$KERVY/auth/sessions" -H "Authorization: Bearer $TOKEN"
+curl -X DELETE "$KERVY/auth/sessions/$SESSION_ID" -H "Authorization: Bearer $TOKEN"
 ```
 
 Both clear the session and CSRF cookies when called with a cookie-

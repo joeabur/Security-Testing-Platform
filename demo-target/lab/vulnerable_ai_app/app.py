@@ -43,7 +43,7 @@ DECLARED_TOOLS: list[dict[str, Any]] = [
 def create_app() -> FastAPI:
     announce("vulnerable-ai-app")
     app = FastAPI(
-        title="Aegis Lab — intentionally vulnerable AI application",
+        title="Kervy Lab — intentionally vulnerable AI application",
         description="Do not deploy. Every endpoint here is deliberately weak.",
         version="0.1.0",
     )

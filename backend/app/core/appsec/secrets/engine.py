@@ -96,7 +96,7 @@ class SecretScanEngine:
         fixture = any(part in _LIKELY_FIXTURE_PARTS for part in Path(relative).parts)
 
         return ScanResult(
-            id=f"AEGIS-SECRET-{match.kind.upper()}",
+            id=f"KERVY-SECRET-{match.kind.upper()}",
             title=f"Committed credential in {relative}",
             category=Category.INFRASTRUCTURE,
             # A credential in a test fixture is still a credential, so this

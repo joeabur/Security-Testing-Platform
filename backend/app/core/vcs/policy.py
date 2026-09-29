@@ -12,7 +12,7 @@ identical: a row in the database that produces an outbound HTTP request.
 * **The host is pinned or sanctioned.** `github.com` connections may reach
   `api.github.com` and nothing else, decided in code rather than by the row. A
   GitHub Enterprise host is site-specific, so it must appear in an operator
-  allowlist held in the environment (`AEGIS_VCS_ALLOWED_HOSTS`) — an
+  allowlist held in the environment (`KERVY_VCS_ALLOWED_HOSTS`) — an
   organization admin picks among hosts an operator sanctioned, and cannot
   invent one.
 
@@ -46,7 +46,7 @@ def resolve_enterprise_host(raw: str, *, operator_hosts: Sequence[str] = ()) -> 
     if not host_permitted(host, operator_hosts):
         raise VcsError(
             f"host {host!r} is not permitted for a code-host connection. "
-            "Add it to AEGIS_VCS_ALLOWED_HOSTS to sanction it."
+            "Add it to KERVY_VCS_ALLOWED_HOSTS to sanction it."
         )
     return host
 

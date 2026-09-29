@@ -1,4 +1,4 @@
-"""An example Aegis probe plugin.
+"""An example Kervy probe plugin.
 
 Reports endpoints that reflect an arbitrary request header back to the caller.
 Reflection is not itself a vulnerability, but it is the primitive behind
@@ -20,12 +20,12 @@ class HeaderReflectionProbe:
     name = "Request header reflected in the response"
     category = Category.API_SECURITY.value
 
-    HEADER = "X-Aegis-Example"
+    HEADER = "X-Kervy-Example"
 
     async def run(self, target: ProbeTarget, context: PluginContext) -> list[ScanResult]:
         # A fresh marker per run, so a reflection found here cannot be a stale
         # value cached from an earlier assessment.
-        marker = "aegis-" + secrets.token_hex(8)
+        marker = "kervy-" + secrets.token_hex(8)
         findings: list[ScanResult] = []
 
         for operation in target.operations:

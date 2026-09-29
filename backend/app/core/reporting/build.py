@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.measure.asr import DEFAULT_RULE
 from app.core.probes.models import Severity
 from app.core.reporting.model import (
+    PILLAR_PREFIXES,
     PILLARS,
     SEVERITY_ORDER,
     NotTested,
@@ -106,27 +107,6 @@ def _not_tested_from(results: list[ScanResultRecord]) -> list[NotTested]:
     return gaps
 
 
-#: Which probe-id prefixes belong to which pillar. Prefixes rather than an
-#: explicit engine list: a new Semgrep-family engine should count as SAST
-#: without anybody remembering to add it here, and one that does not match any
-#: prefix is better reported as an untested pillar than silently attributed.
-_PILLAR_PREFIXES: dict[str, tuple[str, ...]] = {
-    "AI security": ("ai.",),
-    "API security": ("api.", "graphql."),
-    "SAST": ("appsec.sast.",),
-    "DAST": ("dast.",),
-    "SCA": ("appsec.sca.", "appsec.supplychain.", "appsec.container."),
-    "Secrets": ("appsec.secrets.",),
-    "IaC": ("appsec.iac.",),
-    "RASP": ("rasp.",),
-    "Container": ("container.",),
-    "Cloud": ("cloud.",),
-    "VM": ("vm.",),
-    "Domain": ("domain.",),
-    "Pentest": ("pentest.",),
-}
-
-
 def _pillar_coverage(results: list[ScanResultRecord], target: Target) -> list[PillarCoverage]:
     """One entry per pillar, always — that is the whole requirement.
 
@@ -150,7 +130,7 @@ def _pillar_coverage(results: list[ScanResultRecord], target: Target) -> list[Pi
     for row in results:
         if row.title.startswith("Not tested:"):
             continue
-        for pillar, prefixes in _PILLAR_PREFIXES.items():
+        for pillar, prefixes in PILLAR_PREFIXES.items():
             if row.probe_id.startswith(prefixes):
                 tested.add(pillar)
 
@@ -235,7 +215,7 @@ def _pillar_coverage(results: list[ScanResultRecord], target: Target) -> list[Pi
 def _judge_status(results: list[ScanResultRecord]) -> str:
     """What the run recorded about judging, verbatim where it exists."""
     for row in results:
-        if row.result_code == "AEGIS-AI-900":
+        if row.result_code == "KERVY-AI-900":
             first = row.evidence.strip().splitlines()
             if first:
                 return first[0]
@@ -244,7 +224,7 @@ def _judge_status(results: list[ScanResultRecord]) -> str:
 
 def _permission_graph(results: list[ScanResultRecord]) -> str | None:
     for row in results:
-        if row.result_code == "AEGIS-AI-030" and "```mermaid" in row.evidence:
+        if row.result_code == "KERVY-AI-030" and "```mermaid" in row.evidence:
             return row.evidence.split("```mermaid", 1)[1].split("```", 1)[0].strip()
     return None
 
@@ -383,7 +363,7 @@ async def build_report(db: AsyncSession, *, run: AssessmentRun, target: Target) 
         requests_blocked=run.requests_blocked,
         halted_reason=run.halted_reason,
         risk_model_tables=render_risk_tables(),
-        tool_versions={"aegis": TOOL_VERSION},
+        tool_versions={"kervy": TOOL_VERSION},
         ai_drafted_sections=sorted({draft.field.value for draft in accepted_drafts}),
     )
 
@@ -396,8 +376,8 @@ def to_canonical_json(report: ReportData) -> str:
     snapshot test meaningful.
     """
     payload: dict[str, Any] = {
-        "schema": "aegis.report/v1",
-        "tool": {"name": "Aegis AI Security", "version": report.tool_version},
+        "schema": "kervy.report/v1",
+        "tool": {"name": "Kervy Security", "version": report.tool_version},
         "generated_at": report.generated_at.isoformat(),
         "target": {
             "name": report.target_name,
@@ -506,4 +486,4 @@ def to_canonical_json(report: ReportData) -> str:
 
 
 def report_filename(run_id: uuid.UUID, template: str, extension: str) -> str:
-    return f"aegis-report-{run_id}-{template}.{extension}"
+    return f"kervy-report-{run_id}-{template}.{extension}"

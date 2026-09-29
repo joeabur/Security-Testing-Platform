@@ -52,7 +52,7 @@ assistant.
 is no sandbox, and the documentation says so plainly.**
 
 *Controls:* plugins load only from an operator allowlist pinned by distribution
-hash, `AEGIS_NO_PLUGINS=1` overrides everything, and a plugin receives a
+hash, `KERVY_NO_PLUGINS=1` overrides everything, and a plugin receives a
 scope-bound transport rather than a free one. A test proves a plugin cannot
 bypass the scope engine. Tool output cannot introduce an unverified CVE, because
 identifiers are checked for shape before they reach a finding.
@@ -113,7 +113,7 @@ Stated rather than hidden; the full list with verification notes is in
   database level is recommended in `docs/configuration.md` and not yet enforced.
 - **Evidence is stored unencrypted at rest under `EVIDENCE_ROOT` by
   default**, relying on filesystem permissions and whatever the deployment
-  provides. `AEGIS_EVIDENCE_ENCRYPTION_KEY` (`docs/configuration.md`) turns
+  provides. `KERVY_EVIDENCE_ENCRYPTION_KEY` (`docs/configuration.md`) turns
   on AES-256-GCM encryption for bundles written after it is set; it is
   opt-in, with one static key and no rotation, not a default or a general
   key-management solution.

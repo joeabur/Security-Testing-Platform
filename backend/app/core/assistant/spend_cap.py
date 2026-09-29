@@ -33,7 +33,7 @@ from redis.commands.core import AsyncScript
 
 from app.core.config import get_settings
 
-_KEY_PREFIX = "aegis:ai_spend:"
+_KEY_PREFIX = "kervy:ai_spend:"
 _DAY_SECONDS = 26 * 60 * 60  # a day plus slack, so a slow clock never drops the key early
 
 # Atomic check-then-increment: without this in one script, two concurrent

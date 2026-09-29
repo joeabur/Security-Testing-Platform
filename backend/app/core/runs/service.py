@@ -93,7 +93,7 @@ async def queue_run(
     await db.commit()
 
     try:
-        async_result = celery_app.send_task("aegis.run_assessment", args=[str(run.id)])
+        async_result = celery_app.send_task("kervy.run_assessment", args=[str(run.id)])
         run.celery_task_id = async_result.id
         await db.commit()
     except Exception as exc:  # noqa: BLE001 - broker down is an operator problem, reported as such

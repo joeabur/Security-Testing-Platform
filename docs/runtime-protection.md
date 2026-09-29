@@ -1,6 +1,6 @@
 # Runtime protection
 
-Aegis records what an operator **claims** protects a target. It does not
+Kervy records what an operator **claims** protects a target. It does not
 measure any of it, and it never will run inside a customer's process.
 
 ## Why there is no engine
@@ -27,12 +27,12 @@ control somebody deletes.
 ## What you can declare
 
 ```bash
-curl -X PUT "$AEGIS/organizations/$ORG/targets/$TARGET/runtime-protection" \
+curl -X PUT "$KERVY/organizations/$ORG/targets/$TARGET/runtime-protection" \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{
         "controls": [
           {"kind": "waf", "vendor": "Example WAF"},
-          {"kind": "prompt_firewall", "telemetry_env_var": "AEGIS_WAF_TOKEN"}
+          {"kind": "prompt_firewall", "telemetry_env_var": "KERVY_WAF_TOKEN"}
         ]
       }'
 ```

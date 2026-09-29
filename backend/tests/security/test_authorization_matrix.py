@@ -26,8 +26,10 @@ from fastapi.routing import APIRoute
 from httpx import AsyncClient
 
 from app.api.v1.routers import (
+    agent,
     api_keys,
     assistant,
+    dashboard,
     findings,
     integrations,
     organizations,
@@ -51,8 +53,10 @@ PREFIX = "/api/v1"
 # deliberately absent: they have no organization in their path, which is the
 # property the enumeration below filters on anyway.
 ROUTERS = (
+    agent,
     api_keys,
     assistant,
+    dashboard,
     findings,
     integrations,
     organizations,
@@ -164,6 +168,7 @@ EXPECTED_ROLES: dict[tuple[str, str], Role] = {
     ("GET", "/organizations/{organization_id}/api-keys"): Role.ADMIN,
     ("GET", "/organizations/{organization_id}/assistant/runs/{run_id}/drafts"): Role.VIEWER,
     ("GET", "/organizations/{organization_id}/assistant/status"): Role.VIEWER,
+    ("GET", "/organizations/{organization_id}/dashboard/summary"): Role.VIEWER,
     ("GET", "/organizations/{organization_id}/findings"): Role.VIEWER,
     ("GET", "/organizations/{organization_id}/findings/{finding_id}"): Role.VIEWER,
     ("GET", "/organizations/{organization_id}/members"): Role.VIEWER,
@@ -203,6 +208,8 @@ EXPECTED_ROLES: dict[tuple[str, str], Role] = {
     ("POST", "/organizations/{organization_id}/assistant/runs/{run_id}/drafts"): Role.ANALYST,
     ("POST", "/organizations/{organization_id}/findings/{finding_id}/status"): Role.ANALYST,
     ("POST", "/organizations/{organization_id}/members"): Role.ADMIN,
+    ("PATCH", "/organizations/{organization_id}/members/{member_id}"): Role.ADMIN,
+    ("DELETE", "/organizations/{organization_id}/members/{member_id}"): Role.ADMIN,
     # The whole point of this endpoint: security-engineer, not the admin
     # `POST /targets` needs, because adding a repository carries its own
     # self-affirmed consent instead of an operator-granted authorization.
@@ -238,6 +245,48 @@ EXPECTED_ROLES: dict[tuple[str, str], Role] = {
         "/organizations/{organization_id}/workflows/{workflow_id}/runs",
     ): Role.SECURITY_ENGINEER,
     ("GET", "/organizations/{organization_id}/workflows/{workflow_id}/runs"): Role.ANALYST,
+    # Pentest module Phase 8 (automation). Generating a webhook secret is a
+    # configuration change, the same admin tier as create/update; approving
+    # or rejecting a run an unattended trigger paused is the same
+    # security-engineer tier triggering one directly already requires —
+    # approving *is* authorizing a scan, not a lesser action.
+    (
+        "POST",
+        "/organizations/{organization_id}/workflows/{workflow_id}/webhook-secret",
+    ): Role.ADMIN,
+    (
+        "POST",
+        "/organizations/{organization_id}/workflows/{workflow_id}/runs/{run_id}/approve",
+    ): Role.SECURITY_ENGINEER,
+    (
+        "POST",
+        "/organizations/{organization_id}/workflows/{workflow_id}/runs/{run_id}/reject",
+    ): Role.SECURITY_ENGINEER,
+    # Agent Phase 5. Discovery and reading a paused investigation's status
+    # are viewer-tier; planning and running tools against the platform is
+    # the same analyst tier requesting an AI draft already requires;
+    # approving a paused SENSITIVE tool call is the same security-engineer
+    # tier POST /runs and POST .../workflows/{id}/runs require directly —
+    # an approval must not be a cheaper way to authorize one of those.
+    ("GET", "/organizations/{organization_id}/agent/tools"): Role.VIEWER,
+    # The route dependency is only a membership floor; each tool's own
+    # (possibly higher) minimum role is enforced inside the handler, the
+    # same two-layer pattern POST .../investigate already uses for its
+    # per-step tool authorization.
+    ("POST", "/organizations/{organization_id}/agent/tools/{tool_name}/call"): Role.VIEWER,
+    ("POST", "/organizations/{organization_id}/agent/investigate"): Role.ANALYST,
+    (
+        "GET",
+        "/organizations/{organization_id}/agent/investigate/{investigation_id}/status",
+    ): Role.VIEWER,
+    (
+        "POST",
+        "/organizations/{organization_id}/agent/investigate/{investigation_id}/approve",
+    ): Role.SECURITY_ENGINEER,
+    (
+        "POST",
+        "/organizations/{organization_id}/agent/investigate/{investigation_id}/cancel",
+    ): Role.SECURITY_ENGINEER,
     ("DELETE", "/organizations/{organization_id}/notification-channels/{channel_id}"): Role.ADMIN,
     ("GET", "/organizations/{organization_id}/notification-channels"): Role.ANALYST,
     (
@@ -265,10 +314,13 @@ EXPECTED_ROLES: dict[tuple[str, str], Role] = {
     ("PUT", "/organizations/{organization_id}/findings/{finding_id}/remediation"): Role.ANALYST,
     ("PUT", "/organizations/{organization_id}/targets/{target_id}/accounts/{label}"): Role.ADMIN,
     ("PUT", "/organizations/{organization_id}/targets/{target_id}/adapter"): Role.SECURITY_ENGINEER,
+    ("PUT", "/organizations/{organization_id}/targets/{target_id}/cloud-scope"): Role.ADMIN,
     ("PUT", "/organizations/{organization_id}/targets/{target_id}/code"): Role.ADMIN,
+    ("PUT", "/organizations/{organization_id}/targets/{target_id}/container-scope"): Role.ADMIN,
     ("PUT", "/organizations/{organization_id}/targets/{target_id}/domain-scope"): Role.ADMIN,
     ("PUT", "/organizations/{organization_id}/targets/{target_id}/openapi"): Role.ADMIN,
     ("PUT", "/organizations/{organization_id}/targets/{target_id}/rules-of-engagement"): Role.ADMIN,
+    ("PUT", "/organizations/{organization_id}/targets/{target_id}/vm-scope"): Role.ADMIN,
 }
 
 

@@ -22,9 +22,15 @@ export function SignOutButton() {
   }
 
   return (
-    <Button variant="ghost" size="sm" onClick={handleSignOut} disabled={isSigningOut}>
-      <LogOut className="h-4 w-4" aria-hidden />
-      {isSigningOut ? "Signing out..." : "Sign out"}
+    <Button
+      variant="ghost"
+      size="sm"
+      onClick={handleSignOut}
+      isLoading={isSigningOut}
+      aria-label="Sign out"
+    >
+      {isSigningOut ? null : <LogOut className="h-4 w-4" aria-hidden />}
+      <span className="hidden sm:inline">{isSigningOut ? "Signing out..." : "Sign out"}</span>
     </Button>
   );
 }

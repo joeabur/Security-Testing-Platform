@@ -43,19 +43,19 @@ normalizes and verifies identifiers; it does not second-guess whether a rule was
 right.
 
 **Absence of a tool is not absence of a problem.** If trivy or gitleaks is not
-installed, the engine emits `AEGIS-APPSEC-000 — not tested`. That marker is easy
+installed, the engine emits `KERVY-APPSEC-000 — not tested`. That marker is easy
 to skim past in a long report.
 
 ## Where false positives cluster
 
 | Finding | Why it misfires |
 |---|---|
-| `AEGIS-API-020` (no rate limit advertised) | Checks for rate-limit *headers*. A target that rate-limits without advertising it is reported and is a false positive |
-| `AEGIS-API-010` (missing security headers) | An API behind a gateway that adds headers downstream will be reported for the origin's response |
-| `AEGIS-API-030/031` (mass assignment, analysis mode) | Read from the declared schema, not exercised. A field the server ignores still looks bindable |
-| `AEGIS-SUPPLY-030` (name confusion) | Legitimate packages routinely wrap a popular name. Reported at LOW with `DESIGN_REVIEW` confidence for exactly this reason |
-| `AEGIS-SUPPLY-023` (unknown licence) | Depends on installed metadata. A dependency not installed in the scanning environment classifies as unknown |
-| `AEGIS-API-040` (invalid input causes a server error) | A 500 on malformed input is a robustness issue; whether it is a security issue depends on what leaks |
+| `KERVY-API-020` (no rate limit advertised) | Checks for rate-limit *headers*. A target that rate-limits without advertising it is reported and is a false positive |
+| `KERVY-API-010` (missing security headers) | An API behind a gateway that adds headers downstream will be reported for the origin's response |
+| `KERVY-API-030/031` (mass assignment, analysis mode) | Read from the declared schema, not exercised. A field the server ignores still looks bindable |
+| `KERVY-SUPPLY-030` (name confusion) | Legitimate packages routinely wrap a popular name. Reported at LOW with `DESIGN_REVIEW` confidence for exactly this reason |
+| `KERVY-SUPPLY-023` (unknown licence) | Depends on installed metadata. A dependency not installed in the scanning environment classifies as unknown |
+| `KERVY-API-040` (invalid input causes a server error) | A 500 on malformed input is a robustness issue; whether it is a security issue depends on what leaks |
 
 ## Where false negatives cluster
 

@@ -554,7 +554,7 @@ async def test_zap_reports_a_visible_gap_rather_than_running_unbounded() -> None
 
     policy = tool_policy(allow_state_mutation=False, allowed_methods=("GET",))
     results = await run_zap(SEED, policy, allowed_domains=(HOST, "other.test"))
-    assert [item.id for item in results] == ["AEGIS-APPSEC-000"]
+    assert [item.id for item in results] == ["KERVY-APPSEC-000"]
     assert "exactly one concrete host" in results[0].evidence
 
 
@@ -587,7 +587,7 @@ def test_a_zap_alert_is_stripped_of_html_and_keeps_its_rule_id() -> None:
     )
     assert len(findings) == 1
     finding = findings[0]
-    assert finding.id == "AEGIS-DAST-ZAP-10038"
+    assert finding.id == "KERVY-DAST-ZAP-10038"
     assert "<p>" not in finding.description
     assert "CWE-693" in finding.frameworks
     assert "baseline" in finding.description
@@ -603,7 +603,7 @@ async def test_the_engine_reports_out_of_scope_links_as_a_finding() -> None:
     engine = DastEngine(crawler=crawler(transport), run_tools=False)
     results = await engine.run(context(), DastTarget(seed_url=SEED))
 
-    refusal = next(item for item in results if item.id == "AEGIS-DAST-001")
+    refusal = next(item for item in results if item.id == "KERVY-DAST-001")
     assert "tracker.example" in refusal.description
     # Nothing was sent, and the finding says so rather than implying a test.
     assert "nothing was sent" in refusal.impact
@@ -624,7 +624,7 @@ async def test_an_incomplete_crawl_is_reported_as_a_coverage_gap() -> None:
         context(), DastTarget(seed_url=SEED, limits=CrawlLimits(max_pages=3))
     )
 
-    gap = next(item for item in results if item.id == "AEGIS-DAST-009")
+    gap = next(item for item in results if item.id == "KERVY-DAST-009")
     assert "page limit" in gap.description
     assert gap.confidence is Confidence.DESIGN_REVIEW
 
@@ -645,7 +645,7 @@ async def test_state_changing_forms_are_reported_with_the_mode_that_applied() ->
     transport = PageTransport({SEED: b'<html><form action="/pay" method="post"></form></html>'})
     engine = DastEngine(crawler=crawler(transport), run_tools=False)
     results = await engine.run(context(), DastTarget(seed_url=SEED))
-    forms = next(item for item in results if item.id == "AEGIS-DAST-002")
+    forms = next(item for item in results if item.id == "KERVY-DAST-002")
     assert "does not allow state mutation" in forms.description
 
 
@@ -661,7 +661,7 @@ async def test_a_crawl_that_reached_nothing_says_the_tools_did_not_run() -> None
     )
     engine = DastEngine(crawler=crawl, run_tools=True)
     results = await engine.run(context(), DastTarget(seed_url=SEED))
-    assert [item.id for item in results].count("AEGIS-APPSEC-000") == 2
+    assert [item.id for item in results].count("KERVY-APPSEC-000") == 2
 
 
 def test_the_dast_pillar_exists_so_coverage_can_name_it() -> None:

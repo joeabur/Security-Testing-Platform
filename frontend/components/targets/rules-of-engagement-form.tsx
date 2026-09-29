@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 
+import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -78,10 +79,10 @@ export function RulesOfEngagementForm({
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} noValidate className="flex flex-col gap-4">
-      <p className="text-xs text-muted-foreground">
+      <Alert tone="info" className="text-xs">
         Comma-separated. Loopback targets need <code>127.0.0.1</code> explicitly listed under
         allowed IP ranges — it is blocked by default.
-      </p>
+      </Alert>
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="roe-domains">Allowed domains</Label>
         <Input id="roe-domains" placeholder="staging.example.test" {...register("allowed_domains")} />
@@ -106,12 +107,8 @@ export function RulesOfEngagementForm({
           Safe mode (skip payloads that could mutate state)
         </Label>
       </div>
-      {formError && (
-        <p className="text-sm text-destructive" role="alert">
-          {formError}
-        </p>
-      )}
-      <Button type="submit" disabled={isSubmitting} className="self-start">
+      {formError && <Alert tone="destructive">{formError}</Alert>}
+      <Button type="submit" isLoading={isSubmitting} className="self-start">
         {isSubmitting ? "Saving..." : "Save Rules of Engagement"}
       </Button>
     </form>

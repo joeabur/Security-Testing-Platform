@@ -1,7 +1,7 @@
 [project]
-name = "aegis-ai-security-backend"
+name = "kervy-security-backend"
 version = "0.1.0"
-description = "Aegis AI Security — backend API, orchestrator, and security testing engine"
+description = "Kervy Security — backend API, orchestrator, and security testing engine"
 requires-python = ">=3.12"
 license = { text = "Apache-2.0" }
 dependencies = [
@@ -30,6 +30,17 @@ dependencies = [
     # transitively through other packages, but the dashboard imports it
     # directly, so it is declared directly.
     "jinja2>=3.1",
+    # `nmap`'s own `-oX` XML output is parsed by the VM and pentest engines
+    # (Pentest module Phases 5-6). Bandit's B314 rule flags the stdlib
+    # `xml.etree.ElementTree.fromstring` as XXE-capable; this is its own
+    # documented drop-in replacement, already present transitively but now
+    # imported directly.
+    "defusedxml>=0.7",
+    # RFC 6238 TOTP for two-factor login (app/core/twofactor/totp.py). A
+    # narrow, widely-used implementation of one HMAC-based algorithm, used
+    # in preference to hand-rolling it the way this project avoids
+    # hand-rolling any other primitive built on `cryptography`/`argon2-cffi`.
+    "pyotp>=2.9",
 ]
 
 [project.optional-dependencies]
@@ -45,6 +56,7 @@ dev = [
     "types-PyYAML>=6.0",
     "jsonschema>=4.23",
     "types-jsonschema>=4.23",
+    "types-defusedxml>=0.7",
 ]
 # PDF reporting (§14). Optional because WeasyPrint needs system Pango and
 # Cairo libraries; every other report format works without it, and the PDF
@@ -68,16 +80,25 @@ appsec = [
     "checkov>=3.2",
     "detect-secrets>=1.5",
 ]
+# Pentest module cloud engine providers (Phase 4). Optional for the same
+# reason as `appsec`: the AWS provider reports "not tested" rather than
+# crashing when boto3 is absent, and the base test suite never imports it
+# for real — every test exercises the provider function via dependency
+# injection instead.
+cloud = [
+    "boto3>=1.35",
+]
 
 [project.scripts]
-aegis-ai = "aegis_cli.main:main"
+kervy-ai = "kervy_cli.main:main"
+kervy-mcp = "mcp_server.main:main"
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["app*", "aegis_cli*"]
+include = ["app*", "kervy_cli*", "mcp_server*"]
 
 [tool.ruff]
 line-length = 100
@@ -107,6 +128,12 @@ ignore_missing_imports = true
 # function, and its return value is narrowed at the call site.
 [[tool.mypy.overrides]]
 module = "weasyprint.*"
+ignore_missing_imports = true
+
+# boto3/botocore ship no py.typed marker. Optional 'cloud' extra, imported
+# only inside app/core/cloud/providers/aws.py's function bodies.
+[[tool.mypy.overrides]]
+module = ["boto3.*", "botocore.*"]
 ignore_missing_imports = true
 
 [tool.coverage.run]

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Sign in — Aegis AI Security{% endblock %}
+{% block title %}Sign in — Kervy Security{% endblock %}
 {% block content %}
 <h1>Sign in</h1>
 <p class="sub">This dashboard reads the session cookie the API sets.</p>
@@ -9,11 +9,11 @@
      wrong. Authenticate against the API, which sets the session cookie this
      page reads:</p>
   <pre style="overflow-x:auto"><code>curl -c cookies.txt http://127.0.0.1:8000/api/v1/auth/csrf
-CSRF=$(awk -F'\t' '$6 ~ /aegis_csrf_anon$/ {print $7}' cookies.txt)
+CSRF=$(awk -F'\t' '$6 ~ /kervy_csrf_anon$/ {print $7}' cookies.txt)
 curl -b cookies.txt -c cookies.txt -X POST http://127.0.0.1:8000/api/v1/auth/login \
   -H 'Content-Type: application/json' \
   -H "X-CSRF-Token: $CSRF" \
   -d '{"email":"you@example.test","password":"..."}'</code></pre>
-  <p class="why">Or use <code>aegis-ai login</code>. Then reload this page.</p>
+  <p class="why">Or use <code>kervy-ai login</code>. Then reload this page.</p>
 </div>
 {% endblock %}

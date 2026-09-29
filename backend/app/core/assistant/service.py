@@ -24,9 +24,12 @@ from datetime import UTC, datetime
 
 from app.core.assistant.autonomy import AutonomyMode, Capability, require
 from app.core.assistant.prompts import (
+    ANSWER_EVIDENCE_QUESTION,
+    CORRELATE_FINDINGS,
     DRAFT_REMEDIATION,
     DRAFT_SEVERITY_RATIONALE,
     EXPLAIN_FINDING,
+    PRIORITISE_FINDINGS,
     SUMMARISE_RUN,
     PromptTemplate,
     quote_evidence,
@@ -39,6 +42,7 @@ from app.core.assistant.provider import (
 
 MAX_EVIDENCE_CHARS = 4000
 MAX_TITLES = 50
+MAX_FINDINGS = 25
 
 
 @dataclass(frozen=True)
@@ -93,6 +97,18 @@ class FindingView:
     description: str
     evidence: str
     remediation: str
+
+
+def _render_findings_list(findings: list[FindingView]) -> str:
+    """One evidence-fenced block per finding, capped the same way
+    `summarise_run`'s title list is capped: a co-pilot reasoning over a
+    hundred findings at once produces noise, not a correlation."""
+    lines = [
+        f"- [{finding.probe_id}] {finding.title} (severity: {finding.severity}, "
+        f"surface: {finding.endpoint}): {finding.description[:MAX_EVIDENCE_CHARS]}"
+        for finding in findings[:MAX_FINDINGS]
+    ]
+    return quote_evidence("\n".join(lines))
 
 
 class AIService:
@@ -185,6 +201,42 @@ class AIService:
             or "none",
             not_tested=", ".join(not_tested) or "nothing recorded as untested",
             titles=quote_evidence("\n".join(f"- {title}" for title in titles[:MAX_TITLES])),
+        )
+
+    async def correlate_findings(self, findings: list[FindingView]) -> Draft:
+        """Look for relationships across findings from the same assessment.
+
+        Findings are a human's read-only slice, the same as `FindingView`
+        elsewhere in this class — the draft returned is a recommendation to
+        weigh, not a change to any finding's own fields or relationships.
+        """
+        return await self._draft(
+            Capability.CORRELATE_FINDINGS,
+            CORRELATE_FINDINGS,
+            findings=_render_findings_list(findings),
+        )
+
+    async def prioritise_findings(self, findings: list[FindingView]) -> Draft:
+        """Propose a remediation order. The platform's own severity/status
+        fields are unaffected — see `PRIORITISE_FINDINGS`'s own template."""
+        return await self._draft(
+            Capability.PRIORITISE_FINDINGS,
+            PRIORITISE_FINDINGS,
+            findings=_render_findings_list(findings),
+        )
+
+    async def answer_evidence_question(self, finding: FindingView, question: str) -> Draft:
+        """Answer a free-text question about one finding, grounded only in
+        what was captured — never in anything the question itself asserts."""
+        return await self._draft(
+            Capability.ANSWER_EVIDENCE_QUESTION,
+            ANSWER_EVIDENCE_QUESTION,
+            probe_id=finding.probe_id,
+            endpoint=finding.endpoint,
+            severity=finding.severity,
+            title=finding.title,
+            evidence=quote_evidence(finding.evidence[:MAX_EVIDENCE_CHARS]),
+            question=quote_evidence(question[:MAX_EVIDENCE_CHARS]),
         )
 
     async def propose_scan(self, request: str, available_commands: list[str]) -> Draft:

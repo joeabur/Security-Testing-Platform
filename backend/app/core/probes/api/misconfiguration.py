@@ -102,7 +102,7 @@ class SecurityHeadersProbe:
         surface = surface_label(operation)
         return [
             ScanResult(
-                id="AEGIS-API-010",
+                id="KERVY-API-010",
                 title="Security response headers are missing",
                 category=Category.API_SECURITY,
                 severity=Severity.LOW,
@@ -152,7 +152,7 @@ class CorsPolicyProbe:
 
     # An origin that is obviously not the target's own. If the API reflects
     # this back, it is reflecting whatever it is given.
-    PROBE_ORIGIN = "https://aegis-probe.invalid"
+    PROBE_ORIGIN = "https://kervy-probe.invalid"
 
     def applies_to(self, target: ProbeTarget) -> bool:
         return bool(target.operations)
@@ -203,7 +203,7 @@ class CorsPolicyProbe:
 
         return [
             ScanResult(
-                id="AEGIS-API-011",
+                id="KERVY-API-011",
                 title="Permissive CORS policy",
                 category=Category.API_SECURITY,
                 severity=severity,
@@ -267,7 +267,7 @@ class VerboseErrorProbe:
         # well-built API return a handled 4xx and a fragile one return its
         # stack trace — so this probe wants an operation that *has* a path
         # parameter, unlike the header checks, which want the simplest one.
-        url = operation_url(target.base_url, operation, value="aegis-probe'\"<>")
+        url = operation_url(target.base_url, operation, value="kervy-probe'\"<>")
         observation = await try_send(ctx, transport, method=operation.method, url=url)
         if observation is None:
             return []
@@ -279,7 +279,7 @@ class VerboseErrorProbe:
         surface = surface_label(operation)
         return [
             ScanResult(
-                id="AEGIS-API-012",
+                id="KERVY-API-012",
                 title="Error responses expose internal details",
                 category=Category.API_SECURITY,
                 severity=Severity.MEDIUM,
@@ -350,7 +350,7 @@ class DebugEndpointProbe:
 
             results.append(
                 ScanResult(
-                    id="AEGIS-API-013",
+                    id="KERVY-API-013",
                     title=f"Debug endpoint {path} is reachable",
                     category=Category.API_SECURITY,
                     severity=Severity.HIGH if path == "/.env" else Severity.MEDIUM,

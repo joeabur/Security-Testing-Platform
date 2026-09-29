@@ -1,10 +1,20 @@
-export type Role = "owner" | "admin" | "security_engineer" | "analyst" | "viewer";
+export type Role =
+  | "owner"
+  | "admin"
+  | "security_engineer"
+  | "analyst"
+  | "viewer";
 
 export interface User {
   id: string;
   email: string;
   full_name: string;
   is_active: boolean;
+}
+
+export interface OAuthProviders {
+  google: boolean;
+  github: boolean;
 }
 
 export interface Organization {
@@ -150,7 +160,11 @@ export interface Repository {
   latest_scan: RepositoryScanSummary | null;
 }
 
-export type WorkflowTriggerKind = "repository_change" | "pull_request" | "schedule" | "manual";
+export type WorkflowTriggerKind =
+  | "repository_change"
+  | "pull_request"
+  | "schedule"
+  | "manual";
 
 export interface Workflow {
   id: string;
@@ -174,4 +188,135 @@ export interface WorkflowRun {
   finished_at: string | null;
   detail: string | null;
   created_at: string;
+}
+
+// --- Native AI agent (Agent Phase 5) ---------------------------------------
+//
+// Deliberately no "conversation" or "history" type here: an investigation's
+// transcript lives only in this page's React state, for the current
+// investigation, never written to localStorage or any store — the frontend
+// side of the platform's zero-persistence rule for AI interactions.
+
+export type AgentToolRiskLevel = "read_only" | "standard" | "sensitive";
+
+export interface AgentToolCatalogEntry {
+  name: string;
+  description: string;
+  risk_level: AgentToolRiskLevel;
+  minimum_role: string;
+}
+
+export type InvestigationStatus =
+  | "running"
+  | "awaiting_approval"
+  | "completed"
+  | "cancelled"
+  | "failed";
+
+export type StepOutcomeStatus =
+  | "ok"
+  | "tool_not_found"
+  | "permission_denied"
+  | "approval_required"
+  | "execution_error";
+
+export interface StepOutcome {
+  tool_name: string;
+  status: StepOutcomeStatus;
+  result: Record<string, unknown> | null;
+  error: string | null;
+  duration_ms: number;
+}
+
+export interface PendingApproval {
+  tool_name: string;
+  risk_level: AgentToolRiskLevel;
+  description: string;
+}
+
+export interface Investigation {
+  investigation_id: string;
+  status: InvestigationStatus;
+  outcomes: StepOutcome[];
+  summary: string | null;
+  pending_approval: PendingApproval | null;
+}
+
+// --- Security operations dashboard (pentest module, Phase 10) --------------
+
+export type Severity = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "INFORMATIONAL";
+
+export interface SeverityCounts {
+  critical: number;
+  high: number;
+  medium: number;
+  low: number;
+  informational: number;
+}
+
+export interface PillarCoverageEntry {
+  pillar: string;
+  tested: boolean;
+}
+
+export interface RemediationSummary {
+  open: number;
+  overdue: number;
+}
+
+export interface DashboardRun {
+  id: string;
+  target_id: string;
+  target_name: string;
+  status: RunStatus;
+  profile: string;
+  findings_reported: number;
+  created_at: string;
+}
+
+export interface DashboardWorkflowRun {
+  id: string;
+  workflow_id: string;
+  workflow_name: string;
+  status: string;
+  gate_passed: boolean | null;
+  created_at: string;
+}
+
+export type FindingStatus =
+  | "new"
+  | "confirmed"
+  | "false_positive"
+  | "accepted_risk"
+  | "in_remediation"
+  | "remediated"
+  | "retest_required"
+  | "closed";
+
+export interface DashboardFinding {
+  id: string;
+  title: string;
+  severity: Severity;
+  risk_score: number;
+  status: FindingStatus;
+  target_id: string | null;
+  target_name: string | null;
+  last_seen: string;
+}
+
+export interface DashboardSummary {
+  targets: number;
+  open_findings: number;
+  open_findings_by_severity: SeverityCounts;
+  runs_last_7_days: number;
+  failed_runs_last_7_days: number;
+  workflows: number;
+  failing_gates_last_7_days: number;
+  undelivered_notifications: number;
+  remediation: RemediationSummary;
+  pending_retests: number;
+  pillar_coverage: PillarCoverageEntry[];
+  recent_runs: DashboardRun[];
+  recent_workflow_runs: DashboardWorkflowRun[];
+  top_findings: DashboardFinding[];
 }

@@ -29,7 +29,7 @@ being true. Most are both.
 | 13 | A CI credential cannot authorize testing | API key scopes cap at security engineer, below the admin required to grant |
 | 14 | No finding carries an invented identifier | Every CVE/GHSA/OSV/CWE is shape-verified; unverifiable ones are dropped, not repaired |
 | 15 | No framework mapping is unversioned | Versions come only from the pinned table; a framework with no references is not claimed |
-| 16 | A missing tool produces a visible gap | `AEGIS-APPSEC-000 — not tested`, never an empty result set |
+| 16 | A missing tool produces a visible gap | `KERVY-APPSEC-000 — not tested`, never an empty result set |
 | 17 | The AI layer cannot execute | No code path from assistant to scan, authorization or non-draft field; import-linter confirms the dependency direction |
 | 18 | The platform works with no AI provider | The full suite passes unchanged with none configured |
 | 19 | A plugin cannot bypass the scope engine | Plugins receive a scope-bound transport; a test proves the bypass fails |
@@ -39,9 +39,14 @@ being true. Most are both.
 | 23 | Authentication endpoints cannot be brute-forced without cost | Login/register are rate limited on both per-identity and per-IP dimensions; throttled (429), never locked out — `docs/rate-limiting.md` |
 | 24 | A cross-site page cannot forge a cookie-authenticated write | CSRF token is an HMAC over the session cookie's own value, enforced as middleware over every route — `docs/csrf.md` |
 | 25 | A logged-out or suspected-leaked token stops working immediately | Per-token deny-list on `/auth/logout`; durable per-user cutoff on `/auth/logout-all`; this control fails *closed* — `docs/revocation.md` |
-| 26 | A query that forgets its `organization_id` filter cannot return another tenant's rows | Postgres Row-Level Security on the 14 tenant-scoped tables, independent of guarantee #12's application-level filtering — `app/db/tenant_context.py`; requires the operator setup in `docs/deployment.md`'s Database section |
+| 26 | A query that forgets its `organization_id` filter cannot return another tenant's rows | Postgres Row-Level Security on the 21 tenant-scoped tables (confirmed live against `pg_policies`, not hand-counted from migration files), independent of guarantee #12's application-level filtering — `app/db/tenant_context.py`; requires the operator setup in `docs/deployment.md`'s Database section |
 | 27 | Cumulative AI provider spend cannot run away across many calls | A Redis-backed daily counter, checked before every call and charged with a real per-call estimate, on top of the $5.00 per-interaction budget — `app/core/assistant/spend_cap.py`, `app/core/assistant/pricing.py` |
 | 28 | The AI layer retains nothing for later use | Every provider call is single-shot; only platform-owned, audited rows (`AiDraft`, evidence bundles) persist anything, for a human to review and accept — never a store the AI itself reads back on a later call, run, or organization — `docs/guardrails.md` §1.1 |
+| 29 | The native agent cannot act beyond the caller's own role and tenant | Every tool call runs under an `AgentContext` built from the same role-ceiling logic `require_membership` enforces at the HTTP boundary; a `SENSITIVE` tool additionally requires an explicit, separately-authorized approval that no role or autonomy setting can substitute for — `app/core/agent/permissions.py`, `docs/agent.md` |
+| 30 | The native agent persists no conversation, prompt, response, or tool output | Five closed tables (`Agent`, `AgentProvider`, `AgentTool`, `AgentConfiguration`, `AgentUsageMetadata`) hold configuration and non-content metrics only, pinned by a closed-table-set test and a column-allowlist test; the only content that ever reaches Redis is a paused investigation's plan and state, key-expired at 30 minutes and read fail-closed — `app/models/agent.py`, `app/core/agent/session_store.py`, `docs/agent.md` |
+| 31 | A social login cannot silently take over an existing password account | Identity is matched only by `(provider, provider_user_id)`, never by email; a callback whose email matches an existing account refuses with `409`, the same non-enumerating-at-registration shape `POST /auth/register`'s duplicate-email case already uses — `app/models/oauth.py`, `app/api/v1/routers/auth.py::oauth_callback` |
+| 32 | A password reset token is single-use, short-lived, and invalidates every existing session | Stored as a SHA-256 digest, never the plaintext; a successful reset sets `tokens_valid_after` and revokes every `UserSession` row, the same "log out everywhere" cutover `/auth/logout-all` uses — `app/models/password_reset.py` |
+| 33 | Only an existing owner can grant, change, or remove another owner | `invite_member`, `update_member_role`, and `remove_member` all check `Role.at_least(Role.OWNER)` before any operation that touches `Role.OWNER`, so an Admin — despite having every other membership-management permission — cannot mint a co-owner or demote one; an organization's last remaining owner additionally cannot be demoted or removed at all, refused with `409`, so an organization can never end up with no one able to perform an owner-only action — `app/api/v1/routers/organizations.py` |
 
 ## The habit behind the tests
 
@@ -70,8 +75,10 @@ checked.
 - **Append-only is by construction, not by grant.** Revoking `UPDATE`/`DELETE`
   on `audit_logs` at the database level is recommended and not enforced.
 - **Evidence is unencrypted at rest.**
-- **Rate limiting covers only `login`/`register`.** Authenticated routes rely
-  on RBAC instead — see `docs/rate-limiting.md` §"What is not limited".
+- **Rate limiting covers `login`/`register` and, since social OAuth login and
+  password reset, `oauth_callback`/`forgot_password` too.** Authenticated
+  routes rely on RBAC instead — see `docs/rate-limiting.md` §"What is not
+  limited".
 
 `docs/security-review.md` carries the full self-review, including how each
 control was verified and what is not covered.

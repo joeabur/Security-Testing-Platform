@@ -55,7 +55,7 @@ Summarised here; full table in §4.5 of the build spec.
 |---|---|
 | Simplicity constraint vs. shipped Postgres/Redis/Celery | Keep — the "demonstrated requirement" clause is met and tested |
 | Next.js vs. Jinja2 + HTMX | Move to Jinja2 + HTMX; the scaffold has no dashboard to lose |
-| `aegis` vs. `aegis-ai` CLI name | `aegis`, with `aegis-ai` as an alias |
+| `kervy` vs. `kervy-ai` CLI name | `kervy`, with `kervy-ai` as an alias |
 | Addendum phases 13–15 vs. v3.0's thirteen phases | One sequence; new work is 14–18 |
 | MVP engine set: IaC vs. DAST vs. RASP | SAST/SCA/Secrets/IaC first, DAST next, RASP reduced to interfaces |
 | Assistant may not execute vs. `EXECUTE` autonomy mode | Ladder implemented; `EXECUTE` never reaches a target or an authorization |
@@ -68,7 +68,7 @@ before 16 before 18, per the later specification's own triage rule.
 
 ### Phase 14 — AppSec engines (SAST, SCA, Secrets, IaC)
 
-The MVP engine set. Aegis orchestrates; it does not reimplement scanners.
+The MVP engine set. Kervy orchestrates; it does not reimplement scanners.
 
 - `Target.code` (`repo_ref`, `languages`, `build_manifest_paths`) and
   `RulesOfEngagement.code_scope` (allowed/excluded paths, size cap). Absent

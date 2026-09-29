@@ -40,7 +40,7 @@ from app.core.vcs.render import (
 )
 
 TOKEN = "ghp_exampleexampleexampleexample1234"
-ENV = {"AEGIS_TEST_GH_TOKEN": TOKEN}
+ENV = {"KERVY_TEST_GH_TOKEN": TOKEN}
 
 
 def finding(**overrides: object) -> PublishableFinding:
@@ -49,7 +49,7 @@ def finding(**overrides: object) -> PublishableFinding:
         "title": "subprocess with shell=True on caller input",
         "severity": "HIGH",
         "surface": "src/app.py:12",
-        "probe_id": "AEGIS-SAST-B602",
+        "probe_id": "KERVY-SAST-B602",
         "severity_rationale": "Caller-controlled string reaches a shell.",
         "remediation": "Pass a list and drop shell=True.",
         "is_new": True,
@@ -66,7 +66,7 @@ def passing() -> GateDecision:
 
 
 def test_a_github_connection_is_pinned_to_the_github_api_host() -> None:
-    destination = resolve_destination(VcsProvider.GITHUB, "AEGIS_TEST_GH_TOKEN", environ=ENV)
+    destination = resolve_destination(VcsProvider.GITHUB, "KERVY_TEST_GH_TOKEN", environ=ENV)
     assert destination.host == GITHUB_API_HOST
     assert destination.api_base == f"https://{GITHUB_API_HOST}"
 
@@ -76,14 +76,14 @@ def test_a_github_connection_cannot_be_repointed_by_a_row() -> None:
     with pytest.raises(VcsError, match="always reaches"):
         resolve_destination(
             VcsProvider.GITHUB,
-            "AEGIS_TEST_GH_TOKEN",
+            "KERVY_TEST_GH_TOKEN",
             api_host="attacker.test",
             environ=ENV,
         )
 
 
 def test_an_enterprise_host_needs_the_operator_allowlist() -> None:
-    with pytest.raises(VcsError, match="AEGIS_VCS_ALLOWED_HOSTS"):
+    with pytest.raises(VcsError, match="KERVY_VCS_ALLOWED_HOSTS"):
         resolve_enterprise_host("git.internal.test")
     assert (
         resolve_enterprise_host("git.internal.test", operator_hosts=["git.internal.test"])
@@ -94,7 +94,7 @@ def test_an_enterprise_host_needs_the_operator_allowlist() -> None:
 def test_an_enterprise_connection_uses_the_server_api_prefix() -> None:
     destination = resolve_destination(
         VcsProvider.GITHUB_ENTERPRISE,
-        "AEGIS_TEST_GH_TOKEN",
+        "KERVY_TEST_GH_TOKEN",
         api_host="git.internal.test",
         operator_hosts=["git.internal.test"],
         environ=ENV,
@@ -104,8 +104,8 @@ def test_an_enterprise_connection_uses_the_server_api_prefix() -> None:
 
 def test_a_missing_token_variable_is_a_refusal_naming_the_variable() -> None:
     with pytest.raises(VcsError) as exc:
-        resolve_destination(VcsProvider.GITHUB, "AEGIS_TEST_ABSENT", environ={})
-    assert "AEGIS_TEST_ABSENT" in str(exc.value)
+        resolve_destination(VcsProvider.GITHUB, "KERVY_TEST_ABSENT", environ={})
+    assert "KERVY_TEST_ABSENT" in str(exc.value)
     assert TOKEN not in str(exc.value)
 
 
@@ -113,7 +113,7 @@ def test_a_missing_token_variable_is_a_refusal_naming_the_variable() -> None:
 
 
 def test_the_egress_context_allowlists_only_the_api_host() -> None:
-    destination = resolve_destination(VcsProvider.GITHUB, "AEGIS_TEST_GH_TOKEN", environ=ENV)
+    destination = resolve_destination(VcsProvider.GITHUB, "KERVY_TEST_GH_TOKEN", environ=ENV)
     ctx = vcs_egress_context(destination)
     assert ctx.roe.allowed_domains == (GITHUB_API_HOST,)
     assert ctx.roe.allowed_ip_ranges == ()
@@ -133,7 +133,7 @@ async def test_the_write_verbs_that_would_merge_or_push_are_refused(method: str)
         async def resolve(self, hostname: str) -> list[object]:
             return [ipaddress.ip_address("140.82.121.6")]
 
-    destination = resolve_destination(VcsProvider.GITHUB, "AEGIS_TEST_GH_TOKEN", environ=ENV)
+    destination = resolve_destination(VcsProvider.GITHUB, "KERVY_TEST_GH_TOKEN", environ=ENV)
     decision = await ScopeEngine().explain(
         vcs_egress_context(destination),
         dns_resolver=Resolver(),
@@ -152,7 +152,7 @@ async def test_read_and_create_are_permitted(method: str) -> None:
         async def resolve(self, hostname: str) -> list[object]:
             return [ipaddress.ip_address("140.82.121.6")]
 
-    destination = resolve_destination(VcsProvider.GITHUB, "AEGIS_TEST_GH_TOKEN", environ=ENV)
+    destination = resolve_destination(VcsProvider.GITHUB, "KERVY_TEST_GH_TOKEN", environ=ENV)
     decision = await ScopeEngine().explain(
         vcs_egress_context(destination),
         dns_resolver=Resolver(),
@@ -172,7 +172,7 @@ async def test_an_enterprise_host_on_an_internal_address_is_still_refused() -> N
 
     destination = resolve_destination(
         VcsProvider.GITHUB_ENTERPRISE,
-        "AEGIS_TEST_GH_TOKEN",
+        "KERVY_TEST_GH_TOKEN",
         api_host="git.internal.test",
         operator_hosts=["git.internal.test"],
         environ=ENV,
@@ -366,7 +366,7 @@ class FakeTransport:
 
 
 def client_for(responses: list[tuple[int, object]]) -> tuple[GitHubClient, FakeTransport]:
-    destination = resolve_destination(VcsProvider.GITHUB, "AEGIS_TEST_GH_TOKEN", environ=ENV)
+    destination = resolve_destination(VcsProvider.GITHUB, "KERVY_TEST_GH_TOKEN", environ=ENV)
     transport = FakeTransport(responses)
     return GitHubClient(destination, transport=transport), transport  # type: ignore[arg-type]
 
@@ -374,7 +374,7 @@ def client_for(responses: list[tuple[int, object]]) -> tuple[GitHubClient, FakeT
 async def test_the_token_travels_in_a_header_and_nowhere_else() -> None:
     api, transport = client_for([(200, [])])
     ctx = vcs_egress_context(
-        resolve_destination(VcsProvider.GITHUB, "AEGIS_TEST_GH_TOKEN", environ=ENV)
+        resolve_destination(VcsProvider.GITHUB, "KERVY_TEST_GH_TOKEN", environ=ENV)
     )
     await api.pull_request_files(
         ctx, PullRequestRef(repo=RepoRef("o", "r"), number=7, head_sha="a" * 40)
@@ -391,7 +391,7 @@ async def test_file_paging_stops_on_a_short_page() -> None:
     page = [{"filename": f"src/{index}.py", "patch": "@@ -1 +1 @@\n+x\n"} for index in range(3)]
     api, transport = client_for([(200, page)])
     ctx = vcs_egress_context(
-        resolve_destination(VcsProvider.GITHUB, "AEGIS_TEST_GH_TOKEN", environ=ENV)
+        resolve_destination(VcsProvider.GITHUB, "KERVY_TEST_GH_TOKEN", environ=ENV)
     )
     files = await api.pull_request_files(
         ctx, PullRequestRef(repo=RepoRef("o", "r"), number=7, head_sha="a" * 40)
@@ -404,7 +404,7 @@ async def test_file_paging_stops_on_a_short_page() -> None:
 async def test_an_http_error_names_the_status_but_not_the_body() -> None:
     api, transport = client_for([(403, {"message": "Resource not accessible", "token": TOKEN})])
     ctx = vcs_egress_context(
-        resolve_destination(VcsProvider.GITHUB, "AEGIS_TEST_GH_TOKEN", environ=ENV)
+        resolve_destination(VcsProvider.GITHUB, "KERVY_TEST_GH_TOKEN", environ=ENV)
     )
     with pytest.raises(VcsError) as exc:
         await api.pull_request_files(
@@ -419,7 +419,7 @@ async def test_a_review_is_always_a_comment_never_an_approval() -> None:
     """A scanner must never approve a pull request."""
     api, transport = client_for([(200, {"id": 1})])
     ctx = vcs_egress_context(
-        resolve_destination(VcsProvider.GITHUB, "AEGIS_TEST_GH_TOKEN", environ=ENV)
+        resolve_destination(VcsProvider.GITHUB, "KERVY_TEST_GH_TOKEN", environ=ENV)
     )
     await api.post_review(
         ctx, PullRequestRef(repo=RepoRef("o", "r"), number=7, head_sha="a" * 40), body="hello"
@@ -432,7 +432,7 @@ async def test_a_review_is_always_a_comment_never_an_approval() -> None:
 async def test_the_check_run_is_created_with_the_head_sha() -> None:
     api, transport = client_for([(201, {"id": 99, "html_url": "https://example.test/run"})])
     ctx = vcs_egress_context(
-        resolve_destination(VcsProvider.GITHUB, "AEGIS_TEST_GH_TOKEN", environ=ENV)
+        resolve_destination(VcsProvider.GITHUB, "KERVY_TEST_GH_TOKEN", environ=ENV)
     )
     request, _, _ = check_run_for([finding()], passing(), head_sha="b" * 40, diff={})
     outcome = await api.create_check_run(ctx, RepoRef("o", "r"), request)

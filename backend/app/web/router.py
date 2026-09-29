@@ -39,9 +39,9 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 
 from app.auth.dependencies import DbSession, require_membership
+from app.core.dashboard import queries
 from app.models.organization import Membership, Organization, Role
 from app.models.workflow import Workflow
-from app.web import queries
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 STATIC_DIR = Path(__file__).parent / "static"
@@ -339,12 +339,12 @@ def _actions(membership: Membership) -> dict[str, dict[str, str]]:
             "Connect a repository",
             Role.SECURITY_ENGINEER,
             "POST /api/v1/organizations/{organization_id}/repositories "
-            "(or: aegis-ai repo add --name ... --url ... --authorized)",
+            "(or: kervy-ai repo add --name ... --url ... --authorized)",
         ),
         "scan_repository": action(
             "Scan a repository",
             Role.SECURITY_ENGINEER,
             "POST /api/v1/organizations/{organization_id}/repositories/{repository_id}/scan "
-            "(or: aegis-ai repo scan <repository>)",
+            "(or: kervy-ai repo scan <repository>)",
         ),
     }

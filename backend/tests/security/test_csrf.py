@@ -384,8 +384,8 @@ def test_the_secure_anonymous_cookie_name_is_host_prefixed() -> None:
     """`__Host-` is what stops a sibling subdomain from overwriting it —
     browsers reject a `Set-Cookie` with that prefix unless it has no `Domain`
     attribute, which host-locks it to the exact origin that set it."""
-    assert csrf_anon.cookie_name(secure=True) == "__Host-aegis_csrf_anon"
-    assert csrf_anon.cookie_name(secure=False) == "aegis_csrf_anon"
+    assert csrf_anon.cookie_name(secure=True) == "__Host-kervy_csrf_anon"
+    assert csrf_anon.cookie_name(secure=False) == "kervy_csrf_anon"
 
 
 def test_only_side_effect_free_methods_are_safe() -> None:

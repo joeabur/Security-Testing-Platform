@@ -27,11 +27,11 @@ from app.core.measure.asr import Measurement
 from app.core.probes.models import ScanResult
 from app.core.targets.models import Capabilities, TargetResponse
 
-CANARY_PREFIX = "AEGIS-CANARY-"
+CANARY_PREFIX = "KERVY-CANARY-"
 
 
 def new_canary() -> str:
-    """A per-run random marker (§9: `AEGIS-CANARY-<random>`).
+    """A per-run random marker (§9: `KERVY-CANARY-<random>`).
 
     Random per run so that a target which has seen a previous assessment —
     or which has the string in its training data or its logs — cannot

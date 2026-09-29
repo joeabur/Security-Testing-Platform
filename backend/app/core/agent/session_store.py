@@ -13,30 +13,39 @@ If Redis cannot be reached, the honest answer is "this cannot currently be
 approved," never "proceed as if it already was" — see
 `app/core/revocation/` for the same reasoning applied to token revocation.
 
-**What is stored, and why it is safe to lose.** Only `Investigation.id`,
-`organization_id`, `user_id`, `status`, `plan_step_index`, and — when
-paused — the pending tool's name, risk level, and fixed description (see
-`investigation.py`). Never the natural-language request, a tool's raw
-arguments, or any tool's output: those live only in the process actually
-running the investigation and are re-derived (from the plan and the
-platform's own tables) when an approval resumes it, rather than duplicated
-into this cache. Losing this key loses only "which step was next," never
-anything the zero-persistence requirement protects.
+**What is stored, and why it is safe to lose.** `Investigation.id`,
+`organization_id`, `user_id`, `status`, `plan_step_index`, the pending
+tool's name/risk level/fixed description when paused (see
+`investigation.py`), and the plan's own steps — each step's tool name and
+the structured arguments the planner chose for it. That last part is the
+one exception to "nothing but scalar status fields": resuming a paused
+plan has to know what the remaining steps *are*, and a tool call's
+arguments (a target id, a run id, a workflow id) are platform-chosen
+structured parameters, not a prompt, a model's response, or a tool's
+output — the things the zero-persistence requirement actually protects.
+Never the natural-language request that produced the plan and never any
+step's *result*: those still live only in the process that ran them, and
+this cache is the only place a paused plan's steps exist between the
+approval request and the human's answer to it. Losing this key loses the
+whole paused plan, which is why the approval flow treats a lost key as "no
+longer resumable," not as data recoverable some other way.
 """
 
 from __future__ import annotations
 
 import json
 import uuid
+from dataclasses import dataclass
 from datetime import datetime
 
 import redis.asyncio as redis_async
 
 from app.core.agent.investigation import Investigation, InvestigationStatus, PendingApproval
+from app.core.agent.planner import Plan, PlanStep
 from app.core.agent.tools.contract import RiskLevel
 from app.core.config import get_settings
 
-_KEY_PREFIX = "aegis:agent:investigation:"
+_KEY_PREFIX = "kervy:agent:investigation:"
 # 30 minutes: long enough for a human to see an approval request and act on
 # it, short enough that a forgotten one does not sit in Redis indefinitely.
 TTL_SECONDS = 30 * 60
@@ -47,11 +56,21 @@ class SessionStoreUnavailable(Exception):
     approved," never as a pass-through — see the module docstring."""
 
 
+@dataclass(frozen=True)
+class PausedInvestigation:
+    """What `load` returns: the investigation's state and the plan it
+    paused partway through — both needed to resume it, neither meaningful
+    without the other."""
+
+    investigation: Investigation
+    plan: Plan
+
+
 def _key(investigation_id: uuid.UUID) -> str:
     return f"{_KEY_PREFIX}{investigation_id}"
 
 
-def _to_json(investigation: Investigation) -> str:
+def _to_json(investigation: Investigation, plan: Plan) -> str:
     pending = investigation.pending_approval
     return json.dumps(
         {
@@ -70,11 +89,14 @@ def _to_json(investigation: Investigation) -> str:
                 }
             ),
             "created_at": investigation.created_at.isoformat(),
+            "plan_steps": [
+                {"tool_name": step.tool_name, "params": step.params} for step in plan.steps
+            ],
         }
     )
 
 
-def _from_json(raw: str) -> Investigation:
+def _from_json(raw: str) -> PausedInvestigation:
     data = json.loads(raw)
     pending_data = data["pending_approval"]
     pending = (
@@ -86,7 +108,7 @@ def _from_json(raw: str) -> Investigation:
             description=pending_data["description"],
         )
     )
-    return Investigation(
+    investigation = Investigation(
         id=uuid.UUID(data["id"]),
         organization_id=uuid.UUID(data["organization_id"]),
         user_id=uuid.UUID(data["user_id"]),
@@ -95,6 +117,13 @@ def _from_json(raw: str) -> Investigation:
         pending_approval=pending,
         created_at=datetime.fromisoformat(data["created_at"]),
     )
+    plan = Plan(
+        steps=tuple(
+            PlanStep(tool_name=step["tool_name"], params=step["params"])
+            for step in data["plan_steps"]
+        )
+    )
+    return PausedInvestigation(investigation=investigation, plan=plan)
 
 
 class InvestigationSessionStore:
@@ -107,21 +136,21 @@ class InvestigationSessionStore:
             self._client = redis_async.Redis.from_url(self._url, decode_responses=True)
         return self._client
 
-    async def save(self, investigation: Investigation) -> None:
+    async def save(self, investigation: Investigation, plan: Plan) -> None:
         try:
             # `ex=` on every write, never a bare `SET` — a session that
             # outlives its TTL by a code change here would silently turn
             # this store persistent, exactly what the zero-persistence
             # requirement forbids.
             await self._connect().set(
-                _key(investigation.id), _to_json(investigation), ex=TTL_SECONDS
+                _key(investigation.id), _to_json(investigation, plan), ex=TTL_SECONDS
             )
         except (redis_async.RedisError, OSError) as exc:
             raise SessionStoreUnavailable(str(exc)) from exc
 
     async def load(
         self, investigation_id: uuid.UUID, *, organization_id: uuid.UUID
-    ) -> Investigation | None:
+    ) -> PausedInvestigation | None:
         """`None` means "no such investigation, or it is not this
         organization's" — the tenant-isolation check happens here, not left
         to the caller, so a wrong-organization id can never resume someone
@@ -134,10 +163,10 @@ class InvestigationSessionStore:
             return None
         # `decode_responses=True` makes this a `str` at runtime; the client
         # is typed generically over `str | bytes` regardless.
-        investigation = _from_json(raw if isinstance(raw, str) else raw.decode("utf-8"))
-        if investigation.organization_id != organization_id:
+        paused = _from_json(raw if isinstance(raw, str) else raw.decode("utf-8"))
+        if paused.investigation.organization_id != organization_id:
             return None
-        return investigation
+        return paused
 
     async def delete(self, investigation_id: uuid.UUID) -> None:
         try:

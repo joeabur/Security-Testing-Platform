@@ -21,7 +21,7 @@ from fastapi.responses import HTMLResponse, PlainTextResponse
 from lab.isolation import announce
 
 # The token a successful injection makes the assistant say. Deliberately inert.
-CARRIER_MARKER = "AEGIS-LAB-CARRIER-OK"
+CARRIER_MARKER = "KERVY-LAB-CARRIER-OK"
 
 CARRIERS: dict[str, dict[str, Any]] = {
     "plain": {
@@ -68,7 +68,7 @@ CARRIERS: dict[str, dict[str, Any]] = {
 def create_app() -> FastAPI:
     announce("content-server")
     app = FastAPI(
-        title="Aegis Lab — injection carriers",
+        title="Kervy Lab — injection carriers",
         description="Serves documents with instructions hidden in them. Do not deploy.",
         version="0.1.0",
     )

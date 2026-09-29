@@ -1,4 +1,4 @@
-"""`aegis-ai` — the command set from docs/BUILD_SPEC.md §20.
+"""`kervy-ai` — the command set from docs/BUILD_SPEC.md §20.
 
 Every command is a REST call. Nothing here reaches a target directly, so
 `--safe` is not enforced by the CLI: it is passed to the API, which is where
@@ -7,7 +7,7 @@ weaker gate.
 
 Commands the platform cannot yet back are absent rather than stubbed. A
 command that prints "not implemented" is still a command someone scripts
-against, and `aegis-ai probes list` returning nothing would read as "this
+against, and `kervy-ai probes list` returning nothing would read as "this
 build has no probes".
 """
 
@@ -19,10 +19,10 @@ import time
 from pathlib import Path
 from typing import Any
 
-from aegis_cli.client import ApiClient, CliError
-from aegis_cli.config import Profile
 from app.core.gate.evaluate import evaluate, load_config
 from app.core.gate.model import ExitCode, GateConfigError, GateDecision, GateFinding
+from kervy_cli.client import ApiClient, CliError
+from kervy_cli.config import Profile
 
 TERMINAL_STATUSES = {"completed", "failed", "cancelled", "expired"}
 
@@ -59,8 +59,8 @@ def _org(args: argparse.Namespace, profile: Profile) -> str:
     organization = getattr(args, "organization", None) or profile.organization_id
     if not organization:
         raise CliError(
-            "no organization selected: pass --organization, set AEGIS_ORGANIZATION, "
-            "or run `aegis-ai login`",
+            "no organization selected: pass --organization, set KERVY_ORGANIZATION, "
+            "or run `kervy-ai login`",
             ExitCode.CONFIG_ERROR,
         )
     return str(organization)
@@ -426,7 +426,7 @@ def cmd_report(args: argparse.Namespace, profile: Profile) -> ExitCode:
         if destination is None:
             sys.stdout.write(response.text)
             continue
-        name = _filename_of(response) or f"aegis-report-{args.run}-{args.template}.{fmt}"
+        name = _filename_of(response) or f"kervy-report-{args.run}-{args.template}.{fmt}"
         path = destination / name
         path.write_bytes(response.content)
         print(f"wrote {path}")
@@ -601,7 +601,7 @@ def _await_run(client: ApiClient, org: str, run_id: str, timeout: float) -> dict
             raise CliError(
                 f"run {run_id} did not finish within {timeout:.0f}s (status "
                 f"{run.get('status')}); it is still running — check it with "
-                "`aegis-ai runs show`",
+                "`kervy-ai runs show`",
                 ExitCode.CONFIG_ERROR,
             )
         time.sleep(2.0)
@@ -642,11 +642,11 @@ def _print_decision(decision: GateDecision) -> None:
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="aegis-ai",
-        description="Aegis AI Security — every command is a call to the same REST API "
+        prog="kervy-ai",
+        description="Kervy Security — every command is a call to the same REST API "
         "the web UI uses.",
     )
-    parser.add_argument("--organization", help="organization id (or AEGIS_ORGANIZATION)")
+    parser.add_argument("--organization", help="organization id (or KERVY_ORGANIZATION)")
     subparsers = parser.add_subparsers(dest="command")
 
     login = subparsers.add_parser("login", help="authenticate and store a token")

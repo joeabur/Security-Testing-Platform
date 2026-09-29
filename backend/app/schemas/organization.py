@@ -24,6 +24,10 @@ class MembershipInvite(BaseModel):
     role: Role = Role.VIEWER
 
 
+class MembershipUpdate(BaseModel):
+    role: Role
+
+
 class MembershipRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

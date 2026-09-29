@@ -123,7 +123,7 @@ class BrokenObjectLevelAuthorizationProbe:
             surface = surface_label(operation)
             results.append(
                 ScanResult(
-                    id="AEGIS-API-050",
+                    id="KERVY-API-050",
                     title="Object is readable by an account that does not own it",
                     category=Category.API_SECURITY,
                     severity=Severity.CRITICAL,
@@ -253,7 +253,7 @@ class BrokenFunctionLevelAuthorizationProbe:
             surface = surface_label(operation)
             results.append(
                 ScanResult(
-                    id="AEGIS-API-051",
+                    id="KERVY-API-051",
                     title="Administrative endpoint is reachable by an unprivileged account",
                     category=Category.API_SECURITY,
                     severity=Severity.HIGH,

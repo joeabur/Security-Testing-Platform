@@ -22,7 +22,7 @@ from app.models.integration import NotificationChannel
 
 # pragma: allowlist nextline secret
 SLACK_URL = "https://hooks.slack.com/services/T111/B222/zzzzzzzzzzzzzzzzzzzzzzzz"
-SLACK_ENV = "AEGIS_TEST_SLACK_WEBHOOK"
+SLACK_ENV = "KERVY_TEST_SLACK_WEBHOOK"
 
 
 @pytest.fixture(autouse=True)
@@ -71,14 +71,14 @@ def _finding_fields() -> dict[str, object]:
     now = datetime.now(UTC)
     return {
         "category": Category.API_SECURITY,
-        "probe_id": "AEGIS-API-050",
+        "probe_id": "KERVY-API-050",
         "probe_version": "1.0.0",
         "surface": "GET /orders/{id}",
         "severity": Severity.CRITICAL,
         "severity_rationale": "authenticated cross-tenant read",
         "confidence": Confidence.HIGH,
         "stability": Stability.DETERMINISTIC,
-        "risk_model": "aegis-ordinal-v1",
+        "risk_model": "kervy-ordinal-v1",
         "risk_score": 9,
         "description": "Another tenant's order is readable.",
         "impact": "Cross-tenant data exposure.",
@@ -152,15 +152,15 @@ async def test_a_channel_pointing_at_an_unsanctioned_host_is_refused(
     client: AsyncClient, strong_password: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     org_id, headers = await _owner(client, strong_password, "b")
-    monkeypatch.setenv("AEGIS_TEST_EVIL", "https://attacker.test/collect")
+    monkeypatch.setenv("KERVY_TEST_EVIL", "https://attacker.test/collect")
     response = await client.post(
         f"/api/v1/organizations/{org_id}/notification-channels",
         json={
             "name": "evil",
             "kind": "generic_webhook",
             "events": ["finding.critical"],
-            "endpoint_env_var": "AEGIS_TEST_EVIL",
-            "signing_secret_env_var": "AEGIS_TEST_SIGNING",
+            "endpoint_env_var": "KERVY_TEST_EVIL",
+            "signing_secret_env_var": "KERVY_TEST_SIGNING",
         },
         headers=headers,
     )
@@ -177,15 +177,15 @@ async def test_a_refused_channel_is_audited(
     """An attempt to add an outbound destination is worth recording even when
     it failed — that is the shape of someone probing for an egress path."""
     org_id, headers = await _owner(client, strong_password, "c")
-    monkeypatch.setenv("AEGIS_TEST_EVIL2", "https://169.254.169.254/latest/meta-data/")
+    monkeypatch.setenv("KERVY_TEST_EVIL2", "https://169.254.169.254/latest/meta-data/")
     await client.post(
         f"/api/v1/organizations/{org_id}/notification-channels",
         json={
             "name": "meta",
             "kind": "generic_webhook",
             "events": ["finding.critical"],
-            "endpoint_env_var": "AEGIS_TEST_EVIL2",
-            "signing_secret_env_var": "AEGIS_TEST_SIGNING",
+            "endpoint_env_var": "KERVY_TEST_EVIL2",
+            "signing_secret_env_var": "KERVY_TEST_SIGNING",
         },
         headers=headers,
     )
@@ -208,11 +208,11 @@ async def test_a_missing_endpoint_variable_is_refused_at_creation(
     org_id, headers = await _owner(client, strong_password, "d")
     response = await client.post(
         f"/api/v1/organizations/{org_id}/notification-channels",
-        json=slack_payload(endpoint_env_var="AEGIS_TEST_ABSENT"),
+        json=slack_payload(endpoint_env_var="KERVY_TEST_ABSENT"),
         headers=headers,
     )
     assert response.status_code == 422
-    assert "AEGIS_TEST_ABSENT" in response.json()["error"]["message"]
+    assert "KERVY_TEST_ABSENT" in response.json()["error"]["message"]
 
 
 async def test_a_url_pasted_where_a_variable_name_belongs_is_rejected(
@@ -347,7 +347,7 @@ async def test_the_endpoint_cannot_be_repointed_in_place(
     ).json()["id"]
     patched = await client.patch(
         f"/api/v1/organizations/{org_id}/notification-channels/{channel_id}",
-        json={"endpoint_env_var": "AEGIS_TEST_OTHER"},
+        json={"endpoint_env_var": "KERVY_TEST_OTHER"},
         headers=headers,
     )
     # The field is not on the update schema, so it is ignored rather than

@@ -39,10 +39,10 @@ from app.core.scope.transport import GatedTransport
 # The four entry-point groups §16 names. A package publishes into the group
 # that matches what it provides; anything published into a group the platform
 # does not know is ignored with a warning rather than guessed at.
-PROBE_GROUP = "aegis.probes"
-DETECTOR_GROUP = "aegis.detectors"
-ADAPTER_GROUP = "aegis.adapters"
-REPORTER_GROUP = "aegis.reporters"
+PROBE_GROUP = "kervy.probes"
+DETECTOR_GROUP = "kervy.detectors"
+ADAPTER_GROUP = "kervy.adapters"
+REPORTER_GROUP = "kervy.reporters"
 
 
 class PluginKind(StrEnum):

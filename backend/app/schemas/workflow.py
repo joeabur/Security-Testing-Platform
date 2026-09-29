@@ -19,6 +19,12 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from app.core.gate.model import GateConfigError
 from app.core.workflow.contract import TriggerKind
 
+#: A schedule tighter than this would mean unattended, repeated scanning of
+#: a live target every few minutes — a stated, explicit safety rail, not an
+#: arbitrary number. Matches the reasoning behind every other minimum this
+#: platform enforces on an automated, target-touching capability.
+MIN_SCHEDULE_INTERVAL_MINUTES = 60
+
 
 class WorkflowCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
@@ -26,6 +32,12 @@ class WorkflowCreate(BaseModel):
     trigger_kind: TriggerKind = TriggerKind.REPOSITORY_CHANGE
     enabled: bool = True
     gate_config: dict[str, Any] | None = None
+    #: Only meaningful when `trigger_kind == "schedule"`. Left `None` (the
+    #: default), this workflow is simply never picked up by
+    #: `dispatch_scheduled_workflows` — silence is the inert state, not a
+    #: rejected configuration, the same rule `PentestScope`'s own absence
+    #: already follows.
+    schedule_interval_minutes: int | None = Field(default=None, ge=MIN_SCHEDULE_INTERVAL_MINUTES)
 
     @field_validator("gate_config")
     @classmethod
@@ -45,10 +57,51 @@ class WorkflowUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
     enabled: bool | None = None
     gate_config: dict[str, Any] | None = None
+    schedule_interval_minutes: int | None = Field(default=None, ge=MIN_SCHEDULE_INTERVAL_MINUTES)
 
     _gate_config_must_parse = field_validator("gate_config")(
         WorkflowCreate._gate_config_must_parse.__func__  # type: ignore[attr-defined]
     )
+
+
+class WorkflowWebhookSecretRead(BaseModel):
+    """The plaintext secret, shown exactly once, at generation time — never
+    again afterward. `WorkflowRead` never includes it."""
+
+    secret: str
+    webhook_url: str
+
+
+class WorkflowRunApprovalRequest(BaseModel):
+    reason: str | None = Field(default=None, max_length=500)
+
+
+class WorkflowRunRejectionRequest(BaseModel):
+    reason: str = Field(min_length=1, max_length=500)
+
+
+class InboundWebhookTrigger(BaseModel):
+    """The inbound webhook's own minimal, platform-defined body
+    (`app/api/v1/routers/webhooks.py`) — restricted to the two trigger
+    kinds an external event can legitimately carry. `SCHEDULE`/`MANUAL`
+    are refused here at the schema level, before any signature or replay
+    check even runs.
+    """
+
+    kind: TriggerKind
+    ref: str | None = Field(default=None, max_length=300)
+    commit: str | None = Field(default=None, max_length=100)
+    pull_number: int | None = Field(default=None, ge=1)
+
+    @field_validator("kind")
+    @classmethod
+    def _kind_must_be_inbound_capable(cls, value: TriggerKind) -> TriggerKind:
+        if value not in (TriggerKind.REPOSITORY_CHANGE, TriggerKind.PULL_REQUEST):
+            raise ValueError(
+                f"{value.value} is not a kind an inbound webhook may carry; "
+                "use repository_change or pull_request"
+            )
+        return value
 
 
 class WorkflowRead(BaseModel):
@@ -61,6 +114,10 @@ class WorkflowRead(BaseModel):
     trigger_kind: str
     enabled: bool
     gate_config: dict[str, Any] | None
+    schedule_interval_minutes: int | None
+    next_run_at: datetime | None
+    #: Never the secret itself — only whether inbound acceptance is on.
+    webhook_enabled: bool
     created_at: datetime
 
 
@@ -96,4 +153,6 @@ class WorkflowRunRead(BaseModel):
     started_at: datetime | None
     finished_at: datetime | None
     detail: str | None
+    approved_by_user_id: uuid.UUID | None
+    approved_at: datetime | None
     created_at: datetime

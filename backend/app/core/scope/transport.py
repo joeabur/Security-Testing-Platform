@@ -96,7 +96,7 @@ class GatedTransport:
             # else, and `tests/security/test_scope_controls.py` greps `app/`
             # to keep it that way. Suppressed at the line rather than by
             # excluding the file, so the exception stays visible.
-            # nosemgrep: aegis.ungated-http-client
+            # nosemgrep: kervy.ungated-http-client
             async with httpx.AsyncClient(timeout=timeout_seconds, follow_redirects=False) as client:
                 response = await client.request(method, url, headers=headers, content=content)
             elapsed_ms = (time.monotonic() - start) * 1000

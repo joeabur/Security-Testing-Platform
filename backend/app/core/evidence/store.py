@@ -12,7 +12,7 @@ entry rather than passing unnoticed. That is what makes "this evidence is
 what the tool saw" a checkable claim instead of an assurance.
 
 **Encryption at rest is optional, per §13.** Configuring
-`AEGIS_EVIDENCE_ENCRYPTION_KEY` (`app/core/config.py`) encrypts every bundle
+`KERVY_EVIDENCE_ENCRYPTION_KEY` (`app/core/config.py`) encrypts every bundle
 written from then on with AES-256-GCM (`app/core/evidence/crypto.py`) before
 it touches disk; without it, a bundle is written exactly as it always was,
 protected by filesystem permissions and the redaction that ran before it was

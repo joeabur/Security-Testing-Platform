@@ -53,11 +53,11 @@ Both cookies are set together at login and registration, so a session can never
 exist without a token:
 
 ```
-Set-Cookie: aegis_session=...; HttpOnly; SameSite=Lax
-Set-Cookie: aegis_csrf=<nonce>.<signature>; SameSite=Lax
+Set-Cookie: kervy_session=...; HttpOnly; SameSite=Lax
+Set-Cookie: kervy_csrf=<nonce>.<signature>; SameSite=Lax
 ```
 
-`aegis_csrf` is deliberately **not** `HttpOnly` — the page has to read it to
+`kervy_csrf` is deliberately **not** `HttpOnly` — the page has to read it to
 echo it back. That is safe precisely because the token authenticates nothing on
 its own.
 
@@ -66,7 +66,7 @@ fetch("/api/v1/organizations", {
   method: "POST",
   headers: {
     "Content-Type": "application/json",
-    "X-CSRF-Token": readCookie("aegis_csrf"),
+    "X-CSRF-Token": readCookie("kervy_csrf"),
   },
   body: JSON.stringify({ name: "Acme" }),
 });
@@ -90,8 +90,8 @@ not exempt — rather than by a list that has to be maintained.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `AEGIS_CSRF_ENABLED` | `true` | Off only when an operator says so |
-| `AEGIS_CSRF_SECRET` | `JWT_SECRET` | Signing key for tokens |
+| `KERVY_CSRF_ENABLED` | `true` | Off only when an operator says so |
+| `KERVY_CSRF_SECRET` | `JWT_SECRET` | Signing key for tokens |
 
 ## What this does not cover
 
@@ -111,7 +111,7 @@ Stated rather than implied:
 
 When middleware enforcement shipped, `frontend/lib/api-client.ts`'s
 `clientApiFetch` (the fetch helper every Client Component uses) was never
-updated to read the `aegis_csrf` cookie and echo it back as `X-CSRF-Token`.
+updated to read the `kervy_csrf` cookie and echo it back as `X-CSRF-Token`.
 Every cookie-authenticated write from the browser — starting with
 `POST /organizations` from the "Create Organization" form — has been
 silently returning 403 since that middleware landed. No test caught it
@@ -119,7 +119,7 @@ because the existing form-level tests mock `clientApiFetch` outright and
 never exercise its real header logic.
 
 Fixed by teaching `clientApiFetch` to read `document.cookie` for
-`aegis_csrf` and set the header on any non-safe method that doesn't already
+`kervy_csrf` and set the header on any non-safe method that doesn't already
 carry one, matching `SAFE_METHODS` in `app/core/csrf/enforce.py` exactly.
 `frontend/lib/api-server.ts` (the Server Component / Route Handler fetch
 helper) got the same treatment pre-emptively, even though its only two
@@ -152,11 +152,11 @@ it).
 deployment running over plain HTTP — local dev, by default — gets an
 unprefixed cookie of the same shape instead, which still blocks the naive
 double-submit break (signing) but not the sibling-subdomain one. Set
-`AEGIS_SESSION_COOKIE_SECURE=true` for the full guarantee, which any
+`KERVY_SESSION_COOKIE_SECURE=true` for the full guarantee, which any
 deployment reachable over the public internet should be doing already.
 
 Both the frontend (`clientApiFetch` in `lib/api-client.ts`, via a new
 `ensureAnonCsrfToken` that calls the endpoint lazily) and the CLI
-(`ApiClient.fetch_anon_csrf_token` in `aegis_cli/client.py`, called from
+(`ApiClient.fetch_anon_csrf_token` in `kervy_cli/client.py`, called from
 `cmd_login`) go through this same front door now — closing the enforcement
 gap without it meant either would 403 on their next login.

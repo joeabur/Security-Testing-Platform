@@ -132,7 +132,7 @@ def resolve_webhook_destination(
             f"host {host!r} is not permitted for a {kind.value} channel. "
             "Permitted: "
             + (", ".join(permitted) if permitted else "none configured")
-            + ". Add it to AEGIS_NOTIFY_ALLOWED_WEBHOOK_HOSTS to sanction it."
+            + ". Add it to KERVY_NOTIFY_ALLOWED_WEBHOOK_HOSTS to sanction it."
         )
     return Destination(kind=kind, host=host, url=url, redacted=redact_url(url), port=parts.port)
 
@@ -149,6 +149,6 @@ def resolve_smtp_host(smtp_host: str, *, operator_hosts: Sequence[str] = ()) -> 
     if not host_permitted(host, operator_hosts):
         raise IntegrationError(
             f"SMTP host {host!r} is not permitted. Add it to "
-            "AEGIS_NOTIFY_ALLOWED_SMTP_HOSTS to sanction it."
+            "KERVY_NOTIFY_ALLOWED_SMTP_HOSTS to sanction it."
         )
     return host

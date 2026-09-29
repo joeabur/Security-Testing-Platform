@@ -43,7 +43,7 @@ redacted but real exchanges with a customer's system.
 - Shared across API and worker replicas — both read it.
 - Back it up with the same care as the database; a report without its evidence
   is unverifiable.
-- **Unencrypted at rest unless `AEGIS_EVIDENCE_ENCRYPTION_KEY` is set**
+- **Unencrypted at rest unless `KERVY_EVIDENCE_ENCRYPTION_KEY` is set**
   (`docs/configuration.md`); off is the default. Set it, or use an encrypted
   volume regardless — this is a stated residual either way
   (`docs/threat-model.md`).
@@ -60,8 +60,11 @@ redacted but real exchanges with a customer's system.
 - **The runtime database role must not be a superuser, and must not own the
   application's tables without `FORCE ROW LEVEL SECURITY`.** Migration
   `b2e6f4a91c7d` enables Postgres Row-Level Security (`docs/security-model.md`
-  guarantee #26) on the 14 tenant-scoped tables and sets `FORCE`, which closes
-  the table-owner exemption — but Postgres exempts a **superuser** from RLS
+  guarantee #26) and sets `FORCE`, which closes the table-owner exemption; four
+  later migrations each added RLS to their own new tenant-scoped table the same
+  way, bringing the current total to 21 tables (confirmed live against
+  `pg_policies`, not hand-counted). Every one of them needs the same non-superuser
+  role below — but Postgres exempts a **superuser** from RLS
   unconditionally, with no override available from inside the database. If the
   role the application connects as is a superuser (true of the default
   `postgres` role many hosted Postgres quickstarts create), RLS is silently a
@@ -77,8 +80,8 @@ See `docs/configuration.md`. The production-specific items:
   secret, which is the intended behaviour.
 - `SESSION_COOKIE_SECURE=true` behind TLS.
 - Credential variables in the **worker's** environment, not only the API's.
-- `AEGIS_NOTIFY_ALLOWED_WEBHOOK_HOSTS`, `AEGIS_NOTIFY_ALLOWED_SMTP_HOSTS`,
-  `AEGIS_VCS_ALLOWED_HOSTS` set to the minimum. These are the operator's control
+- `KERVY_NOTIFY_ALLOWED_WEBHOOK_HOSTS`, `KERVY_NOTIFY_ALLOWED_SMTP_HOSTS`,
+  `KERVY_VCS_ALLOWED_HOSTS` set to the minimum. These are the operator's control
   over where data may go; an empty list is the safe default.
 - `PLUGINS_CONFIG` only if you use plugins. There is no sandbox.
 
@@ -115,7 +118,9 @@ un-migrated database is the failure mode to avoid.
   an illustrative, unexercised sketch, not a shipped one.
 - No Terraform.
 - No multi-region or HA guidance beyond "run more replicas".
-- No SSO/SAML/OIDC — local accounts only.
+- No enterprise SAML/OIDC SSO. Social OAuth login (Google, GitHub) is
+  supported and optional — `docs/configuration.md`'s "Social OAuth login"
+  section.
 - No backup tooling; use your database's.
 - `docker compose up --build` is written but **unverified** (see
   `docs/installation.md`), so treat the compose path as a starting point rather

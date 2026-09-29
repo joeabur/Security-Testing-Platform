@@ -124,7 +124,7 @@ def _finding(entry: dict[str, Any], policy: ToolPolicy) -> ScanResult | None:
     )
 
     return ScanResult(
-        id=f"AEGIS-DAST-{template_id}",
+        id=f"KERVY-DAST-{template_id}",
         title=f"{name} at {matched}",
         category=Category.API_SECURITY,
         severity=severity,

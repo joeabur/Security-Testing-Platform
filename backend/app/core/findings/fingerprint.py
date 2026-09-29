@@ -28,7 +28,7 @@ _UUID = re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 _HEX = re.compile(r"\b[0-9a-f]{8,}\b", re.I)
 _LONG_NUMBER = re.compile(r"\b\d{4,}\b")
 _TIMESTAMP = re.compile(r"\b\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?Z?\b")
-_CANARY = re.compile(r"AEGIS-CANARY-[0-9A-F]+", re.I)
+_CANARY = re.compile(r"KERVY-CANARY-[0-9A-F]+", re.I)
 _WHITESPACE = re.compile(r"\s+")
 
 

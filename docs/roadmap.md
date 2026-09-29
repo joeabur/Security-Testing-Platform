@@ -18,10 +18,10 @@ statement coverage. Frontend: ESLint, `tsc --noEmit`, Vitest (10/10), and
 
 Deferred out of Phase 1, with reasons:
 
-- **`aegis-ai seed` / demo account seeding** — the Makefile intentionally has
+- **`kervy-ai seed` / demo account seeding** — the Makefile intentionally has
   no `seed` target yet rather than one pointing at a module that doesn't
   exist. Lands with the demo lab (`docs/BUILD_SPEC.md` §19, Phase 12).
-- **CLI (`aegis-ai`)** — Phase 10 per the merged phase plan
+- **CLI (`kervy-ai`)** — Phase 10 per the merged phase plan
   (`docs/BUILD_SPEC.md` §26). The web app and REST API are the Phase 1–9
   surface; the CLI is a client of the same API, not a separate path.
 - **GitHub Actions SHA-pinning** — `.github/workflows/ci.yml` pins actions to
@@ -305,7 +305,7 @@ an oversight:
   `CredentialSet` that exposes it only as a request header. A test asserts
   no credential value appears in any field a report is built from.
 - **A crashed probe is a visible gap, not a silent pass.** A probe that
-  raises produces an `AEGIS-API-099` informational result and the run
+  raises produces an `KERVY-API-099` informational result and the run
   continues. Without it, a probe failing on every endpoint would look
   identical to a probe that found nothing — the most dangerous false
   negative a scanner can have.
@@ -423,7 +423,7 @@ Deferred out of Phase 6, with reasons:
   and ML-BOM work belongs with the SBOM tooling in Phase 12.
 - **Multi-turn escalation is not implemented** — §9 gates it behind
   `allow_multi_turn`, and the adapters do not yet carry conversation state.
-- **`aegis-ai replay <finding-id>` (§7.2) is not implemented** — trial records
+- **`kervy-ai replay <finding-id>` (§7.2) is not implemented** — trial records
   carry the exact prompt and a redacted response, which is what replay needs,
   but the command itself is Phase 10 with the rest of the CLI.
 
@@ -456,7 +456,7 @@ Decisions worth stating:
   outbound path §6.3 governs just as it governs an `httpx` client. A registry
   ruleset remains available as an explicit operator choice. The bundled rules
   are deliberately few, per the addendum's limit on native rules, and include
-  `aegis.ungated-http-client` — this platform dogfooding its own central rule.
+  `kervy.ungated-http-client` — this platform dogfooding its own central rule.
 - **Dependency advisory lookup is off by default.** Matching a dependency
   graph means sending the client's dependency list to whoever runs the
   advisory database. That is a disclosure an operator opts into per
@@ -612,7 +612,7 @@ Deferred out of Phase 16, with reasons:
   not return one. Enforcing a limit against an estimated cost would be
   presenting a guess as a measurement, so the field is carried and the
   enforcement waits for per-model pricing data.
-- **No CLI surface yet** (`aegis assist`, `aegis findings accept-draft`) —
+- **No CLI surface yet** (`kervy assist`, `kervy findings accept-draft`) —
   the CLI is Phase 10 and the API is the tested surface.
 - **No structured-output use yet.** The provider implements
   `structured_output` and it is tested, but every current capability drafts
@@ -624,7 +624,7 @@ Deferred out of Phase 16, with reasons:
 
 ## Phase 7 — findings & risk (this build)
 
-Delivered: the Aegis risk model with published ordinal tables, fingerprinting
+Delivered: the Kervy risk model with published ordinal tables, fingerprinting
 that survives across runs, normalization from `ScanResult` into a stored
 `Finding`, promotion wired into the run pipeline, and the findings API with
 lifecycle transitions.
@@ -750,7 +750,7 @@ Decisions worth stating:
   told. `UPDATE_GOLDEN=1` re-records them and the diff has to be read.
 - **`level` is not severity, and the fingerprint travels.** SARIF has four
   levels and this platform has five severities; critical and high both map to
-  `error`, with the Aegis score kept at full resolution in `properties`. The
+  `error`, with the Kervy score kept at full resolution in `properties`. The
   Phase 7 fingerprint becomes `partialFingerprints`, without which a code
   host shows every run's findings as new.
 - **Two honesty gaps the templates closed.** The developer template had no
@@ -904,8 +904,8 @@ Deferred out of Phase 9, with reasons:
 
 ## Phase 10 — CLI, API keys & CI/CD gate (done)
 
-`aegis-ai` exists as a console script, organizations can mint scoped API keys
-for CI, and `aegis-ai gate` / `aegis-ai ci` fail a build on a seeded critical
+`kervy-ai` exists as a console script, organizations can mint scoped API keys
+for CI, and `kervy-ai gate` / `kervy-ai ci` fail a build on a seeded critical
 finding with the documented exit code.
 
 Decisions worth stating:
@@ -913,7 +913,7 @@ Decisions worth stating:
 - **The CLI is its own package, and a test enforces it.** §26 Phase 10
   requires the CLI to exercise the same API and scope engine as the UI rather
   than a weaker path of its own, and the strongest way to guarantee that is
-  structural: `aegis_cli/` may import `app.core.gate` (pure logic over
+  structural: `kervy_cli/` may import `app.core.gate` (pure logic over
   findings the API returned) and the shared enums, and nothing else from
   `app.core`. It holds no scope engine, no probe, no adapter and no database
   session, so the only way it can reach a target is to ask the API to — which
@@ -993,7 +993,7 @@ Deferred out of Phase 10, with reasons:
 - **Some §20 commands are absent rather than stubbed**: `init`, `test --probe`,
   `replay`, `frameworks`, `probes list` and `evidence purge`. Each needs an
   endpoint the platform does not have yet, and a command printing "not
-  implemented" is still a command people script against — `aegis-ai probes
+  implemented" is still a command people script against — `kervy-ai probes
   list` returning nothing would read as "this build has no probes".
 - **No OIDC.** §21 lists API-key *or* OIDC authentication; only the first is
   built.
@@ -1025,7 +1025,7 @@ Decisions worth stating:
 - **Discovery is off by default.** `pip install` must not be what decides which
   code runs inside the scope engine's process, so the policy loads nothing
   until `PLUGINS_CONFIG` points at a file that names packages.
-  `AEGIS_NO_PLUGINS=1` wins over everything: when something has gone wrong
+  `KERVY_NO_PLUGINS=1` wins over everything: when something has gone wrong
   there should be exactly one thing to set.
 - **A hash pin means "this build".** It is a digest over the installed
   distribution's `RECORD`, so a package silently replaced after it was pinned
@@ -1038,7 +1038,7 @@ Decisions worth stating:
   conclusions about code that never ran; a bundle from a plugin came from
   somewhere the platform cannot vouch for. Both have tests that try it.
 - **Every run that loads a plugin says so** — a banner in the run's own event
-  log and an informational `AEGIS-PLUGIN-900` result naming what loaded. §14's
+  log and an informational `KERVY-PLUGIN-900` result naming what loaded. §14's
   coverage honesty cuts both ways: silence about a plugin is as misleading as
   silence about an untested area.
 - **One bad plugin does not lose the run.** An import that raises, a
@@ -1061,7 +1061,7 @@ Decisions worth stating:
 
 Deferred out of Phase 11, with reasons:
 
-- **Only `aegis.probes` is consumed.** All four groups are discovered,
+- **Only `kervy.probes` is consumed.** All four groups are discovered,
   validated and listed in the banner, but nothing yet runs a third-party
   detector, adapter or reporter: each needs a contract of its own (a detector
   needs the observation shape, a reporter needs the template API), and
@@ -1078,7 +1078,7 @@ Deferred out of Phase 11, with reasons:
   them.
 - **The secrets baseline was wrong when Phase 10 shipped, and is fixed here.**
   It was generated from `git ls-files` before the Phase 10 files were tracked,
-  so `aegis_cli/config.py` (an environment-variable *name*) and the api-keys
+  so `kervy_cli/config.py` (an environment-variable *name*) and the api-keys
   migration's revision hashes were never recorded — `security.yml` would have
   been red on the commit that introduced it. Running the job locally after each
   change is what caught it, and is now the habit: a CI job is not done when it
@@ -1141,9 +1141,9 @@ Decisions worth stating:
 Two test-expectation bugs of my own, worth recording because both were wrong in
 the direction of a false pass:
 
-- the lab e2e asserted `AEGIS-API-001` (unauthenticated access). The lab *does*
+- the lab e2e asserted `KERVY-API-001` (unauthenticated access). The lab *does*
   require authentication on `/api/orders/{id}`; its flaw is skipping the
-  ownership check afterwards. The assertion now names `AEGIS-API-050` (BOLA),
+  ownership check afterwards. The assertion now names `KERVY-API-050` (BOLA),
   which required configuring the lab's synthetic accounts — so the test now
   exercises credentials-from-environment too.
 - the "no opt-in" test asserted zero reportable results, and two appeared. Both
@@ -1206,7 +1206,7 @@ deferred, and unvisited are three different things. Budget says "not now"; scope
 says "not ever". The first implementation filed a budget refusal under
 `refused`, which tells a reader the engagement did not cover an in-scope URL —
 a different and wrong claim. In-scope URLs are now queued regardless of budget
-and surface in `unvisited`, reported as `AEGIS-DAST-009`. A related off-by-one:
+and surface in `unvisited`, reported as `KERVY-DAST-009`. A related off-by-one:
 the page popped from the queue when budget ran out was lost from `unvisited`,
 understating coverage by exactly one page; it is put back before the break.
 
@@ -1269,8 +1269,8 @@ worker, the real scope engine and the lab on a real socket:
 run WITHOUT authorization        409  <- refused, as designed
 run status                       completed
 scan results                     10 results, 10 distinct codes
-   AEGIS-AI-000, AEGIS-AI-020, AEGIS-AI-900, AEGIS-API-002, AEGIS-API-010,
-   AEGIS-API-011, AEGIS-API-013, AEGIS-API-020, AEGIS-API-021, AEGIS-API-050
+   KERVY-AI-000, KERVY-AI-020, KERVY-AI-900, KERVY-API-002, KERVY-API-010,
+   KERVY-API-011, KERVY-API-013, KERVY-API-020, KERVY-API-021, KERVY-API-050
 findings                         7
 download report markdown/sarif/json  200
 evidence chain verify            ok=True
@@ -1291,7 +1291,7 @@ again from its committed form to confirm the shipped artifact works.
 - *Credential variables must be in the **worker's** environment, not the API's.*
   Synthetic accounts are stored by variable name, and the process that resolves
   a name is the one that makes the request. With them exported only in the API
-  shell, BOLA (`AEGIS-API-050`) silently did not appear: 6 findings instead of
+  shell, BOLA (`KERVY-API-050`) silently did not appear: 6 findings instead of
   7. The run still completed and the coverage section still said what was not
   tested, so nothing lied — but it cost a re-run to notice, and it is now called
   out in three places.
@@ -1444,7 +1444,7 @@ vulnerability. "Is this the package you meant" has no identifier at all.
 **Restraint is the design, and it is what the tests check:**
 
 - A runtime or series not in the vendored EOL table is reported as **not
-  assessed** (`AEGIS-SUPPLY-019`), never as supported. Every EOL finding carries
+  assessed** (`KERVY-SUPPLY-019`), never as supported. Every EOL finding carries
   the table's compile date, so "supported as of six months ago" is
   distinguishable from "supported today".
 - EOL severity is **capped below CRITICAL**. A standing exposure is not a
@@ -1461,7 +1461,7 @@ vulnerability. "Is this the package you meant" has no identifier at all.
   *not* flagged against `python-dateutil` — that false positive is what would
   make the check unusable.
 - The container engine scans the **filesystem, not a pulled image**, and emits
-  `AEGIS-CONTAINER-009` saying base layers were not examined. Pulling would mean
+  `KERVY-CONTAINER-009` saying base layers were not examined. Pulling would mean
   reaching an unsanctioned registry as an outbound request the transport never
   sees, and materialising an untrusted image on the worker.
 
@@ -1487,7 +1487,7 @@ vulnerability. "Is this the package you meant" has no identifier at all.
   `FROM crystal:1.9-alpine` produced nothing at all — and nothing at all reads
   as "supported", which is the exact failure the not-assessed marker exists to
   prevent. Now any versioned base image yields a declaration under its own name
-  and comes through as `AEGIS-SUPPLY-019`. Caught by the test that asserts the
+  and comes through as `KERVY-SUPPLY-019`. Caught by the test that asserts the
   not-assessed path, which failed on the first run.
 
 **Deferrals, stated rather than hidden:**
@@ -1511,7 +1511,7 @@ vulnerability. "Is this the package you meant" has no identifier at all.
   reported**: neither declares a version, so there is nothing to compare against
   a support schedule. An unpinned base image is a real finding, just not this
   engine's.
-- **Trivy is not installed in CI**, so `AEGIS-CONTAINER-001` parsing is
+- **Trivy is not installed in CI**, so `KERVY-CONTAINER-001` parsing is
   exercised only against the "tool absent" path there. The test asserts the
   honest-gap behaviour when Trivy is missing and the real parse when it is
   present, so the coverage is visible either way.
@@ -1538,7 +1538,7 @@ no-network-per-supply-chain-engine test now covers this engine too.
 
 **The coverage-honesty pattern, made explicit rather than implied:** every run
 with at least one declared dependency emits a single aggregate
-`AEGIS-SUPPLY-041` finding stating how many dependencies were checked against
+`KERVY-SUPPLY-041` finding stating how many dependencies were checked against
 how many table entries and as of what date — one note rather than one per
 dependency, because the vendored sample here is minuscule next to a real
 dependency list and a per-item repeat would say nothing the aggregate does
@@ -1582,7 +1582,7 @@ customer's repository" stays true under future edits.
 **Egress and credentials** follow the same pattern as notifications: a `github`
 connection reaches `api.github.com` and nothing else, pinned in code so a
 database row cannot redirect it; an Enterprise host needs
-`AEGIS_VCS_ALLOWED_HOSTS` in the environment; `allowed_ip_ranges` stays empty,
+`KERVY_VCS_ALLOWED_HOSTS` in the environment; `allowed_ip_ranges` stays empty,
 so sanctioning a host does not sanction an internal address behind it. The token
 is held by env-var reference and appears in no URL, log, audit record, response
 or error string.
@@ -1609,7 +1609,7 @@ the check run body rather than vanishing, and both counts are recorded.
 
 **Deferrals, stated rather than hidden:**
 
-- **No webhook receiver.** Aegis does not listen for `pull_request` events and
+- **No webhook receiver.** Kervy does not listen for `pull_request` events and
   scan automatically; publishing is invoked by CI or by hand. Ingesting webhooks
   needs an inbound authenticated endpoint, replay protection, and a decision
   about what a push from a fork may trigger — worth doing deliberately.
@@ -2202,7 +2202,7 @@ useful confirmation that the per-token key is truly load-bearing).
 `app/core/csrf/enforce.py` shipped requiring `X-CSRF-Token` on every unsafe,
 cookie-authenticated request, but `frontend/lib/api-client.ts`'s
 `clientApiFetch` — the fetch helper every Client Component uses — was never
-updated to read the `aegis_csrf` cookie and attach that header. Every
+updated to read the `kervy_csrf` cookie and attach that header. Every
 cookie-authenticated browser write has been returning 403 since CSRF
 enforcement landed; `POST /organizations` (the "Create Organization" form)
 is the first one anyone would hit. This was a real, previously-undetected
@@ -2225,7 +2225,7 @@ the CSRF cookie as a second, separate `Cookie:` header entry, with a comment
 claiming the backend compares two cookies (a plain double-submit check).
 Re-reading `enforce.py::check` disproved that: it only ever reads the
 *session* cookie to recompute the expected signature, and compares that
-against whatever arrives in the header — it never looks up `aegis_csrf` by
+against whatever arrives in the header — it never looks up `kervy_csrf` by
 name during verification. The extra forwarding was dead code justified by a
 false claim about the server it was talking to; removed, and the comment
 rewritten to describe the real mechanism.
@@ -2287,13 +2287,13 @@ token unconditionally, on the reasoning that login/register have no
 `Authorization: Bearer` header to signal "not a browser" the way every other
 route does. That reasoning missed something: **login is the request that
 *produces* the Bearer token**, so nothing can ever carry one yet, which means
-that signal cannot distinguish a browser from `aegis-ai login` or any other
+that signal cannot distinguish a browser from `kervy-ai login` or any other
 non-browser caller for these two routes specifically — unlike every other
 route, where Bearer presence already does this job. Requiring the token
 unconditionally would have 403'd the CLI's own login on the very next run.
 
 Caught before committing, by tracing through what the CLI's login path
-actually sends (`aegis_cli/client.py` builds a fresh `httpx.Client` per
+actually sends (`kervy_cli/client.py` builds a fresh `httpx.Client` per
 call — no persistent cookie jar, no browser). Fixed by giving the CLI the
 same front door a browser gets: a new `ApiClient.fetch_anon_csrf_token()`
 does the `GET /auth/csrf` round trip and hands `cmd_login` both the cookie
@@ -2344,8 +2344,8 @@ it." Closing it meant deciding that key model, not just writing the crypto.
 
 ### The key model is the same trade this project already made, not a new one
 
-`AEGIS_EVIDENCE_ENCRYPTION_KEY`, read the same way `JWT_SECRET` and
-`AEGIS_CSRF_SECRET` already are: one static value from an environment
+`KERVY_EVIDENCE_ENCRYPTION_KEY`, read the same way `JWT_SECRET` and
+`KERVY_CSRF_SECRET` already are: one static value from an environment
 variable, `app/core/config.py`. No rotation, no per-tenant key, no KMS
 integration, no tool to re-encrypt bundles already on disk from before the
 key was set. This is stated as plainly in `app/core/evidence/crypto.py`'s
@@ -2535,7 +2535,7 @@ authorization already covered end to end in `tests/security/test_revocation.py`.
 (SAST/SCA/secrets/IaC) previously required the same `Target` →
 `Authorization` → `Rules-of-Engagement` sequence built for a live network
 assessment, even for source code with no network surface at all. This adds
-`aegis-ai repo add|list|show|scan|remove` and the matching
+`kervy-ai repo add|list|show|scan|remove` and the matching
 `/organizations/{id}/repositories` API, which composes the same three rows
 that workflow would eventually produce, from a URL, a branch, and an
 explicit self-affirmed consent — no YAML RoE document, no operator-role
@@ -2709,3 +2709,1065 @@ suite green.
   (container/cloud/VM too) rather than piecemeal.
 - **Container, cloud, VM, and pentest-tool engines do not exist yet** — see
   the foundation section above.
+
+## Pentest module, Phase 3 — container engine (live registry pulls)
+
+Closes the gap the Aikido-parity container engine (`appsec.container.trivy`,
+this build's earlier work) states plainly rather than fakes: it scans a code
+checkout's filesystem and says outright it "did not pull or examine the base
+image layers", because pulling one means reaching a registry that engine has
+no scope to authorize. `app/core/container/` is that authorization, made
+explicit through `asset_scope.allowed_registries` and
+`asset_scope.allow_live_pull` on a `TargetKind.CONTAINER` target (both
+already defined in the Phase 1 foundation's `ContainerScope`) — never
+assumed, and never on by default.
+
+Delivered: `parse_image_ref`/`check_registry_allowed` (`app/core/container
+/pull.py`) — registry-host extraction and the same allowlist-then-resolve-
+then-block-check pipeline `app/core/appsec/checkout.py` already established
+for `git clone`, since `docker pull` is a subprocess and does not route
+through `GatedTransport` either; `ContainerEngine` (`engine.py`) — pull,
+scan, remove, always, via injectable `pull`/`scan`/`remove` callables the
+same way `DomainEngine` injects its transport and DNS resolver; scanning is
+`trivy image --image-src docker --skip-db-update --offline-scan`, reading
+the image the pull already placed on the local Docker daemon rather than
+letting trivy make its own registry call — a second, unaudited path to the
+same host; `ContainerCheck` (`app/core/orchestrator/container_check.py`),
+mirroring `DomainCheck`'s "one engine failure must not lose the run"
+contract; wiring into `execute_assessment_run` for `TargetKind.CONTAINER`;
+and a `PUT /organizations/{id}/targets/{id}/container-scope` endpoint
+mirroring `configure_domain_scope`'s shape.
+
+The first engine to actually populate `run_tool_invocations`
+(`app/core/container/service.py::record_tool_invocations`) — the table
+Phase 1's foundation added schema-only, "recording exactly which tool ran,
+with which network posture, per assessment run." `docker pull`, `trivy
+image`, and the cleanup `docker rmi` each write their own row; the domain
+engine before this needed none of this machinery because it is pure
+HTTP/DNS, not a subprocess.
+
+Decisions worth stating:
+
+- **A pulled image is removed whatever happened**, in a `finally` around
+  the scan — the same "the checkout is removed whatever happened"
+  discipline `discard_checkout` already follows for a repository clone. A
+  pulled image left on the worker is exactly the kind of artifact that
+  discipline exists to avoid.
+- **An unauthorized live pull is a visible "not tested" gap, never a
+  silent skip.** `allow_live_pull` defaults to `False` even though
+  `resolve_container_scope` permits either value — declaring a registry
+  allowlist is not, by itself, authorization to reach the network; an
+  operator opts in to the live pull as a separate, explicit decision, the
+  same way `PentestScope`'s own `max_depth` requires `approved_modules`
+  before exploitation.
+- **The registry match checks both the qualified host and the port-
+  stripped resolve host.** A wildcard allowlist entry (`*.internal`) has
+  no notion of a port to ignore, so an operator pointing at
+  `registry.internal:5000` would otherwise find a correctly-written
+  wildcard silently fail to match. A bug caught during this phase's own
+  tests, before it shipped.
+- **Docker Hub's own registry host is resolved and checked, not the name
+  "docker.io" a reference actually contains.** `docker.io` in an image
+  reference and the host actually dialed for a pull
+  (`registry-1.docker.io`) are different strings; checking the wrong one
+  would validate nothing.
+
+Verified: `ruff check`/`mypy app` clean; new tests across
+`test_container_pull.py` (reference parsing, registry allowlist, blocked-
+address refusal, the wildcard/port fix above), `test_container_engine.py`
+(gating, cleanup-always including on a raised exception, verified-advisory
+filtering), `test_container_check.py` (check-level failure isolation, the
+DB-backed `RunToolInvocation` write), and `test_container_scope_api.py`
+(mirroring `test_domain_scope_api.py`); the RBAC route→role matrix test
+extended for the new route; a regression pass over the domain/runs/targets/
+workers/security clusters this phase touches (502 passed, 2 skipped,
+unaffected); and the full backend suite green.
+
+### Deferrals
+
+- **No image signature or provenance verification.** Only vulnerability
+  scanning is implemented; Sigstore/cosign verification is a later
+  increment, tracked alongside the pentest-tool architecture phase.
+- **Multi-architecture manifest lists pull whatever the local Docker
+  daemon's own platform default resolves to.** No per-run platform
+  override exists yet.
+- **No dashboard page for container assets yet** — same reasoning as the
+  domain phase's own deferral: it lands once against a more complete asset
+  surface (cloud/VM too) rather than piecemeal.
+- **Cloud and VM engines, and the pentest-tool architecture, still do not
+  exist** — see the Phase 1 foundation section above.
+
+## Pentest module, Phase 4 — cloud engine (AWS, read-only)
+
+Closes the "Cloud and VM engines... still do not exist" gap the Phase 3
+container-engine section named above. `app/core/cloud/` inventories
+object-storage exposure for a `TargetKind.CLOUD_ACCOUNT` target's declared
+account, gated on `asset_scope.provider`/`account_ref`/`credential_env_var`/
+`allowed_regions` (`CloudScope`, already defined in the Phase 1 foundation)
+and on `resolve_cloud_scope`'s own hard refusal of anything but a
+read-only assessment — a mutating cloud call is a higher authorization tier
+this engine does not grant, and unlike `ContainerScope.allow_live_pull` this
+is not even a caller-settable flag: `read_only` defaults `True` and a `False`
+value is rejected at resolve time, before the engine ever runs.
+
+Delivered: `app/core/cloud/providers/aws.py` — real, correct `boto3` usage
+against exactly four read-only S3 calls (`list_buckets`,
+`get_bucket_location`, `get_bucket_policy_status`, `get_bucket_acl`), never a
+`put_*`/`delete_*`/`create_*` verb, enforced by this phase's own static test
+the same way `docs/security-model.md` guarantee #20 already enforces "no
+write verbs" for `app/core/vcs`'s pull-request layer; `CloudEngine`
+(`engine.py`) dispatching by `provider` through an injectable `providers` map
+— the same reason `ContainerEngine` injects `pull`/`scan`/`remove` rather than
+reaching for a real Docker daemon at call time; `CloudCheck`
+(`app/core/orchestrator/cloud_check.py`), mirroring `ContainerCheck`'s "one
+engine failure must not lose the run" contract; wiring into
+`execute_assessment_run` for `TargetKind.CLOUD_ACCOUNT`, including promoting
+inventoried buckets to `DiscoveredAsset` rows
+(`app/core/cloud/service.py::promote_discovered_buckets`, upsert-on-rerun,
+mirroring `promote_discovered_subdomains`); and a `PUT
+/organizations/{id}/targets/{id}/cloud-scope` endpoint mirroring
+`configure_container_scope`'s shape.
+
+Decisions worth stating:
+
+- **AWS ships fully implemented this phase; Azure and GCP do not.**
+  `resolve_cloud_scope` already validates `provider` against exactly
+  `{"aws", "azure", "gcp"}`, and `CloudEngine`'s dispatch handles all three —
+  but calling either unimplemented provider today produces an explicit
+  `KERVY-CLOUD-109` "not implemented yet" gap finding rather than a
+  fabricated result. Each needs its own multi-package SDK integration
+  (`azure-identity` + `azure-mgmt-storage` + `azure-storage-blob`;
+  `google-cloud-storage` + service-account credential handling), and shipping
+  either untested against a real account would be exactly the kind of
+  unverified claim this codebase's own discipline refuses to make — the same
+  reasoning Phase 5's SSRF probe and Phase 6's indirect-injection probe were
+  deferred under in the AI engine, rather than stubbed.
+- **The credential a `credential_env_var` resolves to is a JSON object, not
+  a bare token.** S3 access needs an access-key/secret-key pair (plus an
+  optional session token), not the single string `SyntheticAccount`'s bearer
+  header needed — `{"access_key_id": ..., "secret_access_key": ...,
+  "session_token": ...}`. Malformed or incomplete JSON is a
+  `CloudProviderError`, surfaced as a coverage marker, never a crash.
+- **A bucket is judged public from two independent signals** — the bucket
+  policy's own `GetBucketPolicyStatus.IsPublic` flag, and an ACL grant to the
+  `AllUsers`/`AuthenticatedUsers` well-known groups — because an account can
+  restrict read access to one API and not the other; checking only one would
+  under-report. Either surface being unreadable (access denied) is treated
+  as a conservative "not public" rather than fabricating a verdict from a
+  denial.
+- **An out-of-scope region is skipped entirely, not merely reported
+  untested** — the same "discovery never expands what gets tested" rule
+  `DomainEngine` applies to a subdomain outside
+  `allowed_subdomain_patterns`. An empty `allowed_regions` means no
+  restriction, matching the schema's own permissive default.
+- **`boto3` is an optional `cloud` extra** (`pip install -e ".[dev,cloud]"`),
+  the same reasoning `appsec` already established for its scanners: an
+  engine whose SDK is absent reports `KERVY-CLOUD-109` rather than crashing
+  or, worse, silently reporting nothing. The base test suite never imports
+  it for real — every test exercises the provider through dependency
+  injection.
+
+Verified: `ruff check`/`mypy app` clean (a new `[[tool.mypy.overrides]]`
+entry for `boto3.*`/`botocore.*`, mirroring the existing `celery`/
+`weasyprint` overrides, since neither ships a `py.typed` marker); new tests
+across `test_cloud_aws.py` (credential parsing, public-grant detection via
+both the policy and ACL paths, region filtering, rejected/failed-credential
+handling, missing-SDK handling, and the static read-only-verb check),
+`test_cloud_engine.py` (credential gating, unimplemented-provider gating,
+provider-error gating, the unconditional inventory finding, public-bucket
+findings), `test_cloud_check.py` (check-level failure isolation, the
+DB-backed `promote_discovered_buckets` upsert-on-rerun and
+exposure-change test), and `test_cloud_scope_api.py` (mirroring
+`test_container_scope_api.py`); the RBAC route→role matrix test extended for
+the new route; a regression pass over the container/domain/runs/targets
+clusters this phase touches (81 passed, unaffected); and the full backend
+suite (1736 passed, 2 skipped). Four failures on this run are pre-existing
+and unrelated to this phase — two `checkov` rule-ID mismatches and their
+downstream `test_code_scan_e2e.py` effect (the pinned `checkov` version's
+own IaC rule set drifted, unrelated to any file this phase touches), and
+one CycloneDX SBOM spec-version assertion whose own docstring already
+states its deferral is recorded here rather than papered over — the
+installed `cyclonedx-python-lib` now tops out at 1.7 where §23 pins 1.6.
+Neither failure touches `app/core/cloud/`, `app/core/container/`,
+`app/workers/tasks.py`, the targets router, or the RBAC matrix.
+
+### Deferrals
+
+- **Azure and GCP object-storage inventory** — see above; the engine and API
+  surface already route to either provider correctly, only the SDK
+  integration itself is deferred.
+- **No compute/database/network exposure inventory** — this phase is
+  object-storage only (S3-equivalent). Broader cloud posture (open security
+  groups, public RDS instances, IAM policy analysis) is a later increment.
+- **No dashboard page for cloud assets yet** — same reasoning as the
+  container phase's own deferral: it lands once against a more complete
+  asset surface (VM too) rather than piecemeal.
+- **VM engine and the pentest-tool architecture still do not exist** — see
+  the Phase 1 foundation section above.
+
+## Pentest module, Phase 5 — VM engine (authorized port/service discovery)
+
+Closes the last of the three engine gaps the Phase 1 foundation named
+(domain, container, cloud already shipped in Phases 2–4). `app/core/vm/`
+port-scans a `TargetKind.VIRTUAL_MACHINE` target's declared host with
+`nmap -sV`, gated on `asset_scope.host`/`allowed_ports` (`VmScope`, already
+defined in the Phase 1 foundation) and on the same blocked-address check
+(`is_blocked_ip`) `check_registry_allowed` already applies to a container
+registry's resolved host.
+
+Delivered: `app/core/vm/nmap.py` — `check_host_allowed` (resolve-then-
+block-check, mirroring `check_registry_allowed`) and `scan_ports`/
+`parse_open_ports` (`nmap -Pn -sV --open -p <declared ports> -oX -`, parsed
+with the stdlib's `xml.etree.ElementTree` rather than a new dependency);
+`VmEngine` (`engine.py`) dispatching through an injectable `scan` callable —
+the same reason `ContainerEngine` injects `pull`/`scan`/`remove` rather than
+reaching for a real `nmap` binary at call time — emitting an unconditional
+port-inventory finding plus a `KERVY-VM-101` finding for a small, fixed set
+of ports whose mere reachability is already noteworthy (Telnet, SMB, Redis,
+MongoDB, and similar unencrypted or commonly-unauthenticated services);
+`VmCheck` (`app/core/orchestrator/vm_check.py`), mirroring `ContainerCheck`'s
+"one engine failure must not lose the run" contract — the first check to
+carry both `tool_invocations` (like `ContainerCheck`) and `discovered`
+(like `CloudCheck`) at once; wiring into `execute_assessment_run` for
+`TargetKind.VIRTUAL_MACHINE`, including recording `nmap`'s invocation into
+`run_tool_invocations` (the second engine to populate that table, after the
+container engine) and promoting discovered open ports into `DiscoveredAsset`
+rows via `AssetKind.OPEN_SERVICE` — reserved for exactly this in the Phase 1
+foundation's own model docstring ("an open service on a VM") but unused
+until now; and a `PUT /organizations/{id}/targets/{id}/vm-scope` endpoint
+mirroring `configure_container_scope`'s shape.
+
+Decisions worth stating:
+
+- **Declaring a port in `allowed_ports` is itself the authorization to
+  probe it — there is no separate `allow_live_pull`-style opt-in flag.**
+  `VmScope` was defined without one back in the Phase 1 foundation, and this
+  phase respects that: `resolve_vm_scope` already refuses an empty
+  `allowed_ports` list, the same "an unstated allowlist is not a permissive
+  one" rule `resolve_container_scope` enforces for `allowed_registries`.
+  Unlike a container pull (which downloads arbitrary third-party content
+  onto the worker), a port probe's cost and footprint is small and bounded
+  by the declared port list itself, so the extra flag `ContainerScope
+  .allow_live_pull` needs has no equivalent here — the same reasoning
+  `DomainTarget.root_domain`'s mere presence already gives the domain
+  engine's own baseline discovery and TLS/header checks.
+- **This engine does not itself judge a service vulnerable.** `nmap -sV`
+  fingerprints what is listening; deeper, tool-driven vulnerability
+  scanning and validation against a discovered service is the pentest-tool
+  architecture's own job (Phase 6, `PentestScope.max_depth`), layered on top
+  of this baseline the same way a later, deeper probe would build on the
+  domain engine's own TLS/header checks. What this engine flags on its own
+  — a small, fixed, noteworthy-port list — says a surface is reachable,
+  never that it is misconfigured.
+- **No elevated privilege is required.** The scan omits `-sS`; without
+  root, `nmap` already falls back to a TCP connect scan, so this runs the
+  same way any other subprocess-based engine on this platform does.
+- **`nmap`'s XML output (`-oX -`) is parsed with the standard library**
+  (`xml.etree.ElementTree`), not a new dependency — the same reasoning that
+  kept the SBOM/reporting pipeline's XML handling dependency-free
+  elsewhere. `nmap` itself, like `trivy`/`docker`, is expected to already be
+  present on the worker; a missing binary reports `KERVY-VM-109` rather
+  than crashing, the same graceful-degradation contract every other
+  subprocess-based engine on this platform follows.
+- **`ToolInvocationRecord` and `record_tool_invocations` are duplicated
+  into `app/core/vm/`, not imported from `app.core.container`.** The two
+  engines are conceptually independent; sharing a ~10-line dataclass and
+  persistence function across unrelated engine packages would be a stranger
+  coupling than the small duplication avoids — the same "mirror, don't
+  share" convention every other per-phase `contract.py`/`service.py` in
+  this module already follows.
+
+Verified: `ruff check`/`mypy app` clean; new tests across `test_vm_nmap.py`
+(blocked-address refusal including the cloud-metadata address even when
+allowlisted, an explicitly-allowed private range, unresolvable-host
+handling, missing-`nmap`-binary handling, XML parsing including a closed
+port correctly excluded and malformed XML refused), `test_vm_engine.py`
+(empty-allowlist gating, blocked-address gating, scan-failure gating,
+malformed-output gating, the unconditional inventory finding, noteworthy-
+port findings), `test_vm_check.py` (check-level failure isolation, the
+DB-backed `record_tool_invocations`/`promote_discovered_open_services`
+upsert-on-rerun tests), and `test_vm_scope_api.py` (mirroring
+`test_container_scope_api.py`, plus an out-of-range-port rejection case);
+the RBAC route→role matrix test extended for the new route; a regression
+pass over the container/cloud/domain/runs/targets clusters this phase
+touches (334 passed, 2 skipped, unaffected); and the full backend suite
+(1769 passed, 2 skipped). The same four pre-existing, unrelated failures
+from the Phase 4 run recur here unchanged — two `checkov` rule-ID
+mismatches and their downstream `test_code_scan_e2e.py` effect, and the
+already-documented CycloneDX spec-version deferral — none touching
+`app/core/vm/`, `app/core/orchestrator/vm_check.py`,
+`app/workers/tasks.py`, the targets router, or the RBAC matrix.
+
+### Deferrals
+
+- **No SSH-based authenticated/credentialed scanning.** `VmScope
+  .ssh_credential_env_var` exists in the Phase 1 foundation's schema but is
+  not read by this engine — this phase is unauthenticated network discovery
+  only, the same tier the domain engine's own baseline occupies.
+- **No exploitation or validation against a discovered service** — see the
+  "does not itself judge a service vulnerable" decision above; that is
+  Phase 6's job.
+- **No dashboard page for VM assets yet** — same reasoning as the
+  container/cloud phases' own deferral: it lands once against the complete
+  three-engine asset surface rather than piecemeal, now that all three
+  (domain, container/cloud, VM) exist.
+- **The pentest-tool architecture itself still does not exist** — see the
+  Phase 1 foundation section above; this was its last prerequisite engine.
+
+## Pentest module, Phase 6 — pentest-tool architecture (discovery/vuln-scan/validation)
+
+Closes the last gap the Phase 1 foundation named: `app/core/pentest/`, a
+closed, tier-gated module registry layered on an already-discovered,
+already-authorized service — never a fresh scan of its own. This phase
+wires it only to `app.core.vm`'s discovered open services (see the
+engine's own docstring for why extending it to a domain-discovered HTTP
+endpoint or a cloud resource later is a caller-side wiring change, not a
+change to the engine itself).
+
+Delivered: `app/core/pentest/nmap_scripts.py` — three NSE-script modules,
+each exactly one `nmap --script <category>` invocation against one
+already-open `host:port`, mapping onto `TestDepth`'s tiers by what the
+category actually does rather than by name (nmap has no category literally
+called "validation"): `discovery` (safe information-gathering beyond the
+VM engine's own `-sV`), `vuln` (known-vulnerability checks, read via the
+`vulns` NSE library's own `State: VULNERABLE` convention), and `auth`
+(confirms a service is reachable with no/default/anonymous credentials —
+this platform's validation tier: confirming exploitability-by-lack-of-auth
+without attempting to exploit anything further); `registry.py`, a closed
+tuple of `PentestModule`s mirroring `appsec_engines()`'s closed-set idiom,
+with **no `TestDepth.EXPLOITATION` module registered at all** — real
+exploit execution stays exactly where the Phase 1 foundation put it,
+behind its own tier, last in the plan (Phase 12); `PentestEngine`
+(`engine.py`) gating on `scope.max_depth.at_least(module.tier)` and, when
+non-empty, `scope.approved_modules`, via an injectable `modules` tuple —
+the same reason `VmEngine` injects `scan`; `PentestCheck`
+(`app/core/orchestrator/pentest_check.py`) — the first check on this
+platform to depend on another check's result (`vm_check.discovered`)
+rather than only on the target/scope, safe only because `execute_run`
+(`app/core/orchestrator/runner.py`) runs every check sequentially in the
+exact order `workers/tasks.py` appends them; wiring into
+`execute_assessment_run`, appended only when, and always after,
+`vm_check`; and `PentestScopeIn` nested inside `VmScopeIn` — no separate
+endpoint, since `resolve_pentest_scope` reads its fields from the exact
+same `asset_scope` document `resolve_vm_scope` also reads from.
+
+Decisions worth stating:
+
+- **No separate opt-in flag beyond `max_depth`/`approved_modules`
+  themselves.** Silence resolves to `TestDepth.DISCOVERY` and runs the
+  `discovery`-tier module — never a refusal — the exact "silence means the
+  least invasive tier, not an abort" rule the Phase 1 foundation's own
+  `PentestScope` already documents; declaring a deeper tier is itself the
+  authorization, the same reading `VmScope.allowed_ports` already gets.
+- **A deeper `max_depth` still runs every shallower tier's modules too.**
+  `TestDepth.at_least` is an ordinal comparison, not an exact-tier match —
+  a run authorized for `vulnerability_scan` gets the `discovery`-tier
+  module's output as well, the same way a deeper RoE authorization has
+  always implied the shallower ones on this platform.
+- **`vuln`-tier confidence is `MEDIUM`, not `HIGH`.** `is_vulnerable_state`
+  is a text-match against the `vulns` NSE library's own convention, stated
+  plainly as a heuristic in its own docstring — not a database-verified
+  advisory ID the way `app.core.appsec.identifiers.verified_advisories`
+  confirms a container-engine CVE. `auth`-tier (validation) findings are
+  `HIGH` confidence instead: the script's output exists only because the
+  anonymous/default-credential check itself live-succeeded, a directly
+  observed condition rather than a text heuristic.
+- **`nmap`'s XML output is parsed with `defusedxml`, not the stdlib's
+  `xml.etree.ElementTree`** — caught by this platform's own dogfooded
+  Bandit rule (B314) against `app.core.vm.nmap`'s Phase 5 parser too, fixed
+  in both places together. The XML comes from a subprocess this platform
+  itself invoked, not an external upload, but the same reasoning applies
+  either way: a parser with external-entity resolution enabled is a risk
+  for any XML whose full provenance is not the platform's own code, and a
+  correct drop-in replacement was one import away.
+- **`ToolInvocationRecord`/`record_tool_invocations` are duplicated into
+  `app/core/pentest/`, not imported from `app.core.vm` or
+  `app.core.container`.** Three independent engine packages now carry the
+  same ~10-line shapes — the same "mirror, don't share" convention every
+  per-phase `contract.py`/`service.py` in this module already follows,
+  chosen over a shared cross-engine coupling with no semantic meaning.
+
+Verified: `ruff check`/`mypy app` clean (`defusedxml`/`types-defusedxml`
+added as direct dependencies — the library was already present
+transitively but neither module had imported it directly before); `bandit
+-r app kervy_cli -ll` clean (confirmed the B314 finding this phase's own
+work exposed, and fixed it in both `app/core/vm/nmap.py` and
+`app/core/pentest/nmap_scripts.py`); new tests across
+`test_pentest_nmap_scripts.py` (script parsing across both port- and
+host-scoped results, the `is_vulnerable_state` heuristic, missing-binary
+handling), `test_pentest_engine.py` (tier/approval gating including the
+"deeper implies shallower" ordering, per-tier finding shape, module-failure
+and malformed-output gaps), `test_pentest_check.py` (check-level failure
+isolation, the DB-backed `record_tool_invocations` test, and a dedicated
+test proving the sequential-check-ordering dependency on
+`vm_check.discovered` actually works), and `test_pentest_scope_api.py`
+(declaring `pentest.max_depth`/`approved_modules` through the existing
+`vm-scope` endpoint, the one case `resolve_pentest_scope` itself validates
+— `exploitation` without `approved_modules` — refused with 422); a
+regression pass over the container/cloud/vm/domain/runs/targets clusters
+this phase touches (396 passed, 2 skipped, unaffected); and the full
+backend suite (1801 passed, 2 skipped). The same four pre-existing,
+unrelated failures from the Phase 4/5 runs recur here unchanged — two
+`checkov` rule-ID mismatches and their downstream `test_code_scan_e2e.py`
+effect, and the already-documented CycloneDX spec-version deferral — none
+touching `app/core/pentest/`, `app/core/vm/nmap.py`,
+`app/core/orchestrator/pentest_check.py`, `app/workers/tasks.py`, the
+targets router, or the RBAC matrix.
+
+### Deferrals
+
+- **Only VM-discovered open services are wired in.** The engine itself is
+  asset-kind-agnostic (see its own docstring); extending it to a
+  domain-discovered HTTP endpoint or a cloud resource is a later
+  increment's caller-side wiring change.
+- **No dashboard page for pentest-tool findings specifically** — they
+  report through the existing `Pentest` reporting pillar and findings
+  pipeline like any other engine's output; a dedicated view is a later
+  phase, the same reasoning every earlier engine's own dashboard deferral
+  gives.
+- **`TestDepth.EXPLOITATION` has no registered module, on purpose** — see
+  the "no exploitation module registered" decision above; that tier is
+  Phase 12's own job, behind its own `ExploitationAuthorization` tier.
+
+## Pentest module, Phase 7 — AI expansion (correlate/prioritise, evidence Q&A)
+
+Closes the gap `app/core/assistant/autonomy.py` had named since Phase 16:
+`Capability.CORRELATE_FINDINGS`/`PRIORITISE_FINDINGS` were declared at
+`AutonomyMode.RECOMMEND` with no `AIService` method behind either, and the
+module's own docstring already promised a co-pilot that "explains,
+correlates, prioritises and drafts" — only the first and last of those
+existed. This phase adds the missing two, plus a third, previously
+undeclared capability the same brief asked for: answering a free-text
+question about a finding's own captured evidence.
+
+The "multi-provider" half of this phase's brief is already satisfied by
+the native Agent framework (Phases 1–7 above): a tool call resolves an
+org's configured Anthropic/Gemini/OpenAI/`openai_compatible` provider
+(`app/core/agent/provider/factory.py`) before ever constructing an
+`AIService`, so no second provider-resolution path was needed — the same
+"resolve overlap before building" reasoning this module's plan applied to
+the Phase 6/Phase 9 MCP-surface overlap.
+
+Delivered: `Capability.ANSWER_EVIDENCE_QUESTION` (`AutonomyMode.ASSIST`,
+matching `EXPLAIN_FINDING`'s own tier — it explains, it does not
+recommend); three new versioned `PromptTemplate`s
+(`assistant.correlate_findings`, `assistant.prioritise_findings`,
+`assistant.answer_evidence_question`), all carrying the same
+`SYSTEM_PREAMBLE` and observed/inferred/recommended/unknown labelling
+discipline as every earlier template; `AIService.correlate_findings()`,
+`.prioritise_findings()` (each over a capped, evidence-fenced list of
+`FindingView`s via a new `_render_findings_list()` helper — the same
+`MAX_FINDINGS`-style cap `summarise_run`'s own title list already uses,
+because a co-pilot reasoning over too many findings at once produces noise
+rather than a correlation), and `.answer_evidence_question()` (a finding
+plus a free-text question, both evidence-fenced independently — the
+question is fenced too, not just the evidence, since it is equally
+untrusted free text reaching the prompt); and three new READ_ONLY
+native-agent tools (`app/core/agent/tools/analysis.py`'s
+`answer_evidence_question`, and a new `app/core/agent/tools/correlation.py`
+holding `correlate_findings`/`prioritise_findings`), each reusing the
+existing `Tool`/`AgentContext` shape `analyze_finding` already established
+— load `Finding` rows scoped to `ctx.organization_id`, project to
+`FindingView`, call the `AIService` method, return its draft. The two
+multi-finding tools load up to 25 findings by ID and raise
+`ToolNotFoundError` naming every ID not found in the caller's own
+organization, rather than silently dropping them.
+
+Decisions worth stating:
+
+- **All three new tools are `READ_ONLY`, not `STANDARD`.** Each drafts text
+  a human is expected to weigh, exactly like `analyze_finding`; none writes
+  a finding's stored severity, status, or relationships — the same
+  reasoning that keeps `analyze_finding` at `READ_ONLY` applies unchanged.
+- **The tool hardcodes its own minimum autonomy mode when constructing
+  `AIService`**, the same pattern `analyze_finding` already established:
+  the tool's own `risk_level`/`minimum_role` is the real authorization
+  gate for the call, not a second autonomy configuration that would need
+  to be kept in sync with it.
+- **No new provider-resolution code.** `ctx.provider` already arrives
+  pre-resolved by the Agent framework's own multi-provider factory; every
+  new tool simply reuses it, the same way `analyze_finding` already did.
+
+Verified: `ruff check`/`mypy app` clean; targeted run of
+`tests/security/test_assistant_boundary.py`, `tests/test_agent_tools.py`,
+and `tests/security/test_agent_boundary.py` (69 passed) covering the
+updated closed-capability-set pin test, the updated closed-tool-registry
+pin test, evidence-fencing of both a hostile finding inside a correlated
+set and a hostile question, and tenant-isolation for all three new tools
+(including the multi-finding tools' cross-organization `ToolNotFoundError`
+behaviour).
+
+### Deferrals
+
+- **No new prompt-injection surface introduced, but also none newly
+  defended against beyond what `quote_evidence()` already provides** — a
+  free-text question is user-supplied, not scanner-derived, so it is a
+  different threat model than scan evidence; fencing it the same way is a
+  reasonable default, not a claim that every injection vector through a
+  question has been separately analysed.
+
+## Pentest module, Phase 8 — automation (Celery Beat, webhooks, approval gates)
+
+Closes the three gaps `docs/workflows.md`'s "What is not built" section and
+the Phase 17/Agent-framework deferrals both named explicitly: no scheduler,
+no inbound webhook endpoint, and — the gap those two expose once built — no
+approval gate for a trigger with no human present at all.
+
+**The insight that ties the three together**: `queue_run()`
+(`app/core/runs/service.py`) takes a *required* `user_id`; every scan this
+platform has ever queued is attributed to a real human. An unattended
+trigger has no human in the request, so the approval step is not a safety
+feature bolted on top — it is what supplies a real `user_id` to attribute
+the resulting scan to, the same way a human calling `POST /runs` supplies
+their own. This is why `approve()` (not the scheduler or the webhook
+directly) is the one place that calls `queue_scan_for_workflow_run`.
+
+Delivered: `Trigger.unattended: bool` (not a new `TriggerKind` — an inbound
+webhook still produces `REPOSITORY_CHANGE`/`PULL_REQUEST`, what's new is the
+authenticated acceptance endpoint, not the trigger vocabulary; a human
+manually re-running a `SCHEDULE`-kind workflow through the existing API
+must not pause, which ruled out keying the gate off `trigger.kind` itself);
+`WorkflowStatus.AWAITING_APPROVAL` and `UNATTENDED_APPROVAL_ACTIONS`
+(`APPSEC_SCAN`/`API_SCAN`/`AI_SCAN`/`DAST_SCAN`/`PUBLISH_PR` — mirrors
+`app.core.assistant.autonomy.TARGET_TOUCHING`'s "no mode can grant this"
+idiom, no opt-out column); `Workflow.schedule_interval_minutes`/
+`next_run_at` (a 60-minute floor, validated at the schema level — a stated
+safety rail against unattended, high-frequency scanning of a live target,
+not cron-expression support, matching `TriggerKind`'s own "not a general
+workflow engine" stance) and `Workflow.webhook_enabled`/
+`webhook_secret_encrypted`; three new Celery tasks
+(`dispatch_scheduled_workflows` ticking every 60s, advancing `next_run_at`
+*before* the run task executes so a slow run never double-dispatches;
+`run_scheduled_workflow`; and `gate_workflow_run_if_linked`, hooked into
+`run_assessment`'s existing `notify_run_finished.delay(...)` follow-up
+call site the same decoupled way); `service.queue_scan_for_workflow_run`/
+`start_and_maybe_pause`/`approve`/`reject`; a new top-level
+`app/api/v1/routers/webhooks.py` (`POST /api/v1/webhooks/workflows/{id}`)
+and three new endpoints on the existing workflows router
+(`webhook-secret` admin, `approve`/`reject` security engineer — the same
+tier `RUN_WORKFLOW`/`START_SCAN` already require, since approving *is*
+authorizing a scan); `app/core/workflow/webhook_secret.py` (secret
+generation/AES-256-GCM encryption, reusing `app/core/evidence/crypto.py`
+directly rather than a second implementation, keyed by a new *required-
+when-used* `KERVY_WEBHOOK_SECRET_ENCRYPTION_KEY` — unlike the evidence key,
+not optional encryption, since a webhook secret must never sit in Postgres
+in cleartext) and `app/core/workflow/replay_guard.py` (a 7th Redis-backed
+store, dedup-by-signature, **fails closed** — the opposite of the rate
+limiter's own deliberate fail-open, because replay protection exists
+specifically to refuse something that looks legitimate); a new `beat`
+Docker Compose service (no `lab_net`, no evidence volume — it only ever
+enqueues tasks, it never itself reaches a target).
+
+Decisions worth stating:
+
+- **The inbound webhook route is deliberately outside the
+  `/organizations/{organization_id}/...` prefix.**
+  `test_every_organization_scoped_route_declares_a_minimum_role` correctly
+  asserts every route under that prefix has a role dependency — the
+  webhook's caller has no session for any organization at all, so nesting
+  it there would need a special-cased exemption to an otherwise-clean
+  invariant. `workflow_id` alone (unguessable) plus the HMAC signature is
+  the authentication; the workflow row's own `organization_id` column
+  supplies the tenant.
+- **HMAC verification is reused, not reimplemented.**
+  `app/core/integrations/signing.py`'s own docstring already called
+  `verify()` "the reference a receiver is written against" — this phase
+  is the first thing in the codebase to actually call it as one.
+- **No opt-out from the approval gate.** An earlier draft of this phase
+  considered a `Workflow.requires_approval` column an operator could
+  disable; dropped in favour of the closed rule above, both because it
+  removes an edge case (whose `user_id` would an opted-out unattended scan
+  even be attributed to?) and because it matches this platform's general
+  preference for a small closed rule over a configurable exception.
+- **Celery Beat's own healthcheck is disabled**, not inherited from
+  `Dockerfile.worker`'s image default — that default pings a worker's own
+  queue, which a Beat process never runs one of, and would otherwise
+  always report the container unhealthy.
+
+Verified: `ruff check`/`mypy app` clean; new `tests/test_workflow_automation.py`
+(21 tests: schedule validation/dispatch/advance-on-tick, the approval
+gate's pause/approve/reject over both a plan that would and would not
+queue a scan, the async gate-once-linked-scan-finishes path, and the
+webhook's signature success/missing-headers/bad-signature/expired-
+timestamp/replay/wrong-kind/tenant-isolation cases); `EXPECTED_ROLES`
+extended for the three new authenticated endpoints
+(`tests/security/test_authorization_matrix.py`); full regression pass over
+`test_workflow.py`/`test_workflows_api.py` (unaffected — every existing
+manual-trigger call site defaults `unattended=False`); `docker compose
+config` validates the new `beat` service.
+
+### Deferrals
+
+- **No vendor-specific webhook translators.** The inbound endpoint accepts
+  this platform's own minimal, HMAC-signed shape only; translating GitHub's
+  or GitLab's own webhook payload into it is a separate, later increment.
+- **No CLI for any workflow operation**, scheduling and webhooks included —
+  `kervy-ai` has no `workflow` subcommand group at all yet, confirmed
+  absent before this phase; adding CLI support only for the new pieces
+  while base workflow CRUD has none would be inconsistent scope creep.
+- **No dashboard UI** for schedule/webhook/approval configuration — matches
+  every earlier pentest-module phase's "API-only, dashboard is a later
+  phase" precedent (Phase 10, task #125, is the dashboard phase).
+- **No rate limit on the inbound webhook** — `app.core.ratelimit`'s
+  policies are each a route's own deliberate choice of window/key/fail-
+  direction; adding one without that same review would be exactly the
+  kind of half-built control this codebase avoids.
+
+## Pentest module, Phase 10 — security operations dashboard
+
+Closes the gap the previous phase's own deferral named ("No dashboard UI",
+task #125): an organization-wide, at-a-glance operational view, built as a
+new `GET /organizations/{id}/dashboard/summary` endpoint (`Role.VIEWER`)
+and an overview page in the Next.js frontend — open findings by severity,
+7-day run/gate activity, remediation and pending-retest counts, coverage by
+pillar, and the five most recent runs, five most recent workflow runs, and
+ten highest-risk open findings.
+
+The data model needed nothing new — `Finding`, `AssessmentRun`,
+`WorkflowRun`, `RemediationTask`, and `ScanResultRecord` already carried
+everything the summary needed. The gap was entirely on the query/API/
+frontend side, and the Jinja2 dashboard (Phase 17) had already solved half
+of it: `app/web/queries.py`'s own rule — *no hardcoded dashboard values,
+every number is a real query* — was exactly right for this endpoint too.
+Rather than reimplement it, that module moved to
+`app/core/dashboard/queries.py` (core domain logic two presentation layers
+both call, not a web-only concern) and gained three new functions:
+
+- `pillar_coverage_for()` — the org-wide version of
+  `app/core/reporting/build.py::_pillar_coverage()`'s per-report question.
+  Both now read one shared `PILLAR_PREFIXES` table (moved to
+  `app/core/reporting/model.py`, next to the `PILLARS` tuple it was always
+  paired with) rather than each keeping its own copy that could drift.
+- `remediation_summary()` — open and overdue counts straight from
+  `RemediationTask.closed_at`/`due_date`, the task's own state rather than
+  a re-derivation of the finding's status (see that model's own module
+  docstring on why there is exactly one status column for a finding's
+  security state).
+- `pending_retest_count()` — `Finding.status == RETEST_REQUIRED`, full
+  stop. A remediation is a claim until a retest checks it, so the finding's
+  own status machine already answers "how many are waiting", with no
+  second query against `retest_results` needed.
+
+Findings management itself was deliberately **not** rebuilt here: the ten
+highest-risk findings shown have no filtering, pagination, or status
+transitions from this surface. That UI already exists (the Jinja2
+dashboard's `/findings` page and the `GET/POST .../findings` API); a
+fuller Next.js findings view is pentest-module Phase 11 (reporting
+polish), not this phase.
+
+Caught during testing, not by any static tool: an early version of this
+phase's own test suite referenced a `Finding`'s `.id` before flushing the
+session, which produced a `NULL` foreign key on the very next insert and
+then, because the failed transaction wasn't cleanly rolled back within one
+pytest session, cascaded into 100+ unrelated failures across
+`test_web.py`, `test_reporting.py`, and the authorization matrix — all from
+one missing `await db_session.flush()`. Root-caused from the actual
+`asyncpg.exceptions.NotNullViolationError` in the traceback rather than
+chasing the symptom in each of the "downstream" files.
+
+Verified: `ruff check`/`mypy app` clean; targeted suite (dashboard,
+Jinja2-dashboard, reporting, authorization-matrix — the four modules
+touched by the query-module move) green: 359 passed, 2 skipped; full
+backend suite green: 1851 passed, 2 skipped, 0 failed. Frontend
+`lint`/`typecheck` clean. See
+`docs/dashboard.md` for the full design and what this phase deliberately
+left out (no historical trend, no export, no cross-organization view).
+
+## Rebrand — Aegis AI Security → Kervy Security
+
+A user-directed rename, executed as a full technical rebrand rather than a
+branding-only pass: every `AEGIS_*` environment variable, the
+`X-Aegis-Signature`/`X-Aegis-Timestamp`/`X-Aegis-Event` webhook-signing
+headers, the `aegis_session`/`aegis_csrf` cookies, every Redis key prefix,
+every `AEGIS-<engine>-<rule>` finding/probe-ID code, the Celery app/task
+names, the CLI (`aegis-ai`/`aegis-mcp` → `kervy-ai`/`kervy-mcp`,
+`backend/aegis_cli` → `backend/kervy_cli`), the package names in
+`backend/pyproject.toml`/`frontend/package.json`, and every doc/comment
+mention now read `Kervy`/`KERVY`/`kervy`.
+
+The one piece that could not be a text substitution: the Postgres
+Row-Level Security session variable (`app/db/tenant_context.py`) is named
+inside the `USING`/`WITH CHECK` SQL text of every `tenant_isolation`
+policy, baked in by the five historical migrations that each created one
+(`b2e6f4a91c7d`, `e1f4b8c72a90`, `f2a8c91e6b3d`, `a3d7e05c1f92`,
+`d8b3f6a1c2e4`). Editing those files would rewrite what actually ran —
+this codebase's own established discipline for migrations (append-only,
+same reasoning as the audit log's own "no update/delete code path")
+forbids that regardless of the reason. Instead, a new migration
+(`e1d16423a6b1`) reads the live, authoritative table list from
+`pg_policies` (rather than retyping it from five source files) and issues
+one `ALTER POLICY ... USING (...) WITH CHECK (...)` per table, moving
+`aegis.org_id` to `kervy.org_id`; `tenant_context.py` ships the matching
+code change in the same commit, since a deployment running either half
+without the other would see every RLS-covered query return nothing —
+the same fail-closed behaviour an unset session variable already
+produces, never another organization's rows.
+
+Decisions worth stating:
+
+- **Historical Alembic migrations are untouched, on principle** — not
+  merely because it was easier. A migration is the record of what a
+  database actually ran; a bulk rename that rewrote `aegis.org_id`
+  inside five already-applied migration files would make that record
+  say something that never happened.
+- **CHANGELOG.md's `[Unreleased]` section was rewritten in place**
+  (prose mentions of the old name updated to the new one, plus this
+  entry's own sibling documenting the rename itself); the released
+  `[0.1.0]` section's own command-name references
+  (`aegis-ai repo add`, `aegis-ai target roe|...`) were updated too,
+  since the CLI itself no longer answers to those names and a changelog
+  entry that stopped working as a copy-pasted command would be a worse
+  historical record than one accurately renamed.
+- **The GitHub repository's own name was left alone.** Renaming a
+  hosted repository changes its clone URL and is a separate,
+  higher-stakes action than a codebase-content rename; not attempted
+  without being asked.
+
+Verified: `ruff check`/`mypy app kervy_cli mcp_server`/`bandit -r app
+kervy_cli -ll` all clean; frontend `lint`/`typecheck`/`build`/`test` (16
+tests) all clean; a `git grep -i aegis` across every tracked file outside
+`backend/alembic/versions/` returns nothing; the live dev and test
+Postgres databases were renamed (`aegis`→`kervy`, `aegis_test`→
+`kervy_test`) and their RLS policies confirmed via `pg_policies` to
+reference `kervy.org_id` exclusively. The full backend suite was run
+twice after the rename: the first run surfaced 6 failures, all in
+`tests/test_reporting.py`, and all the same root cause — the golden
+fixtures under `backend/tests/golden/` had `aegis: 0.1.0` recorded
+ahead of `bandit: 1.7.9` in the "Tool versions" list, and
+`render.py`'s alphabetical sort now puts `kervy` after `bandit`, so the
+line order genuinely changed rather than just the name. Re-recorded
+those 9 golden files with `UPDATE_GOLDEN=1` and reviewed the diff line
+by line before re-running; the second full run passed clean: **1845
+passed, 2 skipped, 0 failed**.
+
+## Frontend UI redesign
+
+A visual redesign of the Next.js dashboard, requested separately from
+any pentest-module phase: modernize the look (color, spacing,
+elevation, motion) without touching the underlying architecture or any
+API contract. Scope was deliberately the Next.js app under `frontend/`
+— the primary product UI — not the Jinja2/HTMX dashboard under
+`backend/app/web/` (Phase 17's lighter, API-key-authenticated ops
+view), which was left alone.
+
+Foundation first, then a sweep: `app/globals.css`/`tailwind.config.ts`
+got a richer primary color, new `success`/`warning`/`accent` tokens, an
+elevation shadow scale (`shadow-soft`/`shadow-elevated`/
+`shadow-popover`), a softer border-radius scale driven by one `--radius`
+variable, and a small set of restrained entrance animations
+(`fade-in`/`fade-up`/`scale-in`) — kept deliberately subtle per the
+brief's own "avoid excessive animations" instruction. Every existing UI
+primitive (`Button`/`Card`/`Input`/`Select`/`Textarea`/`Checkbox`/
+`Label`) got shadows, hover/active/focus transitions, and consistent
+radius; `Button` gained an `isLoading` prop (spinner + disabled, so
+every submit button shows real pending state instead of just disabled).
+Three new primitives — `Badge`, `Alert`, `Skeleton` — replaced ad hoc
+inline-styled status pills and repeated `<p role="alert">` blocks
+across the app: every status pill (run/scan/workflow status, RoE/
+authorization state, role, tool risk tier) now renders through `Badge`,
+and every form's top-level submit error now renders through `Alert`
+(destructive tone, icon, `role="alert"`), consistently across all 9
+forms that had the old pattern.
+
+Then a page-by-page sweep applied the same language everywhere: the top
+nav (sticky, backdrop blur), the org section nav (icon tabs with an
+animated active-underline), the dashboard, targets (list + detail),
+runs (list + detail, including a live progress bar and a pulsing
+"updating" indicator on the polling run-detail view), workflows,
+repositories, the agent workspace (accent-tinted "ask" panel, since
+this is the one surface where the platform's AI identity is
+front-and-center), and the login/register/landing pages (a single
+restrained radial-gradient hero background, applied via one shared
+`.bg-hero-fade` utility class, never stacked with itself).
+
+Verified with the existing tooling (`npm run lint`/`typecheck`/`test`/
+`build`, all clean) plus an actual visual check, since none of those
+tools verify what something looks like: `app/globals.css`/
+`tailwind.config.ts` changes were screenshotted directly (headless
+Chromium) in both light and dark mode, and — since automated tooling
+alone would have missed it — a real Playwright-driven pass (register →
+create an organization → add a target → walk every dashboard page)
+caught a genuine responsive bug the static screenshots didn't: the
+landing page's header row had no `shrink`/`flex-wrap` protection, so on
+a narrow viewport the "Sign in"/"Get started" buttons pushed past the
+right edge instead of wrapping or shrinking. Fixed (hide the redundant
+"Sign in" link below the `sm` breakpoint, `min-w-0 truncate` on the
+logo text, `shrink-0` on fixed-size elements) and re-verified at a true
+390px viewport via Playwright's device-metrics emulation — headless
+Chromium's own `--window-size` flag turned out to floor at 500px in
+this sandbox, which is why the fix was confirmed through Playwright
+rather than the raw screenshot flag.
+
+## Agent framework, Phases 1–6 — native AI agent with zero persistence
+
+A structured, permission-gated tool-calling layer on top of the existing AI
+assistant (Phase 16): where the assistant only drafts and explains, the
+agent can search assets, investigate findings, start an authorized scan,
+run a workflow, and generate a report — through a closed registry of typed
+tools, each carrying its own risk tier and minimum role — while adding
+**zero** new persistent storage beyond an explicit, closed allowlist of
+operational configuration and metrics. This also satisfies the pentest
+module's own pending Phase 9, "External API / MCP surface" (task #124),
+built once here rather than twice. Full design in `docs/agent.md`.
+
+Delivered across six phases:
+
+1. **Provider layer + `AgentContext`** — `app/core/agent/provider/`
+   (Anthropic, Gemini, and `openai_compatible` — which also covers any
+   local/self-hosted endpoint speaking the OpenAI wire format, so "support
+   a local model" needed no separate provider implementation); `agents`/
+   `agent_providers` tables; the one-way import-boundary test.
+2. **Tool contract + registry + first `READ_ONLY` tools** — `Tool`
+   (typed input/output, risk tier, minimum role, timeout), the closed
+   registry, and `search_assets`/`get_asset`/`search_findings`/
+   `get_finding`/`get_scan_status`/`get_scan_results`/
+   `get_workflow_status`, each wrapping an existing service-layer function
+   in-process.
+3. **Investigation, permissions, approvals, execution tracking** —
+   `Investigation`'s state machine, the two-layer `authorize_role()`/
+   `authorize_sensitive()` permission model, `STANDARD`/`SENSITIVE` tools
+   (`create_report`, `create_workflow`, `run_workflow`, `start_scan`), the
+   `agent_configurations`/`agent_usage_metadata` tables, and the
+   zero-persistence test cluster in `tests/security/test_agent_boundary.py`
+   (closed-table-set pin, column-name-fragment scan, a stricter exact-set
+   allowlist on `AgentUsageMetadata`, a static Redis-TTL scan, a structural
+   check on `record_tool_call`'s own signature, a dynamic audit-row check,
+   and the import boundary).
+4. **`planner.py` + `runtime.py`** — natural-language request → evidence-
+   fenced `Plan` → executed tool calls, pausing at the first unapproved
+   `SENSITIVE` step rather than failing; `analyze_finding` reusing
+   `AIService.explain_finding` in-process.
+5. **API + frontend** — the six-endpoint router
+   (`GET /tools`, `POST /tools/{name}/call`, `POST /investigate`,
+   `GET /investigate/{id}/status`, `POST /investigate/{id}/approve`,
+   `POST /investigate/{id}/cancel`); the Next.js AI workspace
+   (`frontend/app/(dashboard)/organizations/[id]/agent/`), whose
+   transcript lives in React state only — no persisted conversation,
+   client- or server-side.
+6. **Automation + external API/MCP** — investigation-completed/failed
+   events fanned out through the existing `app.core.integrations`
+   pipeline, and `backend/mcp_server/` — a hand-rolled JSON-RPC 2.0 stdio
+   server (`initialize`/`tools/list`/`tools/call`), a thin client over the
+   same REST endpoints via `kervy_cli`'s own `ApiClient`, with zero
+   imports of `app.core.agent` — a structural proof an external MCP caller
+   gets no more access than the authenticated REST API already grants.
+
+Decisions worth stating:
+
+- **The zero-persistence rule is enforced by tests, not just by design.**
+  A closed-table-set pin test fails a future PR that adds a sixth agent
+  table until someone deliberately edits it; a column-allowlist test
+  forbids any `content`/`text`-shaped column on `AgentUsageMetadata`
+  specifically; a static test greps `session_store.py` for every Redis
+  write and asserts each one carries an explicit expiry; a dynamic test
+  runs a tool with a fake secret and asserts it reaches neither the audit
+  row nor the usage-metadata row.
+- **The investigation session store fails closed, unlike this codebase's
+  other five Redis-backed stores.** An unreadable or expired paused
+  approval must never be read as "proceed" — the opposite trade-off from
+  the rate limiter's fail-open default, made because the failure mode here
+  is a bypassed `SENSITIVE`-tier approval gate, not a temporarily-
+  unlimited request.
+- **A `SENSITIVE` tool cannot be called directly, even by a caller with the
+  role for it.** `POST /tools/{name}/call` (the endpoint `backend/
+  mcp_server/` uses) refuses a `SENSITIVE` tool outright with `409` —
+  every path to running one goes through `POST /investigate` +
+  `POST .../approve`, so an external MCP client gets no shortcut a native
+  caller does not also lack.
+- **`Investigation.resume()` was never wired into the approve endpoint**,
+  a deliberate fix made during design rather than after shipping a bug:
+  `resume()`'s own increment of `plan_step_index` would double-advance
+  past the just-approved step once `run_plan()`'s loop also incremented
+  it, silently skipping execution of the approved action. The approve
+  endpoint instead passes the paused `Investigation` straight back into
+  `run_plan()`, whose loop already re-enters at the correct index.
+- **No official MCP SDK dependency was added.** The server speaks exactly
+  the three methods this platform's tools need
+  (`initialize`/`tools/list`/`tools/call`), hand-rolled the same way CSRF,
+  revocation, and rate-limiting are — a deliberate house-style choice, not
+  an oversight.
+
+Verified: `ruff check`/`mypy app` clean at every phase; the full backend
+suite green (1652 passed, 2 skipped) after Phase 6; the RBAC route→role
+matrix test extended for all six new routes; the zero-persistence test
+cluster re-run standalone as well as inside the full suite.
+
+### Deferrals
+
+- **No live-execution SSE stream.** `investigate` already returns
+  synchronously, so there is no in-flight state an SSE endpoint would have
+  anything to report on until plan execution itself moves to a background
+  worker — a stated future enhancement, not a gap in what shipped.
+- **No `Agent`/`AgentProvider` CRUD endpoints.** The five persistent agent
+  tables exist and are covered by the zero-persistence test cluster, but
+  configuring them today is direct-database/migration-seeded only,
+  faithful to the literal endpoint list in the approved plan rather than
+  expanding scope to a settings UI this phase did not ask for.
+- **`AgentTool.minimum_role_override` is inert.** The column and table
+  exist; the permission check that would read it to raise (never lower) a
+  tool's effective minimum role lands in a later phase.
+- **No per-tool rate-limit policy entries yet.** `Tool.rate_limit_rule`
+  exists on the contract; wiring specific policy names into
+  `app.core.ratelimit.policy.POLICY` per tool is deferred alongside the
+  `AgentTool` override work above.
+- **Scheduled automation is still blocked on Celery Beat**, unchanged from
+  the pentest-module Phase 1 note: `create_workflow` can store a
+  `TriggerKind.SCHEDULE` workflow correctly, but nothing fires it on a
+  schedule until Celery Beat exists (pentest-module Phase 8).
+
+## Social OAuth login and password reset
+
+### Context
+
+Requested directly: add SSO login and a forgot-password/reset-password
+capability. Scoped down to **social OAuth** (Google, GitHub) rather than
+enterprise SAML/OIDC — the two aren't the same feature wearing different
+names; SAML/OIDC federates identity from an organization's own IdP for
+enterprise SSO, while social OAuth is "log in with an account you already
+have" for individual signup. `docs/deployment.md`'s "What is not provided"
+still correctly says no enterprise SAML/OIDC exists.
+
+### Design
+
+The identity rule that shapes everything else: `OAuthIdentity` links
+`(provider, provider_user_id)` to a `User`, never email. A provider profile
+is matched against an existing account only by that pair; a callback whose
+email matches an existing password-only account refuses with `409` rather
+than linking — see `app/models/oauth.py`'s module docstring for why matching
+by email would be an account-takeover vector (a provider that does not
+itself verify email ownership would let anyone claim any address). This is
+the same disclosure `POST /auth/register`'s duplicate-email case already
+makes, applied at the same "creating a new account" moment.
+
+`User.password_hash` becomes nullable for an OAuth-only account. Every
+caller that reads it now checks for `None` first (`login`'s handler; there
+is no other reader).
+
+Both new external-facing pieces — OAuth token exchange/profile fetch, and
+the platform's password-reset email — go through this platform's
+established "platform egress" pattern (`app/core/vcs/egress.py`,
+`app/core/assistant/egress.py`, `app/core/integrations/egress.py`): a fresh
+`RunContext` per call, `allowed_domains` holding exactly the one host that
+call needs, through the sole `GatedTransport`. `app/core/oauth/egress.py`
+is the fourth instance. The password-reset email turned out to need no new
+egress module at all — `app/core/integrations/send.py::send_email` is
+already generic over its relay host/port/credentials and recipient list
+(the per-organization `NotificationChannel` binding lives one layer above
+it, in `app/core/integrations/service.py`, never inside `send_email`
+itself), so `app/core/password_reset_email.py` calls it directly with the
+platform's own `KERVY_PLATFORM_SMTP_*` settings.
+
+The OAuth authorization-code flow's CSRF protection is a single-use,
+Redis-backed state nonce (`app/core/oauth/state.py`) — the same
+fail-closed idiom `app/core/workflow/replay_guard.py` established for
+Phase 8's webhook replay protection, the eighth Redis-backed store in this
+codebase. It plays the role the anonymous CSRF token
+(`app/core/csrf/anon.py`) plays for `/auth/login`/`/auth/register`: there is
+no session yet to bind an ordinary token to, and a provider-issued redirect
+cannot carry a custom header.
+
+Password reset: `PasswordResetToken` follows `ApiKey`'s own secret-handling
+shape exactly — 256 bits of CSPRNG output, SHA-256 digest stored, plaintext
+shown/emailed once. A successful reset sets `tokens_valid_after` and revokes
+every `UserSession` row, the identical "log out everywhere" cutover
+`/auth/logout-all` uses — a password reset is exactly the "I think this
+account was compromised" case that mechanism exists for. `forgot-password`
+is always `202`, whether or not the address is registered, has no local
+password, or the platform has no mail relay configured — the same
+non-enumerating shape as login's generic "invalid email or password".
+
+`forgot-password` and `reset-password` were added to CSRF's `EXEMPT_PATHS`
+rather than `ANONYMOUS_CSRF_PATHS` — a real distinction, not a shortcut.
+`login`/`register` need the anonymous token because they establish a
+session an attacker could hijack via login-CSRF; `forgot-password` and
+`reset-password` never read the caller's session at all (their entire
+authority is their own request body — an email address, or a bearer token
+plus a new password), so a forged request achieves nothing a direct call
+would not already achieve. Caught in testing, not by design review: the
+first test run failed with `403` because the shared test client already
+carried a session cookie from an earlier `register()` call in the same
+test — a real scenario (a logged-in person using forgot-password from an
+authenticated tab), not a test artifact to work around.
+
+### What was deliberately not built
+
+- **No account linking UI.** An existing password account and a later OAuth
+  sign-in with the same email do not merge — the callback refuses instead.
+  Deliberate for this pass (see the identity-rule reasoning above); a
+  "link this OAuth identity to my existing account" authenticated flow is a
+  reasonable follow-up but a distinct feature with its own confirmation
+  step, not assumed here.
+- **No enterprise SAML/OIDC.** Scoped out at the start; see Context above.
+- **No "remember this device" or session-length distinction** between a
+  password login and an OAuth login — both issue the same session shape.
+
+### Verified
+
+`ruff check`/`mypy app` clean. Targeted suite (`test_oauth.py`,
+`test_password_reset.py`, `test_auth.py`, `test_csrf.py`,
+`test_rate_limit.py`, `test_authorization_matrix.py`): 324 passed, 2
+skipped. OAuth's outbound calls never touch a real network in tests: a
+`FakeDnsResolver` satisfies the scope engine's allowlist check and `respx`
+replaces the actual socket, the same two-part substitution
+`tests/test_assistant_api.py::_worker_transport` established for the AI
+lab fixture. Full backend suite run as the final gate before commit.
+
+## Membership control: close the owner-grant gap
+
+### Context
+
+Asked directly to confirm that an organization's owner has full
+administrative and membership control, without global system privileges or
+cross-tenant access. Cross-tenant isolation and "no global privileges" were
+already true (guarantee #12, #26 — RLS plus `require_membership`'s 404-not-
+403). Membership control was not: `app/api/v1/routers/organizations.py` had
+only `invite_member` — no way to remove a member or change an existing
+member's role existed at all, regardless of who was asking. And
+`invite_member`'s `Role.ADMIN` minimum meant an Admin, not just an Owner,
+could grant `Role.OWNER` to anyone, including an account they control —
+a real privilege-escalation path, not a hypothetical one, since `Role.OWNER`
+is the single most senior role in `seniority_order()` and nothing above it
+exists to check the grant.
+
+### Design
+
+Two new endpoints, `PATCH` and `DELETE` on
+`/organizations/{organization_id}/members/{member_id}`, both `Role.ADMIN`
+minimum like `invite_member` — an Admin can still manage ordinary
+membership day to day. The carve-out: any operation that grants, changes
+away from, or removes `Role.OWNER` additionally requires the caller's own
+membership to already be `Role.OWNER` (`membership.role.at_least(Role.OWNER)`,
+true only for an owner, since owner is index 0 in `seniority_order`). The
+same check was added retroactively to `invite_member` for the grant side of
+this — the endpoint already existed but the gap was in what it permitted,
+not a missing route.
+
+An organization's last remaining owner cannot be demoted or removed at all,
+even by another owner — refused with `409`, not merely discouraged. Without
+that rail, the *last* owner-only check would still pass (they are an owner,
+demoting/removing themselves), and the organization would be left with no
+one able to perform an owner-only action ever again, including undoing the
+mistake. `_owner_count()` is a single `COUNT(*) WHERE role = 'owner'` scoped
+to the organization, checked before the write, never after.
+
+### What this does not change
+
+- Ordinary role changes (viewer ↔ analyst ↔ security_engineer ↔ admin) stay
+  `Role.ADMIN` minimum, unchanged from `invite_member`'s existing bar.
+- No self-service "leave organization" distinct from the new `DELETE`
+  endpoint — a member removing their own membership uses the same route an
+  admin would, and is subject to the same last-owner rule if they happen to
+  be it.
+- No organization deletion or rename endpoint — out of scope for this pass,
+  unchanged from before.
+
+### Verified
+
+`ruff check`/`mypy app` clean. New tests in `tests/test_organizations.py`:
+admin cannot grant or revoke owner, owner can change a member's role, the
+last owner cannot be demoted or removed, a second owner can then be
+demoted, admin can remove a non-owner member, and removing a member by id
+from another organization is 404 (not 403, not silently ignored — the same
+non-disclosure every other cross-tenant path in this platform uses).
+`tests/security/test_authorization_matrix.py` updated with both new
+routes. Full backend suite run as the final gate before commit.

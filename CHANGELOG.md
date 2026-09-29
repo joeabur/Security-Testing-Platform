@@ -6,8 +6,197 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **Renamed the platform from Aegis AI Security to Kervy Security**,
+  end to end rather than at the branding layer alone: every `AEGIS_*`
+  environment variable (`AEGIS_EVIDENCE_ENCRYPTION_KEY`,
+  `AEGIS_WEBHOOK_SECRET_ENCRYPTION_KEY`, `AEGIS_RATE_LIMIT_ENABLED`,
+  and the rest) is now `KERVY_*`; the `X-Aegis-Signature`/
+  `X-Aegis-Timestamp`/`X-Aegis-Event` webhook-signing headers are now
+  `X-Kervy-*`; the `aegis_session`/`aegis_csrf` cookies are now
+  `kervy_session`/`kervy_csrf`; every `AEGIS-<engine>-<rule>` finding/
+  probe-ID prefix (`AEGIS-SAST-...`, `AEGIS-API-...`, `AEGIS-IAC-...`,
+  and the rest) is now `KERVY-<engine>-<rule>`; every Redis key prefix,
+  the Celery app/task names, the `aegis-ai`/`aegis-mcp` CLI commands
+  (now `kervy-ai`/`kervy-mcp`, `backend/aegis_cli` now
+  `backend/kervy_cli`), and the package names in both
+  `backend/pyproject.toml` and `frontend/package.json` all follow. The
+  Postgres Row-Level Security session variable
+  (`app/db/tenant_context.py`) moved from `aegis.org_id` to
+  `kervy.org_id` via a dedicated `ALTER POLICY` migration
+  (`e1d16423a6b1`) rather than an edit to any of the five historical
+  migrations that created those policies, which are left exactly as
+  they were run. Every historical Alembic migration file is
+  deliberately untouched for the same reason — a migration is a record
+  of what actually ran, not a place to retell it under a new name.
+  **This is a breaking change** for any existing deployment or
+  integration still using the old env var names, header names, cookie
+  names, or database name.
+
 ### Added
 
+- Social OAuth login (Google, GitHub) and self-service password reset.
+  `User.password_hash` is now nullable for an OAuth-only account; a new
+  `OAuthIdentity` table links `(provider, provider_user_id)` to a user —
+  never by email, so a provider profile can never silently take over an
+  existing password account (a matching email on an unlinked account
+  refuses with `409`, same as a duplicate registration). New endpoints:
+  `GET /auth/oauth/providers`, `GET /auth/oauth/{provider}/authorize`,
+  `GET /auth/oauth/{provider}/callback`, `POST /auth/forgot-password`,
+  `POST /auth/reset-password`. Password reset is a single-use, SHA-256-
+  digested `PasswordResetToken` (mirroring `ApiKey`'s own secret-handling
+  shape) that, on success, invalidates every existing session the same
+  way `/auth/logout-all` does. Both OAuth token exchange and the
+  platform's own password-reset email go through the same
+  `RunContext`/`GatedTransport` scope-engine pattern every other outbound
+  destination in this platform uses (`app/core/oauth/egress.py`), scoped
+  to exactly the one host each call needs. Both features are off by
+  default and require explicit configuration — see
+  `docs/configuration.md`.
+
+- Pentest module, Phase 10 (security operations dashboard): a new
+  `GET /organizations/{id}/dashboard/summary` endpoint (`Role.VIEWER`)
+  and an org-wide overview page in the Next.js frontend — open findings
+  by severity, 7-day run/gate activity, remediation and pending-retest
+  counts, coverage by pillar (organization-wide, sharing the
+  `PILLAR_PREFIXES` table with per-report coverage rather than a second
+  copy), and the five most recent runs, five most recent workflow runs,
+  and ten highest-risk open findings. The query module behind it
+  (`app/web/queries.py`, "no hardcoded dashboard values, every number is
+  a real query") moved to `app/core/dashboard/queries.py` so this
+  endpoint and the existing Jinja2 dashboard both call the same
+  implementation instead of each computing the same counts
+  independently. See `docs/dashboard.md`.
+
+- Frontend UI redesign: refreshed design tokens (richer primary color,
+  `success`/`warning`/`accent` tokens, an elevation shadow scale, a
+  softer radius scale) in `app/globals.css`/`tailwind.config.ts`; new
+  `Badge`, `Alert`, and `Skeleton` primitives, and a polish pass on
+  `Button`/`Card`/`Input`/`Select`/`Textarea`/`Checkbox`/`Label`
+  (shadows, focus/hover/active transitions, loading spinners via
+  `Button`'s new `isLoading` prop). Every dashboard page, the org
+  section nav, the top nav, and every form's error state now use these
+  consistently — ad hoc status pills replaced with `Badge`, and
+  `formError` blocks replaced with `Alert`. Dark mode and mobile
+  layouts verified with Playwright screenshots at 500px/1440px and a
+  true 390px viewport; fixed a real header-overflow bug on narrow
+  screens found during that check (the landing page's nav row had no
+  shrink/wrap protection).
+
+- Pentest module, Phase 8 (automation): Celery Beat scheduling
+  (`Workflow.schedule_interval_minutes`/`next_run_at`, a 60-minute floor),
+  an authenticated, replay-protected inbound webhook
+  (`POST /api/v1/webhooks/workflows/{id}`, HMAC-SHA256 reusing
+  `app/core/integrations/signing.py`'s own scheme as a receiver for the
+  first time), and an approval gate for both: any run triggered
+  unattended (Beat or the webhook) whose plan would queue a scan-touching
+  action pauses (`awaiting_approval`) until a security engineer approves
+  or rejects it — approving queues the scan through the exact same
+  `queue_run()` `POST /runs` already uses, attributed to the approver. A
+  manually-triggered run never pauses. Replay protection is a new
+  Redis-backed store that fails closed (the opposite of the rate
+  limiter's own fail-open). See `docs/workflows.md`.
+- Native AI agent framework (`app/core/agent/`), a structured,
+  permission-gated tool-calling layer on top of the existing AI assistant:
+  multi-provider support (Anthropic, Gemini, OpenAI, and any
+  local/self-hosted endpoint via `openai_compatible`); a closed registry of
+  fifteen typed tools across three risk tiers (`READ_ONLY`/`STANDARD`/
+  `SENSITIVE`), each requiring its own minimum role; an investigation
+  lifecycle that pauses — never silently executes — at an unapproved
+  `SENSITIVE` step, resumed only by a separate, higher-tier approval call;
+  a six-endpoint API (`/organizations/{id}/agent/...`) and a Next.js AI
+  workspace with no persisted conversation; investigation-completed
+  notifications through the existing integrations pipeline; and
+  `backend/mcp_server/`, a hand-rolled JSON-RPC 2.0 MCP server giving
+  external agents the identical, fully-authorized REST surface a native
+  caller uses. **Zero new conversation/prompt/response storage**: five
+  closed tables hold configuration and non-content metrics only, enforced
+  by a closed-table-set pin test, a column-allowlist test, a Redis-TTL
+  static test, and a dynamic secret-redaction test. See `docs/agent.md`,
+  `docs/guardrails.md` §1.4, and `docs/security-model.md` guarantees
+  #29–#30.
+- Pentest module, Phase 7 (AI expansion): three new AI capabilities —
+  `Capability.ANSWER_EVIDENCE_QUESTION` (`AutonomyMode.ASSIST`) alongside
+  the already-declared `CORRELATE_FINDINGS`/`PRIORITISE_FINDINGS`
+  (`AutonomyMode.RECOMMEND`), which had sat in `app/core/assistant/autonomy.py`
+  with no implementing method until this phase. `AIService` gains
+  `correlate_findings()`, `prioritise_findings()`, and
+  `answer_evidence_question()`, each its own versioned, evidence-fenced
+  prompt template. Exposed as three new READ_ONLY native-agent tools
+  (`answer_evidence_question`, `correlate_findings`, `prioritise_findings`
+  in `app/core/agent/tools/`), reusing the existing per-organization
+  multi-provider infrastructure (`app/core/agent/provider/factory.py`) the
+  Agent framework already built — this phase adds no second provider
+  layer, since one tool call already resolves an org's configured
+  Anthropic/Gemini/OpenAI/`openai_compatible` provider before reaching
+  `AIService`. All three tools are read-only recommendations: none writes a
+  finding's stored severity, status, or relationships. See `docs/agent.md`.
+- Pentest module, Phase 6 (pentest-tool architecture): `app/core/pentest/`
+  — a closed, tier-gated `nmap`-NSE-script module registry layered on an
+  already-discovered, already-authorized service (this phase wires it only
+  to the VM engine's discovered open services). Three modules map onto
+  `TestDepth`'s discovery/vulnerability_scan/validation tiers by what an
+  NSE script category actually does: `discovery` (safe info-gathering),
+  `vuln` (known-vulnerability checks via the `vulns` NSE library's own
+  `State: VULNERABLE` convention), and `auth` (confirms no/default-
+  credential access — this platform's validation tier). No `exploitation`-
+  tier module is registered at all; real exploit execution stays behind
+  its own authorization tier, last in the plan (Phase 12). Gated on
+  `asset_scope.max_depth`/`approved_modules`, configured through the
+  existing `vm-scope` endpoint (`PentestScopeIn` nested in `VmScopeIn` —
+  no separate endpoint, since both read the same `asset_scope` document).
+  The first check on this platform to depend on another check's result
+  (`vm_check.discovered`) rather than only on the target/scope. Also fixes
+  a Bandit B314 (XML XXE) finding this phase's own dogfooded static
+  analysis exposed in both this engine and the Phase 5 VM engine's `nmap`
+  XML parsing — both now use `defusedxml`. See `docs/roadmap.md`.
+- Pentest module, Phase 5 (VM engine): `app/core/vm/` — authorized
+  port/service discovery against a `TargetKind.VIRTUAL_MACHINE` target's
+  declared host, gated on `asset_scope.host`/`allowed_ports`. `nmap -Pn -sV
+  --open`, restricted to exactly the declared ports (never a full range),
+  parsed from XML with `defusedxml`. Declaring a port already is
+  the authorization to probe it — no separate opt-in flag, unlike the
+  container engine's `allow_live_pull`. Emits an unconditional port
+  inventory plus a finding for a small, fixed set of ports whose mere
+  reachability is already noteworthy (Telnet, SMB, Redis, MongoDB, and
+  similar); this engine does not itself judge a service vulnerable — that
+  is the pentest-tool architecture's job. The second engine to populate
+  `run_tool_invocations`, and the first to use `AssetKind.OPEN_SERVICE`.
+  Configurable via `PUT /organizations/{id}/targets/{id}/vm-scope`. This
+  closes the last of the three engine gaps (domain/container/cloud already
+  shipped) the Phase 1 foundation named. See `docs/roadmap.md`.
+- Pentest module, Phase 4 (cloud engine): `app/core/cloud/` — read-only
+  object-storage (S3) exposure inventory for a `TargetKind.CLOUD_ACCOUNT`
+  target, gated on `asset_scope.provider`/`account_ref`/
+  `credential_env_var`/`allowed_regions` and on `resolve_cloud_scope`'s hard
+  refusal of anything but a read-only assessment. AWS ships fully
+  implemented — exactly four read-only `boto3` S3 calls (`list_buckets`,
+  `get_bucket_location`, `get_bucket_policy_status`, `get_bucket_acl`),
+  never a write verb, enforced by a static test; Azure and GCP route
+  correctly but report an explicit "not implemented yet" gap rather than a
+  fabricated result. A bucket is judged public from both the bucket policy's
+  `IsPublic` flag and ACL grants to `AllUsers`/`AuthenticatedUsers`;
+  inventoried buckets are promoted to `DiscoveredAsset` rows
+  (upsert-on-rerun). Configurable via `PUT
+  /organizations/{id}/targets/{id}/cloud-scope`; `boto3` ships as an
+  optional `cloud` extra. See `docs/roadmap.md`.
+- Pentest module, Phase 3 (container engine): `app/core/container/` — an
+  authorized live registry pull (`docker pull`, with the same
+  allowlist-then-resolve-then-block-check pipeline `checkout.py` already
+  applies to `git clone`, since a subprocess does not route through
+  `GatedTransport`), scanned offline (`trivy image --image-src docker
+  --skip-db-update --offline-scan`, reading the local Docker daemon rather
+  than letting trivy make its own registry call), and always removed
+  afterward. Gated on `asset_scope.allowed_registries` and
+  `asset_scope.allow_live_pull` (`allow_live_pull` defaults to `False`), on
+  a `TargetKind.CONTAINER` target, configurable via `PUT
+  /organizations/{id}/targets/{id}/container-scope`. The first engine to
+  actually populate `run_tool_invocations`, the table Phase 1's foundation
+  added schema-only. Closes the gap the existing filesystem-mode
+  `appsec.container.trivy` engine states plainly rather than fakes: that it
+  "did not pull or examine the base image layers" because doing so needs an
+  authorization decision it has no scope to make. See `docs/roadmap.md`.
 - Pentest module, Phase 1 (foundation) and Phase 2 (domain/DNS engine): a
   generalized `asset_scope` column on Rules of Engagement plus four new
   target kinds (`container`, `cloud_account`, `virtual_machine`, `domain`);
@@ -48,7 +237,7 @@ All notable changes to this project are recorded here. The format follows
 - Responsive layout pass on the Jinja2 dashboard: header, cards, and tables
   now reflow at phone width; the Next.js frontend's existing Tailwind
   breakpoints were left as-is and its top nav made wrap-safe.
-- `aegis-ai repo add|list|show|scan|remove` and
+- `kervy-ai repo add|list|show|scan|remove` and
   `/organizations/{id}/repositories` — a lightweight path onto code scanning
   (SAST/SCA/secrets/IaC) for a repository someone already has read access
   to: a URL, a branch, and a self-affirmed consent, skipping the
@@ -66,13 +255,28 @@ All notable changes to this project are recorded here. The format follows
 
 ### Fixed
 
+- **Membership management was missing half its verbs, and the half that
+  existed had a privilege-escalation gap.** There was no way to remove a
+  member or change an existing member's role at all — only
+  `POST /organizations/{id}/members` (invite) existed. Added
+  `PATCH .../members/{member_id}` (change role) and
+  `DELETE .../members/{member_id}` (remove), both `Role.ADMIN` minimum.
+  The gap: `invite_member`'s `Role.ADMIN` minimum let an Admin grant
+  `Role.OWNER` to anyone, including an account they control — owner is the
+  single most senior role, and nothing should be able to mint one except an
+  existing one. All three endpoints now require the caller to already be an
+  owner before any operation that grants, changes, or removes `Role.OWNER`;
+  an organization's last remaining owner additionally can never be demoted
+  or removed, refused with `409` rather than merely discouraged. See
+  `docs/security-model.md` guarantee #33.
+
 - `target_kind_enum` was missing `WEB_APP` on any database built by running
   the migrations in order — only `Base.metadata.create_all()` (used by the
   test suite) ever produced it, so a `web_app` target could never actually
   be created against a properly migrated deployment. Found while adding
   `CODE_REPO` to the same enum; both are added by migration `c3f8a2e91b4d`.
 
-- `aegis-ai target roe|adapter|code|runtime-protection` — a full audit pass
+- `kervy-ai target roe|adapter|code|runtime-protection` — a full audit pass
   found `target add` and `auth grant` covered by the CLI but the four
   PUT endpoints that finish configuring a target (rules of engagement, the
   adapter, the code scope, the runtime-protection declaration) had no CLI
@@ -145,7 +349,7 @@ reports.
   a retest workflow reporting reproduced / not reproduced / **not tested**.
 - Evidence redacted *before* it is written, content-addressed and hash-chained;
   verification re-walks the chain and re-hashes the files. Encryption at rest
-  is opt-in (`AEGIS_EVIDENCE_ENCRYPTION_KEY`, AES-256-GCM) — unset, a bundle is
+  is opt-in (`KERVY_EVIDENCE_ENCRYPTION_KEY`, AES-256-GCM) — unset, a bundle is
   protected by filesystem permissions and redaction alone, same as before this
   existed (`docs/configuration.md`).
 - Reports in Markdown, HTML, PDF, JSON, SARIF 2.1.0 and CSV, in four audience
@@ -161,7 +365,7 @@ reports.
 
 ### CI/CD and integrations
 
-- `aegis-ai` CLI over the same API and scope engine as the UI.
+- `kervy-ai` CLI over the same API and scope engine as the UI.
 - Scoped API keys, capped at security engineer so a CI credential can never
   grant authorization.
 - Security gate with documented exit codes (0 pass, 1 gate failed, 2 config

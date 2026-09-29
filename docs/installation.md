@@ -47,14 +47,14 @@ refuses to start if any of thirteen AI provider credential variables is set.
 pg_isready || sudo pg_ctlcluster 16 main start
 redis-cli ping || redis-server --daemonize yes
 
-createdb -U postgres aegis
+createdb -U postgres kervy
 
 # 2. Backend
 cd backend
 python3.12 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 
-export DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/aegis
+export DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/kervy
 export REDIS_URL=redis://localhost:6379/0
 export JWT_SECRET=change-me-for-anything-but-local
 export EVIDENCE_ROOT=$PWD/var/evidence
@@ -69,8 +69,8 @@ here**, not only in the API shell — see the note on credentials below:
 ```bash
 cd backend && source .venv/bin/activate
 export DATABASE_URL=... REDIS_URL=... JWT_SECRET=... EVIDENCE_ROOT=...
-export AEGIS_LAB_ACME_TOKEN=lab-token-acme-user
-export AEGIS_LAB_GLOBEX_TOKEN=lab-token-globex-user
+export KERVY_LAB_ACME_TOKEN=lab-token-acme-user
+export KERVY_LAB_GLOBEX_TOKEN=lab-token-globex-user
 
 celery -A app.workers.celery_app.celery_app worker --loglevel=info
 ```
@@ -105,7 +105,7 @@ Every call below was executed against the running stack. The full script is
 # GET to the POST the way a browser's cookie jar would.
 JAR=$(mktemp)
 curl -s -c "$JAR" localhost:8000/api/v1/auth/csrf -o /dev/null
-CSRF=$(awk -F'\t' '$6 ~ /aegis_csrf_anon$/ {print $7}' "$JAR")
+CSRF=$(awk -F'\t' '$6 ~ /kervy_csrf_anon$/ {print $7}' "$JAR")
 REGISTER_RESPONSE=$(curl -s -b "$JAR" localhost:8000/api/v1/auth/register \
   -H 'content-type: application/json' \
   -H "x-csrf-token: $CSRF" \
@@ -171,10 +171,10 @@ curl -s -X PUT $BASE/openapi -H "$AUTH" -F 'file=@/tmp/lab-openapi.json;type=app
 # Two synthetic accounts, by variable NAME. ord-7001 belongs to globex, so
 # reading it with the acme token is the BOLA the lab seeds.
 curl -s -X PUT $BASE/accounts/acme_user -H "$AUTH" -H 'content-type: application/json' -d '{
-  "label":"acme_user","credential_env_var":"AEGIS_LAB_ACME_TOKEN",
+  "label":"acme_user","credential_env_var":"KERVY_LAB_ACME_TOKEN",
   "owned_object_ids":["ord-5001"],"is_privileged":false}'
 curl -s -X PUT $BASE/accounts/globex_user -H "$AUTH" -H 'content-type: application/json' -d '{
-  "label":"globex_user","credential_env_var":"AEGIS_LAB_GLOBEX_TOKEN",
+  "label":"globex_user","credential_env_var":"KERVY_LAB_GLOBEX_TOKEN",
   "owned_object_ids":["ord-7001"],"is_privileged":false}'
 ```
 
@@ -201,8 +201,8 @@ Against the lab, through the real Celery worker and the real scope engine:
 4  run WITHOUT authorization        409  <- refused, as designed
 11 run status                       completed
 12 scan results                     10 results, 10 distinct codes
-   AEGIS-AI-000, AEGIS-AI-020, AEGIS-AI-900, AEGIS-API-002, AEGIS-API-010,
-   AEGIS-API-011, AEGIS-API-013, AEGIS-API-020, AEGIS-API-021, AEGIS-API-050
+   KERVY-AI-000, KERVY-AI-020, KERVY-AI-900, KERVY-API-002, KERVY-API-010,
+   KERVY-API-011, KERVY-API-013, KERVY-API-020, KERVY-API-021, KERVY-API-050
 13 findings                         7
 14 download report markdown         200  19596 bytes
 14 download report sarif            200  19330 bytes
@@ -217,7 +217,7 @@ report formats — checked by grep, not by assumption.
 
 The frontend covers register, log in, and create an organization. Targets, runs,
 findings, reports and evidence are API endpoints without pages yet; the
-dashboard is Phase 17. Use <http://localhost:8000/docs> or the `aegis-ai` CLI
+dashboard is Phase 17. Use <http://localhost:8000/docs> or the `kervy-ai` CLI
 (`docs/cicd.md`) in the meantime. This is stated here rather than discovered
 after installing.
 

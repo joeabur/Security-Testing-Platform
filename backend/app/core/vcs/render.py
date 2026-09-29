@@ -38,7 +38,7 @@ from app.core.vcs.contract import (
     DiffFile,
 )
 
-CHECK_RUN_NAME = "Aegis AI Security"
+CHECK_RUN_NAME = "Kervy Security"
 
 #: Finding severity -> GitHub annotation level. GitHub has three; this platform
 #: has five, so medium and below share `notice` rather than inventing urgency.
@@ -221,7 +221,7 @@ def body_for(findings: Sequence[PublishableFinding]) -> str:
         keep = MAX_OUTPUT_TEXT_CHARS - 200
         text = (
             text[:keep] + "\n\n_Truncated: too many findings to list here. "
-            "The full set is in the Aegis report._"
+            "The full set is in the Kervy report._"
         )
     return text
 

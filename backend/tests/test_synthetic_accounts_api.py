@@ -12,7 +12,7 @@ from app.core.csrf.enforce import HEADER_NAME
 
 ACCOUNT = {
     "label": "account_a",
-    "credential_env_var": "AEGIS_TARGET_TOKEN_A",
+    "credential_env_var": "KERVY_TARGET_TOKEN_A",
     "owned_object_ids": ["order-1"],
 }
 
@@ -67,7 +67,7 @@ async def test_account_is_stored_by_reference_and_read_back(
 
     assert response.status_code == 200
     body = response.json()
-    assert body["credential_env_var"] == "AEGIS_TARGET_TOKEN_A"
+    assert body["credential_env_var"] == "KERVY_TARGET_TOKEN_A"
     assert body["value_template"] == "Bearer {credential}"
     assert body["owned_object_ids"] == ["order-1"]
     # There is no field in which a secret could be returned, because there

@@ -1,15 +1,18 @@
-"""Every number the dashboard shows, as a real query.
+"""Every number a dashboard shows, as a real query.
 
-§27's definition of done says it plainly: *no hardcoded dashboard values — every
-number is a real query*. So this module holds them all, and the templates
-receive only what these functions return. A template that needed a number not
-in here would have to add it here first, which is the point.
+Originally built for the Jinja2+HTMX dashboard (Phase 17), whose own rule was
+blunt: *no hardcoded dashboard values — every number is a real query*. That
+rule outlived the module's first caller — the pentest module's Phase 10
+security-operations dashboard (`app/api/v1/routers/dashboard.py`) calls the
+same functions rather than recomputing the same counts a second way — so this
+module lives under `app/core/` rather than `app/web/`: it is core domain
+logic two different presentation layers both call, not a web-only concern.
 
 Two related rules the functions below follow:
 
 * **Zero and unknown are different.** A count of zero findings is a fact and
   renders as `0`. A value that was never decided is not: `WorkflowRun.gate_passed`
-  is nullable and the template renders `None` as *not decided* rather than as a
+  is nullable and callers render `None` as *not decided* rather than as a
   pass. Every count in `Overview` is computable from rows that always exist, so
   none of them is nullable today; one that stopped being computable would return
   `None` rather than a confident `0`.
@@ -23,17 +26,20 @@ from __future__ import annotations
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 from sqlalchemy import func, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.probes.models import Severity
+from app.core.reporting.model import PILLAR_PREFIXES, PILLARS
 from app.models.assessment_run import AssessmentRun, RunStatus
 from app.models.authorization import Authorization
 from app.models.finding import Finding, FindingStatus
 from app.models.integration import DeliveryStatus, NotificationDelivery
+from app.models.remediation import RemediationTask
 from app.models.rules_of_engagement import RulesOfEngagementRecord
+from app.models.scan_result import ScanResultRecord
 from app.models.target import Target, TargetKind
 from app.models.workflow import Workflow, WorkflowRun
 
@@ -430,3 +436,102 @@ async def repositories_for(db: AsyncSession, organization_id: uuid.UUID) -> Sequ
             )
         )
     return rows
+
+
+@dataclass(frozen=True)
+class PillarCoverageRow:
+    """Whether a pillar has ever produced a real result anywhere in this org.
+
+    Org-wide, unlike `app/core/reporting/build.py::_pillar_coverage` (which
+    answers the question for one run/report). Both read the same
+    `PILLAR_PREFIXES` table so "SAST" means the same probe-id prefixes in a
+    report and on the dashboard.
+    """
+
+    pillar: str
+    tested: bool
+
+
+async def pillar_coverage_for(
+    db: AsyncSession, organization_id: uuid.UUID
+) -> list[PillarCoverageRow]:
+    # Not tested markers (`title` prefixed "Not tested:") never carry a real
+    # probe-id prefix's evidence, but excluding them explicitly keeps this
+    # query honest even if that changes — silence is not the same as a probe
+    # actually having run.
+    rows = (
+        await db.execute(
+            select(ScanResultRecord.probe_id)
+            .where(
+                ScanResultRecord.organization_id == organization_id,
+                ScanResultRecord.title.not_like("Not tested:%"),
+            )
+            .distinct()
+        )
+    ).all()
+    probe_ids = [row[0] for row in rows]
+
+    tested: set[str] = set()
+    for probe_id in probe_ids:
+        for pillar, prefixes in PILLAR_PREFIXES.items():
+            if probe_id.startswith(prefixes):
+                tested.add(pillar)
+
+    return [PillarCoverageRow(pillar=name, tested=name in tested) for name in PILLARS]
+
+
+@dataclass(frozen=True)
+class RemediationSummary:
+    open: int
+    overdue: int
+
+
+async def remediation_summary(
+    db: AsyncSession, organization_id: uuid.UUID, *, today: date | None = None
+) -> RemediationSummary:
+    """Open and overdue remediation task counts.
+
+    "Open" is `closed_at IS NULL` — the task's own state, not a re-derivation
+    of the finding's status (see the model's own module docstring on why
+    there is exactly one status column for a finding's work). "Overdue" is a
+    due date in the past on a task nobody has closed yet; a task with no due
+    date is never overdue, since nothing was promised.
+    """
+    moment = today or datetime.now(UTC).date()
+    open_count = (
+        await db.execute(
+            select(func.count(RemediationTask.id)).where(
+                RemediationTask.organization_id == organization_id,
+                RemediationTask.closed_at.is_(None),
+            )
+        )
+    ).scalar_one()
+    overdue_count = (
+        await db.execute(
+            select(func.count(RemediationTask.id)).where(
+                RemediationTask.organization_id == organization_id,
+                RemediationTask.closed_at.is_(None),
+                RemediationTask.due_date.is_not(None),
+                RemediationTask.due_date < moment,
+            )
+        )
+    ).scalar_one()
+    return RemediationSummary(open=int(open_count), overdue=int(overdue_count))
+
+
+async def pending_retest_count(db: AsyncSession, organization_id: uuid.UUID) -> int:
+    """Findings claimed fixed but not yet checked.
+
+    `FindingStatus.RETEST_REQUIRED` already *is* this count — a remediation
+    is a claim until a retest checks it (see `Finding`'s own status-machine
+    docstring), so there is no second table to query.
+    """
+    count = (
+        await db.execute(
+            select(func.count(Finding.id)).where(
+                Finding.organization_id == organization_id,
+                Finding.status == FindingStatus.RETEST_REQUIRED,
+            )
+        )
+    ).scalar_one()
+    return int(count)

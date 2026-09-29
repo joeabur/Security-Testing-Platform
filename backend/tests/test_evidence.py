@@ -41,7 +41,7 @@ SECRETS = [
     "AIza" + "c" * 35,
     "sk_live_" + "d" * 24,
     "xoxb-1234567890-abcdefghij",  # pragma: allowlist secret
-    "postgresql://aegis:sup3rs3cretpassw0rd@db.internal:5432/app",
+    "postgresql://kervy:sup3rs3cretpassw0rd@db.internal:5432/app",
     # pragma: allowlist nextline secret
     "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dBjftJeZ4CVPmB92K27uhbUJU1p1r_wW1g",
     # pragma: allowlist nextline secret
@@ -76,7 +76,7 @@ def test_no_secret_survives_bundling(
     """
     tainted = f"{prefix}{secret}{suffix}"
     bundle = build_bundle(
-        probe_id="AEGIS-TEST-001",
+        probe_id="KERVY-TEST-001",
         probe_version="1.0.0",
         method="POST",
         url="https://target.example.test/api/chat",
@@ -111,7 +111,7 @@ def test_a_bundle_the_store_accepts_is_one_that_verifies(body: str) -> None:
     root = Path(tempfile.mkdtemp())
     store = EvidenceStore(root / "e")
     bundle = build_bundle(
-        probe_id="AEGIS-TEST-002",
+        probe_id="KERVY-TEST-002",
         probe_version="1.0.0",
         method="GET",
         url="https://target.example.test/",
@@ -146,14 +146,14 @@ def test_a_redaction_records_a_digest_so_two_sightings_can_be_correlated() -> No
     """§13: a redacted value is replaced by a hash, not deleted. Analysts
     need to know "the same credential appeared in both" without holding it."""
     first = build_bundle(
-        probe_id="AEGIS-TEST-003",
+        probe_id="KERVY-TEST-003",
         probe_version="1.0.0",
         method="GET",
         url="https://target.example.test/",
         response_body="key=AKIAIOSFODNN7EXAMPLE",
     )
     second = build_bundle(
-        probe_id="AEGIS-TEST-004",
+        probe_id="KERVY-TEST-004",
         probe_version="1.0.0",
         method="GET",
         url="https://target.example.test/other",
@@ -170,7 +170,7 @@ def test_a_redaction_records_a_digest_so_two_sightings_can_be_correlated() -> No
 
 def test_an_enormous_body_is_truncated_before_it_is_stored() -> None:
     bundle = build_bundle(
-        probe_id="AEGIS-TEST-005",
+        probe_id="KERVY-TEST-005",
         probe_version="1.0.0",
         method="GET",
         url="https://target.example.test/",
@@ -182,7 +182,7 @@ def test_an_enormous_body_is_truncated_before_it_is_stored() -> None:
 # --- the store -----------------------------------------------------------
 
 
-def _bundle(body: str = "hello", probe_id: str = "AEGIS-TEST-010") -> EvidenceBundle:
+def _bundle(body: str = "hello", probe_id: str = "KERVY-TEST-010") -> EvidenceBundle:
     return build_bundle(
         probe_id=probe_id,
         probe_version="1.0.0",
@@ -225,7 +225,7 @@ def test_editing_a_stored_bundle_breaks_verification(tmp_path: Path) -> None:
     was changed after it was written, not merely on a missing one."""
     store = EvidenceStore(tmp_path)
     digest = store.write("run-3", _bundle("original"))
-    store.write("run-3", _bundle("second", probe_id="AEGIS-TEST-011"))
+    store.write("run-3", _bundle("second", probe_id="KERVY-TEST-011"))
 
     path = tmp_path / "run-3" / "bundles" / f"{digest.removeprefix('sha256:')}.json"
     path.write_text(path.read_text().replace("original", "tampered"), encoding="utf-8")
@@ -238,8 +238,8 @@ def test_editing_a_stored_bundle_breaks_verification(tmp_path: Path) -> None:
 def test_removing_a_manifest_entry_breaks_the_chain(tmp_path: Path) -> None:
     store = EvidenceStore(tmp_path)
     store.write("run-4", _bundle("one"))
-    store.write("run-4", _bundle("two", probe_id="AEGIS-TEST-012"))
-    store.write("run-4", _bundle("three", probe_id="AEGIS-TEST-013"))
+    store.write("run-4", _bundle("two", probe_id="KERVY-TEST-012"))
+    store.write("run-4", _bundle("three", probe_id="KERVY-TEST-013"))
 
     manifest = tmp_path / "run-4" / "manifest.jsonl"
     lines = manifest.read_text(encoding="utf-8").splitlines()
@@ -256,7 +256,7 @@ def test_the_store_refuses_a_bundle_that_was_not_redacted(tmp_path: Path) -> Non
     redaction guarantee depend on every future caller remembering."""
     store = EvidenceStore(tmp_path)
     raw = EvidenceBundle(
-        probe_id="AEGIS-TEST-020",
+        probe_id="KERVY-TEST-020",
         probe_version="1.0.0",
         request={"method": "GET", "url": "https://t.test/", "headers": {}, "body": ""},
         response={"status_code": 200, "headers": {}, "body": "AKIAIOSFODNN7EXAMPLE"},
@@ -317,7 +317,7 @@ def test_verification_still_works_through_encryption(tmp_path: Path) -> None:
     comparing ciphertext to a plaintext digest."""
     store = EvidenceStore(tmp_path, key=_KEY)
     store.write("run-enc-3", _bundle("one"))
-    store.write("run-enc-3", _bundle("two", probe_id="AEGIS-TEST-030"))
+    store.write("run-enc-3", _bundle("two", probe_id="KERVY-TEST-030"))
     assert store.verify("run-enc-3").ok
 
 

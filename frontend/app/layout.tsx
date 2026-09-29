@@ -11,7 +11,7 @@ const SITE_URL = "https://YOUR-DOMAIN.com";
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
-  title: "Aegis AI Security",
+  title: "Kervy Security",
   description:
     "Authorized security assessment platform for Generative AI applications, agents, and their supporting APIs.",
   // No icon file is served, and none should be fetched from anywhere else.
@@ -29,7 +29,7 @@ export const metadata: Metadata = {
 const THEME_INIT_SCRIPT = `
 (function () {
   try {
-    var stored = localStorage.getItem("aegis-theme");
+    var stored = localStorage.getItem("kervy-theme");
     if (stored === "light" || stored === "dark") {
       document.documentElement.setAttribute("data-theme", stored);
     }

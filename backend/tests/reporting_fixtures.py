@@ -34,7 +34,7 @@ def _finding(**overrides: object) -> ReportFinding:
         "severity_rationale": "Risk 7.4/10 (high): impact major, likelihood 0.62, confidence high.",
         "confidence": "HIGH",
         "stability": "deterministic",
-        "risk_model": "aegis-v1",
+        "risk_model": "kervy-v1",
         "risk_score": 7.4,
         "risk_inputs": {
             "impact": "major",
@@ -43,7 +43,7 @@ def _finding(**overrides: object) -> ReportFinding:
             "exposure_modifier": 1.0,
         },
         "surface": "POST /api/chat",
-        "probe_id": "AEGIS-AI-001",
+        "probe_id": "KERVY-AI-001",
         "probe_version": "1.0.0",
         "description": "The assistant followed an instruction embedded in user input.",
         "impact": "An untrusted instruction can redirect the assistant's behaviour.",
@@ -114,7 +114,7 @@ def sample_report() -> ReportData:
                     "exposure_modifier": 1.0,
                 },
                 surface="declared tool: create_ticket",
-                probe_id="AEGIS-AI-030",
+                probe_id="KERVY-AI-030",
                 probe_version="1.0.0",
                 description="The declared tool accepts an arbitrary account identifier.",
                 impact="A user could act on another account through the assistant.",
@@ -141,7 +141,7 @@ def sample_report() -> ReportData:
                 stability="deterministic",
                 risk_score=9.1,
                 surface="app/handlers.py:42",
-                probe_id="AEGIS-SAST-B602",
+                probe_id="KERVY-SAST-B602",
                 probe_version="bandit-1.7",
                 description="subprocess called with shell=True on a request-derived value.",
                 impact="Remote command execution.",
@@ -160,7 +160,7 @@ def sample_report() -> ReportData:
             NotTested(
                 area="dependency advisories",
                 reason="Advisory lookup is disabled by default (no outbound disclosure).",
-                probe_id="AEGIS-APPSEC-000",
+                probe_id="KERVY-APPSEC-000",
             ),
         ],
         # Every pillar, always. The fixture mixes tested and untested ones so a
@@ -249,7 +249,7 @@ def sample_report() -> ReportData:
         requests_blocked=2,
         halted_reason=None,
         risk_model_tables=render_risk_tables(),
-        tool_versions={"aegis": "0.1.0", "bandit": "1.7.9"},
+        tool_versions={"kervy": "0.1.0", "bandit": "1.7.9"},
         ai_drafted_sections=["remediation"],
     )
 
@@ -282,7 +282,7 @@ def retest_report() -> ReportData:
                 verdict="not_reproduced",
                 before_evidence_ref="sha256:" + "a" * 64,
                 after_evidence_ref=None,
-                detail="AEGIS-AI-001 ran and did not report this fingerprint.",
+                detail="KERVY-AI-001 ran and did not report this fingerprint.",
             ),
             RetestRecord(
                 fingerprint="sha256:" + "2" * 64,
@@ -291,7 +291,7 @@ def retest_report() -> ReportData:
                 verdict="not_tested",
                 before_evidence_ref=None,
                 after_evidence_ref=None,
-                detail=("AEGIS-AI-030 produced no result in this run. Not looking is not a fix."),
+                detail=("KERVY-AI-030 produced no result in this run. Not looking is not a fix."),
             ),
         ],
     )

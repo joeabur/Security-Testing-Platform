@@ -154,9 +154,9 @@ async def test_a_run_against_the_ai_lab_stores_measured_findings(
     ).json()
     codes = {result["result_code"] for result in results}
 
-    assert {"AEGIS-AI-001", "AEGIS-AI-010", "AEGIS-AI-011", "AEGIS-AI-031"} <= codes
+    assert {"KERVY-AI-001", "KERVY-AI-010", "KERVY-AI-011", "KERVY-AI-031"} <= codes
 
-    injection = next(r for r in results if r["result_code"] == "AEGIS-AI-001")
+    injection = next(r for r in results if r["result_code"] == "KERVY-AI-001")
     assert "OWASP-LLM-2026:LLM01" in injection["frameworks"]
     assert "Attack success rate:" in injection["evidence"]
     assert "Decision rule:" in injection["evidence"]

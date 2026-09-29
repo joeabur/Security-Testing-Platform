@@ -1,4 +1,4 @@
-# Build Specification — Aegis AI Security
+# Build Specification — Kervy Security
 
 **Generative AI Risk Identification & Security Testing Platform**
 
@@ -153,7 +153,7 @@ framework:
 - A JSON Schema validates every mapping file; CI fails on schema violation.
 - `framework-drift.yml` (weekly) fetches upstream and fails when the pinned version is stale, opening an issue rather than silently updating.
 - Findings reference framework entries by ID and mapping-file version, so a report stays reproducible after a framework update.
-- `aegis-ai frameworks list` / `aegis-ai frameworks diff <from> <to>` are first-class CLI commands.
+- `kervy-ai frameworks list` / `kervy-ai frameworks diff <from> <to>` are first-class CLI commands.
 
 ---
 
@@ -169,7 +169,7 @@ A **real, runnable, multi-user web application**, reachable at `http://localhost
 
 **Backend:** Python 3.12+, FastAPI, Pydantic v2, SQLAlchemy 2.x, Alembic, PostgreSQL, Redis, Celery (or `arq` if Celery proves heavier than needed — decide in `docs/decisions/0002-task-queue.md` and hold to it), `httpx` (async, scope-gated only), `structlog`.
 
-**CLI:** `aegis-ai`, Typer + Rich, talks to the same REST API a browser session would use (never a separate code path with weaker scope checks).
+**CLI:** `kervy-ai`, Typer + Rich, talks to the same REST API a browser session would use (never a separate code path with weaker scope checks).
 
 **Testing:** `pytest`, `pytest-asyncio`, `respx`, `hypothesis` (scope-engine property tests) on the backend; component/page/flow tests on the frontend; Playwright (or similar) for end-to-end flows.
 
@@ -216,7 +216,7 @@ The two input documents disagree on fundamentals. Resolved here; each decision i
 |---|---|---|---|
 | **Primary interface** | CLI-first; FastAPI only added in phase 7; dashboard "deliberately small," optional | Full Next.js web app is the primary product from Phase 1 | **Web app wins.** The moment the product has organizations, RBAC, multi-tenant assets, and real-time scan progress meant for a team, a CLI-first MVP under-serves the actual requirement. The CLI remains a first-class citizen for CI/CD, but is a client of the same REST API, not the initial deliverable. |
 | **Storage/queue** | SQLite + in-process asyncio; Postgres/Redis/Celery deferred to an *optional* "scale profile" (`docker-compose.scale.yml`) | PostgreSQL + Redis + Celery from Phase 1, always | **Postgres/Redis/Celery from Phase 1.** v2.0's rationale for SQLite ("one engineer against one target") does not hold once organizations, concurrent users, and real-time browser progress are in scope — those require a real multi-writer database and a broker for background jobs regardless of scale. SQLite is not offered as a profile; it would only fragment testing effort. This reverses v2.0 §4.1's default. |
-| **Project name** | Placeholder `aegis` pending a PyPI/npm/GitHub/trademark check ("make a rename a one-commit change") | Named product: **Aegis AI Security**, repo `aegis-ai-security` | **Adopt "Aegis AI Security" / `aegis-ai-security`**, but keep the name as a single constant/config value (`PRODUCT_NAME`, package name) exactly as v2.0 insisted, so a rename remains a one-commit change if the trademark/namespace check (still owed — recorded in `docs/decisions/0003-naming.md`) turns up a conflict. `aegis` alone is avoided for the PyPI/CLI binary name in favor of `aegis-ai` to reduce collision risk, per the Master Prompt's own naming. |
+| **Project name** | Placeholder `kervy` pending a PyPI/npm/GitHub/trademark check ("make a rename a one-commit change") | Named product: **Kervy Security**, repo `kervy-security` | **Adopt "Kervy Security" / `kervy-security`**, but keep the name as a single constant/config value (`PRODUCT_NAME`, package name) exactly as v2.0 insisted, so a rename remains a one-commit change if the trademark/namespace check (still owed — recorded in `docs/decisions/0003-naming.md`) turns up a conflict. `kervy` alone is avoided for the PyPI/CLI binary name in favor of `kervy-ai` to reduce collision risk, per the Master Prompt's own naming. |
 | **Finding schema depth** | Rich schema: `stability`, `attack_success_rate` with Wilson CI, `control_success_rate`, separate `cvss_v4`/`aivss`/internal risk score, `mapping_versions` | Simpler normalized scanner JSON (`id, title, category, severity, confidence, evidence, ...`) | **v2.0's rich schema is canonical** (§11). The Master Prompt's simpler JSON becomes the **wire format individual scanners/plugins emit** (`ScanResult`), which the findings service then promotes/enriches into the full `Finding` record (adds fingerprint, ASR/CI, risk score, lifecycle, mapping versions). This gives plugin authors a small, stable contract while keeping the stored model rigorous. |
 | **Determinism/trials machinery** | Mandatory: N trials, control runs, Wilson-CI attack success rate, judge calibration published or judge disabled | Not specified; implies scans just "find" things | **v2.0's determinism machinery is mandatory and unchanged.** It is what makes the product statistically honest and is one of the four stated differentiators (§1.1). The web UI must surface ASR + CI on every probabilistic finding, not just a pass/fail badge. |
 | **Scope engine strictness** | Extremely detailed pipeline + mandatory property-based test matrix (§6) | Similar pipeline, less detailed test matrix, adds explicit SSRF metadata-IP blocking language | **Union of both**, using v2.0's full test matrix as the release gate and folding in the Master Prompt's explicit SSRF/DNS-rebinding language (already compatible, not contradictory). |
@@ -238,7 +238,7 @@ decision from an oversight.
 |---|---|---|---|
 | 1 | Impl Spec §3 says avoid PostgreSQL (prefer SQLite), Redis and Celery. Phases 1–6 shipped all three. | **Keep them.** | Impl Spec §3 bans *introducing* these "unless a demonstrated requirement in the existing codebase makes them necessary", and §1 says to reuse working architecture and not rebuild functioning components. The requirements are demonstrated and tested: multi-tenant row isolation and JSON/ENUM columns (Postgres), cross-process run cancellation (Redis), and out-of-request run execution with SSE progress (Celery). Rewriting them onto SQLite would delete six phases of tested behaviour to satisfy a constraint whose own escape clause is already met. A SQLite "local profile" is tracked as a later simplification, not a rewrite. |
 | 2 | Impl Spec §3/§16 wants a Jinja2 + HTMX dashboard; Phase 1 shipped a Next.js app. | **Move to Jinja2 + HTMX.** | This is the one stack conflict where the Impl Spec plainly wins. The Next.js app is a thin auth-only scaffold (login, register, create-organization) with no dashboard built on it, so the sunk cost is small and the simplicity gain is real. The existing REST API is unchanged; the dashboard becomes a server-rendered consumer of it. |
-| 3 | Impl Spec §19 and Addendum §6.4 call the CLI `aegis`; v3.0 §20 and ADR 0003 call it `aegis-ai`. | **`aegis`**, with `aegis-ai` kept as an alias. | Two later documents agree on the shorter name, and an alias costs one line while keeping every existing document's examples working. |
+| 3 | Impl Spec §19 and Addendum §6.4 call the CLI `kervy`; v3.0 §20 and ADR 0003 call it `kervy-ai`. | **`kervy`**, with `kervy-ai` kept as an alias. | Two later documents agree on the shorter name, and an alias costs one line while keeping every existing document's examples working. |
 | 4 | Addendum §9 appends phases 13–15 assuming v2.0's twelve; v3.0 already has thirteen. Impl Spec §24 proposes its own ten-phase order. | **One sequence: v3.0 Phases 1–13 unchanged, then 14–18** (see §26). | Renumbering shipped phases would invalidate every commit message, roadmap entry and ADR that references them. The Impl Spec's ordering is honoured *within* the new phases: AppSec engines before assistant, RASP last and reduced. |
 | 5 | Impl Spec §5 names the MVP engine set as SAST, SCA, Secrets, **IaC**; the Addendum names SAST, DAST, SCA, Secrets, **RASP**. | **SAST, SCA, Secrets, IaC first** (Phase 14); DAST second (Phase 15). | The Impl Spec is the later document and explicitly takes precedence for the changes it names. IaC is additive and cheap; DAST is request-heavy and needs the crawler scope work, so it earns its own phase. |
 | 6 | Addendum §4.5 specifies a full RASP-effectiveness engine (its Phase 14); Impl Spec §7 says do **not** implement RASP in the MVP and keep it from complicating the architecture. | **Extension points only** (Phase 18, deferred). | The later and more restrictive document wins. The `runtime_protection` fields in §5.1 and the probe interface are enough to add the engine later without a rewrite, which is exactly what Impl Spec §7 asks for. Neither document permits shipping a RASP *agent*. |
@@ -303,7 +303,7 @@ target:
     reported_by: header | api | operator_supplied
   auth:
     scheme: bearer | api_key | oauth2 | session | none
-    credential_ref: keyring://aegis-ai/demo-ai-app/token   # NEVER an inline secret
+    credential_ref: keyring://kervy-ai/demo-ai-app/token   # NEVER an inline secret
   accounts:                   # for BOLA / privilege testing — synthetic test accounts only
     - role: user_a
       credential_ref: keyring://...
@@ -446,7 +446,7 @@ v2.0 §7, unchanged and mandatory — this is one of the four stated differentia
 
 ### 7.2 Reproducibility
 
-Record for every attempt: probe ID and version, exact payload, seed, temperature/top-p if controllable, model identifier as reported, timestamp, full redacted request/response pair. `aegis-ai replay <finding-id>` (and an equivalent "Retest" button, §27) re-runs the exact attempt under the same scope checks and reports whether it reproduced.
+Record for every attempt: probe ID and version, exact payload, seed, temperature/top-p if controllable, model identifier as reported, timestamp, full redacted request/response pair. `kervy-ai replay <finding-id>` (and an equivalent "Retest" button, §27) re-runs the exact attempt under the same scope checks and reports whether it reproduced.
 
 ### 7.3 Judges
 
@@ -515,7 +515,7 @@ class Probe(Protocol):
     def detect(self, obs: Observation, baseline: Observation) -> Detection: ...
 ```
 
-- **LLM01 direct injection** — instruction override, role/persona manipulation, delimiter/formatting confusion, context-window manipulation, instruction-hierarchy conflict, encoding/obfuscation, language switching, multi-turn escalation (gated by `allow_multi_turn`). Marker-based detection only (`AEGIS-CANARY-<random>`).
+- **LLM01 direct injection** — instruction override, role/persona manipulation, delimiter/formatting confusion, context-window manipulation, instruction-hierarchy conflict, encoding/obfuscation, language switching, multi-turn escalation (gated by `allow_multi_turn`). Marker-based detection only (`KERVY-CANARY-<random>`).
 - **LLM01 indirect/cross-domain injection** — full path `external content → retriever → context → LLM → agent → tool → downstream effect`; carriers: HTML, Markdown, PDF, DOCX, CSV, `.eml`, JSON, image-with-text; hiding techniques: HTML comments, `display:none`, white-on-white, PDF invisible layer, unicode tags, alt text, spreadsheet formulas. Served from the local `content-server` lab component only. High-or-above severity requires reaching a privileged action or exfiltration channel.
 - **LLM02 sensitive information disclosure** — `detect-secrets`, Gitleaks rulesets, Presidio, entropy analysis, org-supplied regex packs; cross-tenant leakage test with two authorized test accounts; redaction before persistence (store `sha256(secret)` + masked preview + byte offset, never the value).
 - **LLM03 excessive agency / ASI01–ASI10** — enumerate tool surface (MCP adapter, app manifest, or operator declaration — never guessed); build and render a permission graph (`user → agent → tool → resource → effect`) as Mermaid; classify tools read/write, reversible/irreversible, internal/external; test tool-selection manipulation, out-of-model authorization checks, talk-past-confirmation, single-high-privilege-credential patterns. Architectural findings without live testing are valid, tagged `confidence: design_review`.
@@ -568,7 +568,7 @@ affected: { target_id: uuid, surface: "POST /api/chat", component: "retrieval pi
 
 impact: string
 likelihood: string
-risk_score: { model: aegis-v1, value: 7.4, inputs: {...} }
+risk_score: { model: kervy-v1, value: 7.4, inputs: {...} }
 cvss_v4: { vector: "CVSS:4.0/...", score: 8.1 }      # ONLY when the finding genuinely fits CVSS
 aivss: { version: "0.8-draft", score: 6.9, note: "draft methodology" }   # optional
 
@@ -596,7 +596,7 @@ lifecycle:
   retest_result: str
 
 source: native | "<tool>@<version>"   # native probe or an imported third-party tool result
-scanner: { name: aegis-ai, version: 0.1.0, run_id: uuid }
+scanner: { name: kervy-ai, version: 0.1.0, run_id: uuid }
 ```
 
 **Fingerprinting** makes the lifecycle work across runs: same issue, two runs, varying response text → one Finding with two `last_seen` values, not two Findings. This is a mandatory automated test.
@@ -607,7 +607,7 @@ The smaller shape from the Master Prompt (§55) is the contract every native pro
 
 ```json
 {
-  "id": "AEGIS-AI-001",
+  "id": "KERVY-AI-001",
   "title": "Potential Prompt Injection",
   "category": "AI_SECURITY",
   "severity": "HIGH",
@@ -639,7 +639,7 @@ risk = impact × likelihood × confidence_weight × exposure_modifier
 - Severity is derived from the score by a published banding; `severity_rationale` is generated from the inputs, always matching the number.
 
 **Three scoring systems, never blended:**
-1. **Aegis risk score** — always present, fully documented, our model.
+1. **Kervy risk score** — always present, fully documented, our model.
 2. **CVSS 4.0** — only for findings that genuinely fit CVSS. Never manufacture a vector for "the model followed an injected instruction."
 3. **AIVSS v0.8** — optional, off by default, visibly labelled "draft methodology, v0.8, subject to change before v1.0."
 
@@ -653,8 +653,8 @@ v2.0 §13, unchanged, plus Master Prompt's UI actions.
 - Redaction runs **before write**, using the LLM02 detector stack plus RoE-supplied custom patterns. Authorization headers and cookies always masked.
 - Bundles are content-addressed (SHA-256), referenced by hash from findings. A per-run manifest is hash-chained, so an altered bundle is detectable.
 - Storage: local filesystem (default), optional encryption-at-rest using a run key (age/libsodium) — document the key-management model honestly.
-- Retention configurable per run; `aegis-ai evidence purge --run <id>` performs a genuine delete, recorded in the audit log.
-- `aegis-ai evidence verify --run <id>` validates the hash chain.
+- Retention configurable per run; `kervy-ai evidence purge --run <id>` performs a genuine delete, recorded in the audit log.
+- `kervy-ai evidence verify --run <id>` validates the hash chain.
 - UI (finding detail page, §21): Copy Evidence, Download Evidence — both sanitized, both audit-logged, both authorization-checked (no public report/evidence URLs by default, per Master Prompt §49).
 
 ---
@@ -732,7 +732,7 @@ launch it at all. A tool that cannot be constrained is not integrated.
 
 Merged v2.0 §16 and Master Prompt §54 — same design, Master Prompt's example is the canonical shape for the simplified test-plugin interface, v2.0's rigor around entry points and sandboxing is retained.
 
-- Discovery via Python entry points (`aegis.probes`, `aegis.detectors`, `aegis.adapters`, `aegis.reporters`).
+- Discovery via Python entry points (`kervy.probes`, `kervy.detectors`, `kervy.adapters`, `kervy.reporters`).
 - Plugins validated against the `ProbeMeta` schema at load; invalid metadata fails loudly.
 - **Third-party plugins are untrusted code** — no false sandbox claimed. Provide: signed/allowlist mode (`plugins.allowlist` of package name + hash), `--no-plugins`, and a startup banner listing loaded third-party plugins.
 - Plugins cannot bypass the scope engine: they receive a `RunContext` whose transport is already gated, with no route to a raw HTTP client. Tested explicitly.
@@ -839,30 +839,30 @@ Isolation per §2.4. `docker compose --profile demo up` launches everything on a
 
 ## 20. CLI
 
-Merged v2.0 §18 and Master Prompt §31 — union of both command sets under the single binary name `aegis-ai`, all calling the same REST API a browser session uses.
+Merged v2.0 §18 and Master Prompt §31 — union of both command sets under the single binary name `kervy-ai`, all calling the same REST API a browser session uses.
 
 ```bash
-aegis-ai login
-aegis-ai init
-aegis-ai target add|list|show|rm --config target.yaml
-aegis-ai auth grant --target X --file authorization.yaml [--sign]
-aegis-ai auth verify --target X
-aegis-ai scope validate X
-aegis-ai scope explain X --url https://...
-aegis-ai discover X
-aegis-ai scan X [--safe] [--profile ai|api|full] [--dry-run] [--trials N]
-aegis-ai test X --probe ai.injection.direct.* --trials 10
-aegis-ai replay <finding-id>
-aegis-ai findings list [--severity high] [--status new] [--framework LLM01]
-aegis-ai findings set-status <id> --status confirmed --owner alice
-aegis-ai retest X --since <run-id>
-aegis-ai report X --format html,sarif,json --output ./reports/
-aegis-ai evidence verify|purge --run <id>
-aegis-ai frameworks list|show|diff|update
-aegis-ai probes list [--category ai] [--safe-only]
-aegis-ai gate --run <id> --config security-gate.yaml
-aegis-ai kill
-aegis-ai ci --target staging-ai --fail-on critical,high
+kervy-ai login
+kervy-ai init
+kervy-ai target add|list|show|rm --config target.yaml
+kervy-ai auth grant --target X --file authorization.yaml [--sign]
+kervy-ai auth verify --target X
+kervy-ai scope validate X
+kervy-ai scope explain X --url https://...
+kervy-ai discover X
+kervy-ai scan X [--safe] [--profile ai|api|full] [--dry-run] [--trials N]
+kervy-ai test X --probe ai.injection.direct.* --trials 10
+kervy-ai replay <finding-id>
+kervy-ai findings list [--severity high] [--status new] [--framework LLM01]
+kervy-ai findings set-status <id> --status confirmed --owner alice
+kervy-ai retest X --since <run-id>
+kervy-ai report X --format html,sarif,json --output ./reports/
+kervy-ai evidence verify|purge --run <id>
+kervy-ai frameworks list|show|diff|update
+kervy-ai probes list [--category ai] [--safe-only]
+kervy-ai gate --run <id> --config security-gate.yaml
+kervy-ai kill
+kervy-ai ci --target staging-ai --fail-on critical,high
 ```
 
 `--safe` is the default; `--unsafe` requires interactive confirmation and is logged. Every command exits non-zero on refusal, with documented, distinct exit codes so CI can tell "found issues" apart from "refused to run":
@@ -915,7 +915,7 @@ release.yml          semver tag · signed artifacts (Sigstore/cosign) · provena
 
 Least-privilege `permissions:` blocks, pinned action SHAs. Containers run as non-root, minimal base images, pinned dependencies, health checks, dropped capabilities, read-only filesystem where practical, resource limits, never contain secrets.
 
-**Security gate** (`aegis-ai gate` / `aegis-ai ci`):
+**Security gate** (`kervy-ai gate` / `kervy-ai ci`):
 
 ```yaml
 security_gate:
@@ -1019,7 +1019,7 @@ The two source phase lists are nearly isomorphic; merged into one sequence carry
 | Phase | Scope | Acceptance criteria |
 |---|---|---|
 | **1. Foundation** | Repo layout; `docker-compose.yml` (frontend/backend/worker/postgres/redis); FastAPI + Next.js skeletons; Postgres + Alembic; Redis; Celery wired but idle; config loader; structlog; CI skeleton; auth (register/login/logout, Argon2id); Organizations/Membership/Role models; RBAC scaffolding | `docker compose up --build` serves the frontend at :3000 and a user can register, log in, and create an organization; migrations up/down clean; CI green |
-| **2. Safety boundary** | `Target`, `Authorization`, `RoE` models; scope engine; gated transport; audit log (file hash-chain + DB mirror); kill switch; dry-run; asset CRUD + scope UI; OpenAPI upload with validation | **Every test in §6.3 passes.** `aegis-ai scope explain` correct on 20 hand-written cases. No ungated HTTP client anywhere in the codebase. Cross-organization access blocked and tested |
+| **2. Safety boundary** | `Target`, `Authorization`, `RoE` models; scope engine; gated transport; audit log (file hash-chain + DB mirror); kill switch; dry-run; asset CRUD + scope UI; OpenAPI upload with validation | **Every test in §6.3 passes.** `kervy-ai scope explain` correct on 20 hand-written cases. No ungated HTTP client anywhere in the codebase. Cross-organization access blocked and tested |
 | **3. Adapters & discovery** | Adapter protocol; `chat_http`, `openai_compatible`, `http_openapi`; OpenAPI parsing; attack-surface discovery UI | Discovers the demo lab's surface correctly; handles malformed specs without crashing |
 | **4. Assessment engine** | Assessment wizard; Celery task lifecycle (Queued/Running/Completed/Failed/Cancelled/Expired); SSE/WebSocket progress; cancellation; timeouts; budget enforcement in workers | A safe scan against the demo lab runs end-to-end with real progress in the browser and halts cleanly on cancel/timeout/budget exhaustion |
 | **5. API security engine** | Auth, BOLA, function-level authz, mass assignment (analysis mode), input validation, misconfig, GraphQL testing | Finds every seeded API flaw in the demo lab; zero findings against a hardened control app |
@@ -1027,7 +1027,7 @@ The two source phase lists are nearly isomorphic; merged into one sequence carry
 | **7. Findings & risk** | Normalization (`ScanResult` → `Finding`), fingerprinting, lifecycle, risk model, framework resolution, findings UI | Fingerprint-stability test passes; every finding has a generated `severity_rationale` matching its score |
 | **8. Evidence & reporting** | Redaction, sealing, hash chain, JSON/SARIF/HTML/MD/CSV/PDF, four report templates | Redaction property test passes; SARIF validates against 2.1.0 schema; golden snapshots stable; reports downloadable and access-controlled from the UI |
 | **9. Remediation & retest** | Remediation task board; retest workflow; before/after evidence comparison | A finding can be assigned, moved through remediation states, retested, and shown as reproduced/not-reproduced with evidence |
-| **10. CLI, API keys & CI/CD gate** | `aegis-ai` CLI (full command set, §20); API keys; `aegis-ai ci`/`gate` with documented exit codes; GitHub Actions (§23) | CLI exercises the same API/scope engine as the UI (no parallel weaker path); a seeded critical finding fails the gate with the documented exit code |
+| **10. CLI, API keys & CI/CD gate** | `kervy-ai` CLI (full command set, §20); API keys; `kervy-ai ci`/`gate` with documented exit codes; GitHub Actions (§23) | CLI exercises the same API/scope engine as the UI (no parallel weaker path); a seeded critical finding fails the gate with the documented exit code |
 | **11. Plugins & third-party adapters** | Entry points, allowlist, 2–3 tool adapters (e.g. Semgrep, Gitleaks, detect-secrets) | Example plugin from the docs loads and runs; a test proves a plugin cannot bypass the scope engine |
 | **12. Demo lab & hardening** | Full `demo-target/` isolation, SBOM/ML-BOM, Trivy/Semgrep/Gitleaks/CodeQL/pip-audit clean, Sigstore signing, tenant-isolation and authz penetration pass against the platform itself | `lab-e2e.yml` green; SBOM attaches to release; all supply-chain CI workflows green; `docs/security-review.md` complete |
 | **13. Documentation & release** | All of §25; v0.1.0 tag | A fresh clone, following the quickstart verbatim, reaches a scanned demo lab and a downloaded report in under 10 minutes, without editing source code |
@@ -1143,6 +1143,6 @@ Added by the AppSec Addendum v2.1 §11 and the Implementation Specification §10
 
 ## 29. Decisions requiring follow-up (not blocking, but tracked)
 
-1. **Project/repo naming** — "Aegis AI Security" / `aegis-ai-security` adopted per the Master Prompt, but the PyPI/npm/GitHub/trademark check v2.0 called for is still owed before a public release. Track in `docs/decisions/0003-naming.md`.
+1. **Project/repo naming** — "Kervy Security" / `kervy-security` adopted per the Master Prompt, but the PyPI/npm/GitHub/trademark check v2.0 called for is still owed before a public release. Track in `docs/decisions/0003-naming.md`.
 2. **Task queue: Celery vs `arq`** — defaulting to Celery per the Master Prompt's explicit mandate; `arq` remains a lighter-weight fallback if Celery's operational overhead proves disproportionate during Phase 1. Track in `docs/decisions/0002-task-queue.md`.
 3. **Hosted LLM availability in the build/CI environment** — unknown until Phase 6 (AI security engine); if no hosted LLM is reachable in CI, the AI engine's live-target tests run only against the local demo lab's stub model, and this limitation is stated in `docs/limitations.md` rather than assumed away.

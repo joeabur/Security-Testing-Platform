@@ -2,7 +2,7 @@
 
 **Template:** executive  
 **Generated:** 2026-03-04T09:30:00+00:00  
-**Tool:** Aegis AI Security 0.1.0  
+**Tool:** Kervy Security 0.1.0  
 **Run:** `22222222-2222-2222-2222-222222222222`
 
 ## Executive summary
@@ -41,7 +41,7 @@ The digests above were pinned when the run started, so a later change to the aut
 | LOW | 0 |
 | INFORMATIONAL | 0 |
 
-Scores come from the Aegis risk model (`impact × likelihood × confidence_weight × exposure_modifier`). Every finding carries the inputs that produced its score, and the severity follows a published banding — see the appendix. CVSS and AIVSS, where present, are separate figures and are never averaged into this score.
+Scores come from the Kervy risk model (`impact × likelihood × confidence_weight × exposure_modifier`). Every finding carries the inputs that produced its score, and the severity follows a published banding — see the appendix. CVSS and AIVSS, where present, are separate figures and are never averaged into this score.
 
 ## Framework coverage
 

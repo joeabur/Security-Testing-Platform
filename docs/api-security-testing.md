@@ -9,25 +9,25 @@ produces a short result list rather than an error.
 
 | Code | What it reports | OWASP API Top 10 |
 |---|---|---|
-| `AEGIS-API-001` | Authenticated endpoint answers unauthenticated requests | API2 |
-| `AEGIS-API-002` | API served over plaintext HTTP | API8 |
-| `AEGIS-API-003` | Credentials passed in the URL | API8 |
-| `AEGIS-API-010` | Security response headers missing | API8 |
-| `AEGIS-API-011` | Permissive CORS policy | API8 |
-| `AEGIS-API-012` | Error responses expose internal details | API8 |
-| `AEGIS-API-013` | Debug endpoint reachable (e.g. `/.env`) | API8 |
-| `AEGIS-API-020` | No rate limit advertised | API4 |
-| `AEGIS-API-021` | Oversized page size accepted | API4 |
-| `AEGIS-API-030` | Request body binds privileged fields | API3 |
-| `AEGIS-API-031` | Write operation reuses a read schema | API3 |
-| `AEGIS-API-040` | Invalid input causes a server error | API8 |
-| `AEGIS-API-041` | Input violating the declared schema is accepted | API8 |
-| `AEGIS-API-050` | Object readable by an account that does not own it (BOLA) | API1 |
-| `AEGIS-API-051` | Administrative endpoint reachable by an unprivileged account | API5 |
-| `AEGIS-API-060` | GraphQL introspection enabled | API8 |
-| `AEGIS-API-061` | GraphQL query depth/complexity unbounded | API4 |
-| `AEGIS-API-062` | GraphQL errors expose internal details | API8 |
-| `AEGIS-API-000` | **Not tested** — a coverage marker, not a finding | — |
+| `KERVY-API-001` | Authenticated endpoint answers unauthenticated requests | API2 |
+| `KERVY-API-002` | API served over plaintext HTTP | API8 |
+| `KERVY-API-003` | Credentials passed in the URL | API8 |
+| `KERVY-API-010` | Security response headers missing | API8 |
+| `KERVY-API-011` | Permissive CORS policy | API8 |
+| `KERVY-API-012` | Error responses expose internal details | API8 |
+| `KERVY-API-013` | Debug endpoint reachable (e.g. `/.env`) | API8 |
+| `KERVY-API-020` | No rate limit advertised | API4 |
+| `KERVY-API-021` | Oversized page size accepted | API4 |
+| `KERVY-API-030` | Request body binds privileged fields | API3 |
+| `KERVY-API-031` | Write operation reuses a read schema | API3 |
+| `KERVY-API-040` | Invalid input causes a server error | API8 |
+| `KERVY-API-041` | Input violating the declared schema is accepted | API8 |
+| `KERVY-API-050` | Object readable by an account that does not own it (BOLA) | API1 |
+| `KERVY-API-051` | Administrative endpoint reachable by an unprivileged account | API5 |
+| `KERVY-API-060` | GraphQL introspection enabled | API8 |
+| `KERVY-API-061` | GraphQL query depth/complexity unbounded | API4 |
+| `KERVY-API-062` | GraphQL errors expose internal details | API8 |
+| `KERVY-API-000` | **Not tested** — a coverage marker, not a finding | — |
 
 ## Authorization testing needs synthetic accounts
 
@@ -38,7 +38,7 @@ is:
 ```json
 {
   "label": "acme_user",
-  "credential_env_var": "AEGIS_LAB_ACME_TOKEN",
+  "credential_env_var": "KERVY_LAB_ACME_TOKEN",
   "owned_object_ids": ["ord-5001"],
   "is_privileged": false
 }
@@ -51,7 +51,7 @@ an object that `globex_user` owns? If yes, that is BOLA, and the evidence is the
 exchange that showed it.
 
 Configure accounts and you get authorization coverage. Skip them and the report
-says `AEGIS-API-000 — not tested`, which is the honest outcome rather than a
+says `KERVY-API-000 — not tested`, which is the honest outcome rather than a
 silently missing category.
 
 ## Analysis mode
@@ -75,7 +75,7 @@ the run.
   validation probes look for schema violations and error disclosure, not SQLi
   exploitation.
 - **It reports missing rate limiting from what is advertised**, not by flooding
-  the target. `AEGIS-API-020` checks for the absence of rate-limit headers; a
+  the target. `KERVY-API-020` checks for the absence of rate-limit headers; a
   target that rate-limits without advertising it will be reported and is a false
   positive worth knowing about (`docs/limitations.md`).
 

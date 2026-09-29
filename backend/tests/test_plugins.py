@@ -78,7 +78,7 @@ def _context(host: str = LAB_HOST, *, max_requests: int = 50) -> PluginContext:
 
 def _reflecting_app(request: httpx.Request) -> httpx.Response:
     """Echoes the probe's header back, which is what it is looking for."""
-    marker = request.headers.get("X-Aegis-Example", "")
+    marker = request.headers.get("X-Kervy-Example", "")
     return httpx.Response(200, json={"seen": marker}, headers={"X-Echo": marker})
 
 
@@ -205,9 +205,9 @@ class _Distribution:
 class _Entry:
     """An entry point, duck-typed so a test need not install a package."""
 
-    def __init__(self, name: str, obj: Any, distribution: str | None = "aegis-plugin-example"):
+    def __init__(self, name: str, obj: Any, distribution: str | None = "kervy-plugin-example"):
         self.name = name
-        self.group = "aegis.probes"
+        self.group = "kervy.probes"
         self._obj = obj
         self.dist = _Distribution(distribution) if distribution else None
 
@@ -233,7 +233,7 @@ def entries(monkeypatch: pytest.MonkeyPatch):
 
 
 def _allowed() -> PluginPolicy:
-    return PluginPolicy(enabled=True, allowlist=(AllowedPackage(name="aegis-plugin-example"),))
+    return PluginPolicy(enabled=True, allowlist=(AllowedPackage(name="kervy-plugin-example"),))
 
 
 def test_nothing_loads_when_discovery_is_off(entries) -> None:
@@ -325,7 +325,7 @@ def test_the_banner_names_every_third_party_plugin(entries) -> None:
     entries([_Entry("reflection", HeaderReflectionProbe)])
     banner = discover(_allowed()).banner()
 
-    assert "aegis-plugin-example 1.2.3" in banner
+    assert "kervy-plugin-example 1.2.3" in banner
     assert "not sandboxed" in banner
 
 
@@ -336,10 +336,10 @@ def test_the_banner_says_so_when_nothing_loaded() -> None:
 
 def test_every_documented_entry_point_group_is_recognised() -> None:
     assert set(GROUPS) == {
-        "aegis.probes",
-        "aegis.detectors",
-        "aegis.adapters",
-        "aegis.reporters",
+        "kervy.probes",
+        "kervy.detectors",
+        "kervy.adapters",
+        "kervy.reporters",
     }
 
 
@@ -350,7 +350,7 @@ def test_a_pinned_package_whose_hash_does_not_match_is_refused(entries) -> None:
     entries([_Entry("reflection", HeaderReflectionProbe)])
     policy = PluginPolicy(
         enabled=True,
-        allowlist=(AllowedPackage(name="aegis-plugin-example", sha256="0" * 64),),
+        allowlist=(AllowedPackage(name="kervy-plugin-example", sha256="0" * 64),),
     )
 
     result = discover(policy)
@@ -379,9 +379,9 @@ def test_the_documented_configuration_parses() -> None:
 plugins:
   enabled: true
   allowlist:
-    - name: aegis-plugin-example
+    - name: kervy-plugin-example
       sha256: 3f786850e387550fdab836ed7e6dc881de23001b00000000000000000000aaaa
-    - aegis-plugin-simple
+    - kervy-plugin-simple
 """
     )
     assert policy.enabled
@@ -394,17 +394,17 @@ def test_absent_configuration_means_off() -> None:
 
 
 def test_punctuation_cannot_sidestep_the_allowlist() -> None:
-    """PEP 503 normalization: `Aegis_Plugin.Example` and `aegis-plugin-example`
+    """PEP 503 normalization: `Kervy_Plugin.Example` and `kervy-plugin-example`
     are the same package."""
-    policy = PluginPolicy(enabled=True, allowlist=(AllowedPackage(name="Aegis_Plugin.Example"),))
-    assert policy.entry_for("aegis-plugin-example") is not None
+    policy = PluginPolicy(enabled=True, allowlist=(AllowedPackage(name="Kervy_Plugin.Example"),))
+    assert policy.entry_for("kervy-plugin-example") is not None
 
 
 @pytest.mark.parametrize(
     "document",
     [
         "plugins:\n  enabled: yes-please\n",
-        "plugins:\n  allowlist: aegis-plugin\n",
+        "plugins:\n  allowlist: kervy-plugin\n",
         "plugins:\n  allowlist:\n    - name: ''\n",
         "plugins:\n  allowlist:\n    - name: p\n      sha256: tooshort\n",
         "plugins:\n  allowlist:\n    - name: p\n      unexpected: 1\n",
@@ -425,8 +425,8 @@ def _record(obj: Any, name: str = "example.header_reflection") -> PluginRecord:
     return PluginRecord(
         name=name,
         kind=PluginKind.PROBE,
-        group="aegis.probes",
-        distribution="aegis-plugin-example",
+        group="kervy.probes",
+        distribution="kervy-plugin-example",
         version="1.2.3",
         obj=obj,
     )
@@ -444,7 +444,7 @@ async def test_a_plugin_cannot_file_findings_under_a_native_probes_name() -> Non
         async def run(self, target: ProbeTarget, context: PluginContext) -> list[ScanResult]:
             return [
                 ScanResult(
-                    id="AEGIS-AI-001",
+                    id="KERVY-AI-001",
                     title="Direct prompt injection",
                     category=Category.AI_SECURITY,
                     severity=Severity.CRITICAL,
@@ -521,9 +521,9 @@ async def test_a_run_that_loaded_a_plugin_records_that_it_did() -> None:
         router.route(host=LAB_HOST).mock(side_effect=_quiet_app)
         await check.run(context.ctx, context.transport)
 
-    notes = [item for item in check.scan_results if item.id == "AEGIS-PLUGIN-900"]
+    notes = [item for item in check.scan_results if item.id == "KERVY-PLUGIN-900"]
     assert len(notes) == 1
-    assert "aegis-plugin-example 1.2.3" in notes[0].evidence
+    assert "kervy-plugin-example 1.2.3" in notes[0].evidence
 
 
 async def test_a_plugin_that_raises_becomes_a_visible_gap() -> None:
@@ -540,7 +540,7 @@ async def test_a_plugin_that_raises_becomes_a_visible_gap() -> None:
     outcomes = await check.run(context.ctx, context.transport)
 
     assert outcomes[0].ok is False
-    gaps = [item for item in check.scan_results if item.id == "AEGIS-PLUGIN-099"]
+    gaps = [item for item in check.scan_results if item.id == "KERVY-PLUGIN-099"]
     assert len(gaps) == 1
     assert "Not tested" in gaps[0].title
 

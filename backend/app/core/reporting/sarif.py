@@ -9,7 +9,7 @@ Two mapping decisions worth stating:
 
 * **`level` is not severity.** SARIF has four levels — none, note, warning,
   error — and five severities exist here. Critical and high both map to
-  `error` because SARIF has nothing stronger, and the Aegis score travels in
+  `error` because SARIF has nothing stronger, and the Kervy score travels in
   `properties` where it keeps its full resolution instead of being flattened
   away.
 * **A finding's stable identity becomes `partialFingerprints`.** That is the
@@ -82,11 +82,11 @@ def _result(finding: ReportFinding, rule_index: int) -> dict[str, Any]:
         ],
         # What SARIF consumers use to track an issue across runs — and what
         # the Phase 7 fingerprint exists to provide.
-        "partialFingerprints": {"aegisFingerprint/v1": finding.fingerprint},
+        "partialFingerprints": {"kervyFingerprint/v1": finding.fingerprint},
         "properties": {
-            "aegis_risk_score": finding.risk_score,
-            "aegis_risk_model": finding.risk_model,
-            "aegis_severity": finding.severity,
+            "kervy_risk_score": finding.risk_score,
+            "kervy_risk_model": finding.risk_model,
+            "kervy_severity": finding.severity,
             "confidence": finding.confidence,
             "stability": finding.stability,
             "status": finding.status,
@@ -141,7 +141,7 @@ def to_sarif(report: ReportData) -> dict[str, Any]:
             {
                 "tool": {
                     "driver": {
-                        "name": "Aegis AI Security",
+                        "name": "Kervy Security",
                         "version": report.tool_version,
                         "informationUri": "https://github.com/joeabur/Generative-AI-Risk-Identification-Security-Testing-Platform",
                         "rules": rules,

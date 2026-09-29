@@ -1,6 +1,6 @@
 # Outbound integrations
 
-Aegis sends notifications to Slack, Microsoft Teams, a signed generic webhook,
+Kervy sends notifications to Slack, Microsoft Teams, a signed generic webhook,
 or email. This document is written around the two questions that decide whether
 a notification feature is safe, because they are the ones a reviewer will ask.
 
@@ -23,8 +23,8 @@ between an organization admin and an outbound request:
    only ever reach `hooks.slack.com`; a `msteams_webhook` channel only
    `*.webhook.office.com` or `*.logic.azure.com`.
 4. **A new destination is an operator decision, not a database row.** A
-   `generic_webhook` host must appear in `AEGIS_NOTIFY_ALLOWED_WEBHOOK_HOSTS`,
-   and an SMTP relay in `AEGIS_NOTIFY_ALLOWED_SMTP_HOSTS`. Both live in the
+   `generic_webhook` host must appear in `KERVY_NOTIFY_ALLOWED_WEBHOOK_HOSTS`,
+   and an SMTP relay in `KERVY_NOTIFY_ALLOWED_SMTP_HOSTS`. Both live in the
    environment. An admin chooses among destinations an operator has sanctioned;
    they cannot invent one.
 
@@ -117,7 +117,7 @@ something a human already closed.
 
 ## Signing a generic webhook
 
-Headers: `X-Aegis-Timestamp`, `X-Aegis-Signature` (`v1=<hex>`), `X-Aegis-Event`.
+Headers: `X-Kervy-Timestamp`, `X-Kervy-Signature` (`v1=<hex>`), `X-Kervy-Event`.
 The signature is `HMAC-SHA256(secret, "v1:<timestamp>:<body>")` over the exact
 bytes sent — not a re-serialization, which is how signature mismatches happen.
 Verify with a 300-second tolerance; the timestamp is inside the signed string so
@@ -128,9 +128,9 @@ sides.
 ## Configuration
 
 ```bash
-AEGIS_NOTIFY_ALLOWED_WEBHOOK_HOSTS='["siem.internal.example"]'
-AEGIS_NOTIFY_ALLOWED_SMTP_HOSTS='["smtp.example.com"]'
-AEGIS_PUBLIC_BASE_URL=https://aegis.example.com   # absent: no link is rendered
+KERVY_NOTIFY_ALLOWED_WEBHOOK_HOSTS='["siem.internal.example"]'
+KERVY_NOTIFY_ALLOWED_SMTP_HOSTS='["smtp.example.com"]'
+KERVY_PUBLIC_BASE_URL=https://kervy.example.com   # absent: no link is rendered
 ```
 
 A link is omitted rather than guessed when no base URL is set. A broken link in
@@ -139,12 +139,12 @@ an alert teaches readers to ignore alerts.
 ## CLI
 
 ```bash
-aegis-ai channels list
-aegis-ai channels add --name sec-alerts --kind slack_webhook \
+kervy-ai channels list
+kervy-ai channels add --name sec-alerts --kind slack_webhook \
   --event finding.critical --event assessment.failed \
-  --endpoint-env-var AEGIS_SLACK_WEBHOOK
-aegis-ai channels test --channel <id>          # non-zero if it cannot deliver
-aegis-ai channels deliveries --channel <id>
+  --endpoint-env-var KERVY_SLACK_WEBHOOK
+kervy-ai channels test --channel <id>          # non-zero if it cannot deliver
+kervy-ai channels deliveries --channel <id>
 ```
 
 `--endpoint-env-var` takes a variable *name*. A flag that took the URL would put

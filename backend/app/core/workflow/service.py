@@ -23,9 +23,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.audit.service import record_event
 from app.core.gate.evaluate import load_config
 from app.core.gate.model import GateConfig, GateConfigError
+from app.core.runs.service import queue_run
 from app.core.workflow.contract import (
+    UNATTENDED_APPROVAL_ACTIONS,
+    ActionKind,
     Plan,
+    PlannedAction,
     Stage,
+    StageRecord,
     Trigger,
     TriggerKind,
     WorkflowOutcome,
@@ -34,12 +39,20 @@ from app.core.workflow.contract import (
 from app.core.workflow.plan import TargetCapabilities, build_plan
 from app.core.workflow.result import DEFAULT_GATE, decide
 from app.models.api_spec import ApiSpec
+from app.models.assessment_run import AssessmentRun
 from app.models.finding import Finding
 from app.models.integration import NotificationChannel
 from app.models.synthetic_account import SyntheticAccount
 from app.models.target import Target
 from app.models.vcs import VcsConnection
 from app.models.workflow import Workflow, WorkflowRun
+
+#: A workflow's scan profile/mode when automation queues one on its behalf.
+#: Matches `RunCreate`'s own defaults (`app/schemas/run.py`) — automation
+#: gains no capability a human triggering the same workflow would not
+#: already have.
+_AUTOMATED_SCAN_PROFILE = "connectivity"
+_AUTOMATED_SAFE_MODE = True
 
 
 async def capabilities_for(
@@ -254,13 +267,188 @@ def trigger_from(
     commit: str | None = None,
     pull_number: int | None = None,
     actor: str = "system",
+    kind: TriggerKind | None = None,
+    unattended: bool = False,
 ) -> Trigger:
+    """`kind` defaults to the workflow's own configured trigger kind — the
+    manual-API and agent-tool call sites that always pass `unattended=False`
+    (its own default) rely on this. The inbound webhook endpoint is the one
+    caller that overrides `kind` explicitly, since an accepted delivery
+    names its own event kind rather than reading the workflow's static
+    configuration."""
     return Trigger(
-        kind=TriggerKind(workflow.trigger_kind),
+        kind=kind or TriggerKind(workflow.trigger_kind),
         organization_id=workflow.organization_id,
         target_id=workflow.target_id,
         ref=ref,
         commit=commit,
         pull_number=pull_number,
         actor=actor,
+        unattended=unattended,
     )
+
+
+async def queue_scan_for_workflow_run(
+    db: AsyncSession, run: WorkflowRun, workflow: Workflow, plan: Plan, *, user_id: uuid.UUID
+) -> AssessmentRun | None:
+    """Queue the scan a plan calls for, through the exact same path
+    `POST /runs` and the agent's `start_scan` tool already use — never a
+    second, parallel way to start one. Returns `None`, queuing nothing,
+    when the plan has no scan-touching action at all (a workflow that only
+    correlates or notifies over findings that already exist)."""
+    if not (set(plan.will_run) & UNATTENDED_APPROVAL_ACTIONS):
+        return None
+    target = await db.get(Target, workflow.target_id)
+    if target is None:
+        raise ValueError("workflow target no longer exists")
+    assessment_run = await queue_run(
+        db,
+        organization_id=workflow.organization_id,
+        target=target,
+        user_id=user_id,
+        profile=_AUTOMATED_SCAN_PROFILE,
+        safe_mode=_AUTOMATED_SAFE_MODE,
+        confirmed_at=datetime.now(UTC),
+    )
+    run.assessment_run_id = assessment_run.id
+    await db.flush()
+    return assessment_run
+
+
+async def start_and_maybe_pause(
+    db: AsyncSession,
+    workflow: Workflow,
+    trigger: Trigger,
+) -> tuple[WorkflowRun, WorkflowOutcome]:
+    """`start()`'s own contract, plus the approval gate: an *unattended*
+    trigger (Celery Beat, the inbound webhook — never a human calling the
+    API) whose plan would queue a scan-touching action pauses here rather
+    than proceeding. A human calling `POST /workflows/{id}/runs` (or the
+    `RUN_WORKFLOW` agent tool) never pauses — their own authenticated,
+    role-checked call *is* the approval, exactly as today.
+
+    An attended trigger, or an unattended one whose plan has nothing to
+    approve, behaves exactly like `start()` always has: this function does
+    not queue a scan or gate anything itself either way — that split stays
+    with `queue_scan_for_workflow_run`/`finish`, called separately once a
+    run is not (or no longer) paused.
+    """
+    run, outcome = await start(db, workflow, trigger)
+    if trigger.unattended and (set(outcome.plan.will_run) & UNATTENDED_APPROVAL_ACTIONS):
+        run.status = WorkflowStatus.AWAITING_APPROVAL.value
+        run.detail = (
+            "awaiting human approval before queuing a scan-touching action "
+            f"triggered by {trigger.actor}"
+        )[:500]
+        await db.flush()
+    return run, outcome
+
+
+def _plan_from_record(record: dict[str, object]) -> Plan:
+    """The inverse of `Plan.as_record()` — reloads a stored run's plan so a
+    resumed/gated run can check `plan.will_run` without recomputing it (the
+    stored plan is the one the operator actually saw and approved; deriving
+    a fresh one here could theoretically disagree with it if the target's
+    configuration changed in between)."""
+    actions_data = record.get("actions", [])
+    assert isinstance(actions_data, list)
+    actions = tuple(
+        PlannedAction(
+            kind=ActionKind(action["kind"]),
+            reason=action["reason"],
+            skipped=action["skipped"],
+        )
+        for action in actions_data
+    )
+    return Plan(actions=actions)
+
+
+def _outcome_from_run(run: WorkflowRun) -> WorkflowOutcome:
+    """Reconstruct the in-memory `WorkflowOutcome` a freshly-loaded run's
+    stored `plan`/`stages` describe, so `finish()` can append its own
+    ACTIONS/EVIDENCE/RESULT stages onto the TRIGGER/PLAN ones `start()`
+    already persisted rather than overwriting them — `_persist()` replaces
+    `run.stages` wholesale with whatever `outcome.stages` holds at that
+    point."""
+    stages = [
+        StageRecord(
+            stage=Stage(record["stage"]),
+            ok=record["ok"],
+            detail=record["detail"],
+            data=record.get("data", {}),
+        )
+        for record in run.stages
+    ]
+    return WorkflowOutcome(
+        status=WorkflowStatus.RUNNING, plan=_plan_from_record(run.plan), stages=stages
+    )
+
+
+async def gate_run_once_scan_finished(
+    db: AsyncSession, run: WorkflowRun, workflow: Workflow
+) -> WorkflowOutcome:
+    """Called once the assessment run `queue_scan_for_workflow_run` queued
+    reaches a terminal state (`app/workers/tasks.py::gate_workflow_run_if_linked`)
+    — the exact same `finish()` a manual trigger's synchronous call already
+    uses, over the findings that scan just produced."""
+    outcome = _outcome_from_run(run)
+    return await finish(db, run, workflow, outcome, actions_detail="scan completed")
+
+
+async def approve(
+    db: AsyncSession, run: WorkflowRun, workflow: Workflow, *, approved_by_user_id: uuid.UUID
+) -> WorkflowRun:
+    """Resume a paused run: queue the scan the plan called for, attributed
+    to the human who approved it — `queue_run`'s own `user_id` requirement
+    is what makes this approval meaningful rather than a formality; see the
+    module-level note in `queue_scan_for_workflow_run`. Gating happens
+    later, asynchronously, once that scan reaches a terminal state
+    (`app/workers/tasks.py::gate_workflow_run_if_linked`) — this function
+    does not gate anything itself.
+    """
+    if run.status != WorkflowStatus.AWAITING_APPROVAL.value:
+        raise ValueError(f"run is not awaiting approval (status: {run.status})")
+    plan = _plan_from_record(run.plan)
+    await queue_scan_for_workflow_run(db, run, workflow, plan, user_id=approved_by_user_id)
+    run.status = WorkflowStatus.RUNNING.value
+    run.approved_by_user_id = approved_by_user_id
+    run.approved_at = datetime.now(UTC)
+    await db.flush()
+    await record_event(
+        db,
+        action="workflow_run.approved",
+        resource_type="workflow_run",
+        resource_id=str(run.id),
+        result="allow",
+        organization_id=workflow.organization_id,
+        user_id=approved_by_user_id,
+        metadata={"workflow": workflow.name, "plan_digest": run.plan_digest},
+    )
+    return run
+
+
+async def reject(
+    db: AsyncSession,
+    run: WorkflowRun,
+    workflow: Workflow,
+    *,
+    rejected_by_user_id: uuid.UUID,
+    reason: str,
+) -> WorkflowRun:
+    if run.status != WorkflowStatus.AWAITING_APPROVAL.value:
+        raise ValueError(f"run is not awaiting approval (status: {run.status})")
+    run.status = WorkflowStatus.REFUSED.value
+    run.detail = reason[:500]
+    run.finished_at = datetime.now(UTC)
+    await db.flush()
+    await record_event(
+        db,
+        action="workflow_run.rejected",
+        resource_type="workflow_run",
+        resource_id=str(run.id),
+        result="deny",
+        organization_id=workflow.organization_id,
+        user_id=rejected_by_user_id,
+        metadata={"workflow": workflow.name, "plan_digest": run.plan_digest, "reason": reason},
+    )
+    return run

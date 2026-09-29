@@ -20,11 +20,11 @@ from app.core.scope.engine import ScopeEngine
 from app.core.scope.transport import GatedTransport
 from tests.security.conftest import FakeDnsResolver, make_context, make_roe
 
-ACCOUNT = SyntheticAccount(label="a", credential_env_var="AEGIS_TEST_TOKEN")
+ACCOUNT = SyntheticAccount(label="a", credential_env_var="KERVY_TEST_TOKEN")
 
 
 def test_credentials_are_resolved_from_the_environment_not_stored() -> None:
-    credentials = CredentialSet.from_environment((ACCOUNT,), {"AEGIS_TEST_TOKEN": "s3cret"})
+    credentials = CredentialSet.from_environment((ACCOUNT,), {"KERVY_TEST_TOKEN": "s3cret"})
 
     assert credentials.has(ACCOUNT)
     assert credentials.headers_for(ACCOUNT) == {"Authorization": "Bearer s3cret"}
@@ -110,7 +110,7 @@ def test_mass_assignment_stays_analysis_only_and_sends_nothing() -> None:
         # The whole point: the weakness is reported without performing it.
         assert route.call_count == 0
 
-    assert [result.id for result in return_value] == ["AEGIS-API-030"]
+    assert [result.id for result in return_value] == ["KERVY-API-030"]
     assert return_value[0].confidence is Confidence.DESIGN_REVIEW
 
 
@@ -139,7 +139,7 @@ async def test_a_crashing_probe_is_a_visible_gap_not_a_silent_pass() -> None:
     assert "probe boom" in results[0].detail
     # A gap is recorded as a result of its own, so a reader cannot mistake a
     # crashed probe for a clean one.
-    assert [result.id for result in check.scan_results] == ["AEGIS-API-099"]
+    assert [result.id for result in check.scan_results] == ["KERVY-API-099"]
     assert check.scan_results[0].severity is Severity.INFORMATIONAL
 
 
@@ -223,7 +223,7 @@ async def test_input_validation_generates_cases_from_the_declared_schema() -> No
 
     bodies = [body.decode() for body in sent]
     # The malformed-JSON case plus schema-derived cases, capped per operation.
-    assert any("aegis" in body and not body.endswith("}") for body in bodies)
+    assert any("kervy" in body and not body.endswith("}") for body in bodies)
     assert any('"name": "aaaaaa"' in body for body in bodies)
     # Every case was correctly rejected, so nothing is reported.
     assert results == []
@@ -241,7 +241,7 @@ async def test_input_validation_reports_a_server_error_as_a_finding() -> None:
         )
 
     assert results
-    assert {result.id for result in results} == {"AEGIS-API-040"}
+    assert {result.id for result in results} == {"KERVY-API-040"}
     assert all(result.severity is Severity.MEDIUM for result in results)
 
 
@@ -254,7 +254,7 @@ async def test_input_validation_reports_accepted_invalid_input() -> None:
             _bounded_target(safe_mode=False), make_context(), _lab_transport()
         )
 
-    assert {result.id for result in results} == {"AEGIS-API-041"}
+    assert {result.id for result in results} == {"KERVY-API-041"}
 
 
 async def test_safe_mode_does_not_send_write_requests() -> None:

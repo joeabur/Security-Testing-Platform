@@ -1,6 +1,6 @@
 # Supply-chain scanning
 
-Aegis ships five engines that answer questions an advisory database cannot.
+Kervy ships five engines that answer questions an advisory database cannot.
 That framing is the point of this document: each of the first four exists
 precisely because there is **no CVE** behind the risk, which is why an
 advisory-only scanner reports the affected repository as clean. The fifth,
@@ -9,11 +9,11 @@ not the kind `pip-audit` or an SCA feed already carries.
 
 | Engine | Rule IDs | Question |
 |---|---|---|
-| End-of-life runtime | `AEGIS-SUPPLY-010/011/019` | Is this runtime still getting security patches? |
-| Dependency licence risk | `AEGIS-SUPPLY-020…023` | What obligations do these dependencies carry? |
-| Name confusion | `AEGIS-SUPPLY-030/031/032` | Is this package the one you meant? |
-| Known-malicious package | `AEGIS-SUPPLY-040/041` | Does a declared dependency match a published malware advisory? |
-| Container dependency scan | `AEGIS-CONTAINER-001/009` | What vulnerable packages ship in the image? |
+| End-of-life runtime | `KERVY-SUPPLY-010/011/019` | Is this runtime still getting security patches? |
+| Dependency licence risk | `KERVY-SUPPLY-020…023` | What obligations do these dependencies carry? |
+| Name confusion | `KERVY-SUPPLY-030/031/032` | Is this package the one you meant? |
+| Known-malicious package | `KERVY-SUPPLY-040/041` | Does a declared dependency match a published malware advisory? |
+| Container dependency scan | `KERVY-CONTAINER-001/009` | What vulnerable packages ship in the image? |
 
 None of the first four reach the network. The container engine runs Trivy
 offline.
@@ -32,7 +32,7 @@ scanner makes quietly. The cost is staleness, handled explicitly:
 * `AS_OF` (the compile date) appears in **every** finding, so a reader can tell
   "supported as of six months ago" from "supported today".
 * A runtime or series **not in the table is reported as not assessed**
-  (`AEGIS-SUPPLY-019`), never as supported. Absence of data is not evidence of
+  (`KERVY-SUPPLY-019`), never as supported. Absence of data is not evidence of
   support, and this is the one mistake that would make the engine misleading.
 * Severity grows with age (LOW → MEDIUM at 180 days → HIGH at 730) and is
   **capped below CRITICAL**. A standing exposure is not a demonstrated exploit;
@@ -94,9 +94,9 @@ Detected shapes:
   distance cap would also admit genuinely different names
 * one-character difference, only for names of five characters or more
 * a popular name with a prefix or suffix bolted on (`python-requests`)
-* unpinned versions (`AEGIS-SUPPLY-031`) — a build takes whatever the registry
+* unpinned versions (`KERVY-SUPPLY-031`) — a build takes whatever the registry
   serves, so a compromised release arrives with no change on this side
-* npm install hooks (`AEGIS-SUPPLY-032`) — not a vulnerability, since plenty of
+* npm install hooks (`KERVY-SUPPLY-032`) — not a vulnerability, since plenty of
   legitimate packages build native code this way, but it is where an
   install-time supply-chain attack lands
 
@@ -127,11 +127,11 @@ scanner makes quietly. 50 entries (25 PyPI, 25 npm), each pulled live from
 GitHub's own Advisory Database (`github.com/advisories?query=type:malware`)
 rather than invented, dated `AS_OF = 2026-09-25`.
 
-* A match is reported at **CRITICAL/HIGH** (`AEGIS-SUPPLY-040`) — this is not
+* A match is reported at **CRITICAL/HIGH** (`KERVY-SUPPLY-040`) — this is not
   a resemblance to weigh, it is the exact name a real advisory already
   confirmed.
 * Every run with a declared dependency emits one aggregate coverage finding
-  (`AEGIS-SUPPLY-041`) stating how many dependencies were checked against how
+  (`KERVY-SUPPLY-041`) stating how many dependencies were checked against how
   many table entries, as of what date. A dependency **absent from the table is
   not assessed, never clean** — the table is a few dozen entries against a
   real feed's tens of thousands, so absence overwhelmingly means "not in this
@@ -150,13 +150,13 @@ untrusted image on the worker. So the engine scans the checkout that was already
 cloned under the code scope — which covers the lock files and vendored
 dependencies making up most of an image's content.
 
-`AEGIS-CONTAINER-009` then states plainly that **base image layers were not
+`KERVY-CONTAINER-009` then states plainly that **base image layers were not
 examined**. Without it, a clean result would read as "the image is clean" when
 the layers underneath the application were never looked at.
 
 Trivy runs with `--skip-db-update --offline-scan`, matching against whatever
 database the worker already has. A worker with no database yields a "not tested"
-result (`AEGIS-APPSEC-000`), never a clean one. Every vulnerability identifier
+result (`KERVY-APPSEC-000`), never a clean one. Every vulnerability identifier
 is verified to be a real CVE/GHSA/OSV shape before it reaches a finding.
 
 ## What is not built

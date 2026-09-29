@@ -203,7 +203,7 @@ code today. Two ways to scale this, in order of effort:
 Whichever storage layer, the guarantees that already exist keep holding:
 never a public URL, served only through the authenticated API
 (`docs/security-model.md` guarantee #22), encrypted at rest only if
-`AEGIS_EVIDENCE_ENCRYPTION_KEY` is set before the deployment starts
+`KERVY_EVIDENCE_ENCRYPTION_KEY` is set before the deployment starts
 collecting evidence (no retrofit tool exists — set it up front, or rely on
 the storage layer's own encryption-at-rest, e.g. an encrypted EFS volume or
 an encrypted EBS-backed node, as the residual control either way).
@@ -223,21 +223,21 @@ cluster):
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: aegis-api
+  name: kervy-api
 spec:
   replicas: 3
   selector:
-    matchLabels: { app: aegis-api }
+    matchLabels: { app: kervy-api }
   template:
     metadata:
-      labels: { app: aegis-api }
+      labels: { app: kervy-api }
     spec:
       containers:
         - name: api
-          image: <registry>/aegis-backend:v0.1.0
+          image: <registry>/kervy-backend:v0.1.0
           command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
           envFrom:
-            - secretRef: { name: aegis-api-secrets }
+            - secretRef: { name: kervy-api-secrets }
           ports: [{ containerPort: 8000 }]
           readinessProbe:
             httpGet: { path: /api/v1/health, port: 8000 }
@@ -246,26 +246,26 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: aegis-worker
+  name: kervy-worker
 spec:
   replicas: 4
   selector:
-    matchLabels: { app: aegis-worker }
+    matchLabels: { app: kervy-worker }
   template:
     metadata:
-      labels: { app: aegis-worker }
+      labels: { app: kervy-worker }
     spec:
       containers:
         - name: worker
-          image: <registry>/aegis-worker:v0.1.0
+          image: <registry>/kervy-worker:v0.1.0
           command: ["celery", "-A", "app.workers.celery_app", "worker", "--loglevel=info"]
           envFrom:
-            - secretRef: { name: aegis-worker-secrets }  # includes target credential vars
+            - secretRef: { name: kervy-worker-secrets }  # includes target credential vars
           volumeMounts:
             - { name: evidence, mountPath: /evidence }
       volumes:
         - name: evidence
-          persistentVolumeClaim: { claimName: aegis-evidence-nfs }
+          persistentVolumeClaim: { claimName: kervy-evidence-nfs }
           # backed by EFS/Filestore/Azure Files — see "Evidence storage" above
 ---
 # KEDA-style illustration: scale the worker pool on Celery queue depth,
@@ -274,9 +274,9 @@ spec:
 apiVersion: keda.sh/v1alpha1
 kind: ScaledObject
 metadata:
-  name: aegis-worker-scaler
+  name: kervy-worker-scaler
 spec:
-  scaleTargetRef: { name: aegis-worker }
+  scaleTargetRef: { name: kervy-worker }
   minReplicaCount: 2
   maxReplicaCount: 20
   triggers:
@@ -311,8 +311,8 @@ that must have the variable — maps directly onto a cloud secrets manager:
   is the cloud-native equivalent of the "the process that makes the
   request is the one that must have the variable" rule, extended to *who
   is allowed to grant that variable* as well.
-- `JWT_SECRET`, `AEGIS_RATE_LIMIT_PEPPER`, `AEGIS_CSRF_SECRET`, and
-  `AEGIS_EVIDENCE_ENCRYPTION_KEY` are platform secrets, not per-target
+- `JWT_SECRET`, `KERVY_RATE_LIMIT_PEPPER`, `KERVY_CSRF_SECRET`, and
+  `KERVY_EVIDENCE_ENCRYPTION_KEY` are platform secrets, not per-target
   credentials — they belong in the API's and worker's secret store
   alongside `DATABASE_URL` and `REDIS_URL`, rotated independently of any
   customer's target credentials.
@@ -358,7 +358,7 @@ does not need re-architecting to add cloud replicas.
 What it does **not** provide, stated rather than implied: per-tenant
 database isolation (separate schema or database per organization), a
 per-tenant evidence-encryption key (one static
-`AEGIS_EVIDENCE_ENCRYPTION_KEY` for the whole deployment —
+`KERVY_EVIDENCE_ENCRYPTION_KEY` for the whole deployment —
 `docs/roadmap.md`), and per-tenant resource quotas beyond each target's own
 rules-of-engagement budget. If a customer's contract requires physical
 data isolation rather than the row-level isolation this platform enforces,

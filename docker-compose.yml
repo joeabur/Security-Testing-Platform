@@ -3,15 +3,15 @@ services:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-aegis}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aegis-dev-only-change-me}
-      POSTGRES_DB: ${POSTGRES_DB:-aegis}
+      POSTGRES_USER: ${POSTGRES_USER:-kervy}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-kervy-dev-only-change-me}
+      POSTGRES_DB: ${POSTGRES_DB:-kervy}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-aegis} -d ${POSTGRES_DB:-aegis}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-kervy} -d ${POSTGRES_DB:-kervy}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -35,7 +35,7 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://aegis:aegis-dev-only-change-me@postgres:5432/aegis}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://kervy:kervy-dev-only-change-me@postgres:5432/kervy}
     depends_on:
       postgres:
         condition: service_healthy
@@ -49,12 +49,12 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://aegis:aegis-dev-only-change-me@postgres:5432/aegis}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://kervy:kervy-dev-only-change-me@postgres:5432/kervy}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       # Shared with the worker: the worker writes evidence, the API serves it.
-      EVIDENCE_ROOT: ${EVIDENCE_ROOT:-/var/lib/aegis/evidence}
+      EVIDENCE_ROOT: ${EVIDENCE_ROOT:-/var/lib/kervy/evidence}
     volumes:
-      - evidence_data:/var/lib/aegis/evidence
+      - evidence_data:/var/lib/kervy/evidence
     ports:
       - "8000:8000"
     depends_on:
@@ -71,11 +71,11 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://aegis:aegis-dev-only-change-me@postgres:5432/aegis}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://kervy:kervy-dev-only-change-me@postgres:5432/kervy}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
-      EVIDENCE_ROOT: ${EVIDENCE_ROOT:-/var/lib/aegis/evidence}
+      EVIDENCE_ROOT: ${EVIDENCE_ROOT:-/var/lib/kervy/evidence}
     volumes:
-      - evidence_data:/var/lib/aegis/evidence
+      - evidence_data:/var/lib/kervy/evidence
     # The worker is the only service that joins the lab network, because it is
     # the only one that reaches a target. `lab_net` has no gateway, so joining
     # it grants the worker reachability into the lab and no new reachability
@@ -83,6 +83,33 @@ services:
     networks:
       - default
       - lab_net
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  # Celery Beat (pentest-module Phase 8): fires `dispatch_scheduled_workflows`
+  # every 60s. It only ever enqueues a task for `worker` to pick up — it never
+  # itself reaches a target or touches evidence — so, unlike `worker`, it
+  # joins no `lab_net` and mounts no evidence volume.
+  beat:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    command:
+      ["celery", "-A", "app.workers.celery_app.celery_app", "beat", "--loglevel=info"]
+    # `Dockerfile.worker`'s own HEALTHCHECK pings a *worker*'s queue, which
+    # this process never runs one of — disabled rather than inherited and
+    # always reporting unhealthy.
+    healthcheck:
+      disable: true
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://kervy:kervy-dev-only-change-me@postgres:5432/kervy}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
     depends_on:
       migrate:
         condition: service_completed_successfully

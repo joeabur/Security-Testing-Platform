@@ -30,11 +30,11 @@ presented as a vulnerability.
 | Insecure output handling | unescaped structure in output | LLM10 |
 | Excessive agency | declared tool and permission surface | LLM03 |
 | Unbounded consumption | cost slope against input size | LLM06 |
-| Coverage marker | `AEGIS-AI-000 — not tested` | — |
+| Coverage marker | `KERVY-AI-000 — not tested` | — |
 
 ## Detection is marker-based, never harmful content
 
-Each run mints a random canary — `AEGIS-CANARY-<random>` — and the probes ask
+Each run mints a random canary — `KERVY-CANARY-<random>` — and the probes ask
 the application to reveal or act on *that*. A probe succeeds when the marker
 appears where it should not.
 

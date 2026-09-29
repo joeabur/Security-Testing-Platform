@@ -273,7 +273,7 @@ def untested_marker(profile: RuntimeProtectionProfile) -> ScanResult | None:
 
     named = ", ".join(sorted({control.kind.value for control in profile.controls}))
     return ScanResult(
-        id="AEGIS-RASP-000",
+        id="KERVY-RASP-000",
         title="Not tested: claimed runtime protection",
         category=Category.DESIGN,
         severity=Severity.INFORMATIONAL,

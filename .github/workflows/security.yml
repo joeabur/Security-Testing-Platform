@@ -1,7 +1,7 @@
 # Static analysis over this repository, using the same tools the platform's
 # own AppSec engines drive (docs/BUILD_SPEC.md §23).
 #
-# Dogfooding on purpose: `backend/app/core/appsec/sast/rules/aegis-python.yaml`
+# Dogfooding on purpose: `backend/app/core/appsec/sast/rules/kervy-python.yaml`
 # includes a rule that flags an ungated httpx client, which is exactly the
 # mistake this codebase must never make. A security tool that does not run its
 # own rules against itself is making a claim it has not tested.
@@ -52,20 +52,20 @@ jobs:
       - name: Bandit
         # Medium and above, and the whole app. `-ll` rather than a baseline
         # file: a suppression list nobody reviews is how findings get lost.
-        run: bandit -r app aegis_cli -ll
+        run: bandit -r app kervy_cli -ll
 
       - name: Semgrep (the platform's own ruleset, offline)
         # The same local rules the SAST engine ships, so CI and the product
         # agree about what a finding is. No registry fetch: a build that
         # depends on a network call to decide whether code is safe fails for
         # reasons unrelated to the code.
-        run: semgrep --config app/core/appsec/sast/rules --error --metrics=off app aegis_cli
+        run: semgrep --config app/core/appsec/sast/rules --error --metrics=off app kervy_cli
 
       - name: detect-secrets
         working-directory: .
         # Against a committed baseline, not a bare scan. A bare scan fails on
         # day one over migration revision hashes, environment-variable *names*
-        # like AEGIS_API_KEY, and the credentials the vulnerable lab fixture
+        # like KERVY_API_KEY, and the credentials the vulnerable lab fixture
         # contains on purpose — 31 files of them here — and a job that is red
         # from the start is a job the team turns off in week one. The baseline
         # records those decisions (as hashes, never as values) so this step

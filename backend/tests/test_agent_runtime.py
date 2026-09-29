@@ -173,8 +173,8 @@ async def test_run_plan_produces_a_summary_when_requested(db_session: AsyncSessi
 
     assert result.summary is not None
     system, prompt = provider.calls[-1]
-    assert "<<<AEGIS-EVIDENCE-BEGIN>>>" in prompt
-    assert "<<<AEGIS-EVIDENCE-END>>>" in prompt
+    assert "<<<KERVY-EVIDENCE-BEGIN>>>" in prompt
+    assert "<<<KERVY-EVIDENCE-END>>>" in prompt
 
 
 async def test_run_plan_does_not_summarize_without_a_provider(db_session: AsyncSession) -> None:

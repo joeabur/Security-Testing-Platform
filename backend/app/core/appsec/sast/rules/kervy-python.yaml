@@ -8,14 +8,14 @@
 #      ruleset (`p/default`) downloads it, and a subprocess that reaches the
 #      network is an outbound path §6.3 governs. An operator can opt into a
 #      registry ruleset explicitly; the default invocation does not.
-#   2. `aegis.ungated-http-client` is this platform dogfooding its own
+#   2. `kervy.ungated-http-client` is this platform dogfooding its own
 #      central rule — every outbound request goes through the scope-gated
 #      transport — in a form any project can adopt.
 #
 # Every rule carries the CWE its author assigns, so the mapping on a finding
 # comes from the rule rather than from anything this platform infers.
 rules:
-  - id: aegis.ungated-http-client
+  - id: kervy.ungated-http-client
     languages: [python]
     severity: WARNING
     message: >-
@@ -30,7 +30,7 @@ rules:
           - pattern: httpx.Client(...)
           - pattern: requests.Session(...)
 
-  - id: aegis.python.unsafe-yaml-load
+  - id: kervy.python.unsafe-yaml-load
     languages: [python]
     severity: ERROR
     message: >-
@@ -42,7 +42,7 @@ rules:
     patterns:
       - pattern: yaml.load($X)
 
-  - id: aegis.python.tls-verification-disabled
+  - id: kervy.python.tls-verification-disabled
     languages: [python]
     severity: ERROR
     message: >-
@@ -56,7 +56,7 @@ rules:
           - pattern: requests.$M(..., verify=False, ...)
           - pattern: httpx.$M(..., verify=False, ...)
 
-  - id: aegis.python.debug-server-enabled
+  - id: kervy.python.debug-server-enabled
     languages: [python]
     severity: ERROR
     message: >-
