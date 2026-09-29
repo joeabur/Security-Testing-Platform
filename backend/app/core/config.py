@@ -230,6 +230,34 @@ class Settings(BaseSettings):
         default=None, alias="KERVY_PLATFORM_SMTP_PASSWORD_ENV_VAR"
     )
 
+    # --- two-factor authentication (TOTP) ----------------------------------
+    #: Not "optional encryption" any more than `webhook_secret_encryption_key`
+    #: is — a TOTP shared secret is exactly as sensitive as a webhook secret
+    #: (either lets someone impersonate the account it belongs to), so it
+    #: must never sit in Postgres in cleartext. Absent means `POST
+    #: /auth/2fa/setup` refuses rather than storing one unencrypted; present,
+    #: validated eagerly the same way as the other AES-256 keys on this class.
+    totp_encryption_key: str | None = Field(default=None, alias="KERVY_TOTP_ENCRYPTION_KEY")
+
+    @property
+    def totp_encryption_key_bytes(self) -> bytes | None:
+        if not self.totp_encryption_key:
+            return None
+        try:
+            key = base64.b64decode(self.totp_encryption_key, validate=True)
+        except (binascii.Error, ValueError) as exc:
+            raise ValueError("KERVY_TOTP_ENCRYPTION_KEY must be valid base64") from exc
+        if len(key) != 32:
+            raise ValueError(
+                f"KERVY_TOTP_ENCRYPTION_KEY must decode to exactly 32 bytes (AES-256); "
+                f"got {len(key)}"
+            )
+        return key
+
+    @property
+    def totp_enabled_platform_wide(self) -> bool:
+        return self.totp_encryption_key_bytes is not None
+
     @property
     def google_oauth_enabled(self) -> bool:
         return bool(self.google_oauth_client_id and self.google_oauth_client_secret_env_var)
@@ -255,6 +283,7 @@ class Settings(BaseSettings):
         # on the first evidence write during a run.
         _ = self.evidence_encryption_key_bytes
         _ = self.webhook_secret_encryption_key_bytes
+        _ = self.totp_encryption_key_bytes
 
 
 @lru_cache

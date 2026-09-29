@@ -46,6 +46,7 @@ test_engine = create_async_engine(settings.database_url)
 TestSessionLocal = async_sessionmaker(bind=test_engine, expire_on_commit=False, class_=AsyncSession)
 
 _TABLES = [
+    "totp_recovery_codes",
     "password_reset_tokens",
     "oauth_identities",
     "user_sessions",

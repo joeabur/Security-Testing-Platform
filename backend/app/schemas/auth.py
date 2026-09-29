@@ -24,12 +24,44 @@ class UserRead(BaseModel):
     email: str
     full_name: str
     is_active: bool
+    totp_enabled: bool = False
 
 
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserRead
+
+
+class TotpChallengeResponse(BaseModel):
+    """`POST /auth/login` returns this instead of `TokenResponse` when the
+    account has two-factor enabled — no session yet, just a short-lived
+    ticket `POST /auth/login/2fa` redeems for one."""
+
+    requires_totp: bool = True
+    challenge: str
+
+
+class TotpSetupResponse(BaseModel):
+    secret: str
+    provisioning_uri: str
+
+
+class TotpEnableRequest(BaseModel):
+    code: str = Field(min_length=1, max_length=32)
+
+
+class TotpEnableResponse(BaseModel):
+    recovery_codes: list[str]
+
+
+class TotpDisableRequest(BaseModel):
+    code: str = Field(min_length=1, max_length=32)
+
+
+class TotpLoginRequest(BaseModel):
+    challenge: str
+    code: str = Field(min_length=1, max_length=32)
 
 
 class SessionRead(BaseModel):

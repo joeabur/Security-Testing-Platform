@@ -5,13 +5,16 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
 from fastapi.responses import RedirectResponse
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 
 from app.audit.service import record_event
 from app.auth.dependencies import CurrentUser, DbSession
 from app.auth.security import (
+    InvalidTotpChallengeError,
     create_access_token,
+    create_totp_challenge_token,
     decode_access_token,
+    decode_totp_challenge_token,
     expires_at,
     hash_password,
     token_id,
@@ -26,8 +29,11 @@ from app.core.oauth.state import OAuthStateInvalid, OAuthStateStore, OAuthStateU
 from app.core.password_reset_email import PasswordResetEmailNotConfigured, send_password_reset_email
 from app.core.ratelimit import dependency as ratelimit
 from app.core.revocation import dependency as revocation
+from app.core.twofactor import challenge_store, totp
 from app.models.oauth import OAuthIdentity, OAuthProvider
 from app.models.password_reset import PasswordResetToken, digest_of, mint_reset_token
+from app.models.totp_recovery_code import TotpRecoveryCode, mint_recovery_codes
+from app.models.totp_recovery_code import digest_of as recovery_digest_of
 from app.models.user import User
 from app.models.user_session import UserSession
 from app.schemas.auth import (
@@ -38,6 +44,12 @@ from app.schemas.auth import (
     ResetPasswordRequest,
     SessionRead,
     TokenResponse,
+    TotpChallengeResponse,
+    TotpDisableRequest,
+    TotpEnableRequest,
+    TotpEnableResponse,
+    TotpLoginRequest,
+    TotpSetupResponse,
     UserRead,
 )
 
@@ -162,10 +174,10 @@ async def register(
     return TokenResponse(access_token=token, user=UserRead.model_validate(user))
 
 
-@router.post("/login", response_model=TokenResponse)
+@router.post("/login", response_model=TokenResponse | TotpChallengeResponse)
 async def login(
     payload: LoginRequest, request: Request, response: Response, db: DbSession
-) -> TokenResponse:
+) -> TokenResponse | TotpChallengeResponse:
     # Budget is consumed *before* the lookup and identically for every
     # address, so a throttled response cannot tell a caller whether the
     # account exists — the limiter must not become the enumeration oracle the
@@ -208,12 +220,29 @@ async def login(
         await db.commit()
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Account is inactive")
 
+    # The password is correct, so the rate-limit counters clear here — same
+    # as the unconditional-success path below — whether or not a second
+    # factor is still owed. A wrong TOTP code afterward is bounded by its
+    # own `login_2fa` budget (`POST /auth/login/2fa`), not this one.
+    await ratelimit.clear(request, "login", identity=payload.email)
+
+    if user.totp_enabled:
+        challenge = create_totp_challenge_token(subject=user.id)
+        await record_event(
+            db,
+            action="auth.login",
+            resource_type="user",
+            resource_id=str(user.id),
+            result="allow",
+            user_id=user.id,
+            ip_address=request.client.host if request.client else None,
+            metadata={"totp_required": True},
+        )
+        await db.commit()
+        return TotpChallengeResponse(challenge=challenge)
+
     token = create_access_token(subject=user.id)
     await _record_session(db, user_id=user.id, token=token, request=request)
-    # A correct password clears the counters. Only failures should accumulate:
-    # counting successes would let a busy legitimate user throttle themselves,
-    # which is how a rate limit gets switched off in production.
-    await ratelimit.clear(request, "login", identity=payload.email)
     await record_event(
         db,
         action="auth.login",
@@ -556,9 +585,7 @@ async def oauth_callback(
 
 
 @router.post("/forgot-password", status_code=status.HTTP_202_ACCEPTED)
-async def forgot_password(
-    payload: ForgotPasswordRequest, request: Request, db: DbSession
-) -> None:
+async def forgot_password(payload: ForgotPasswordRequest, request: Request, db: DbSession) -> None:
     """Always 202, whether or not the address is registered, has no local
     password, or the platform has no mail relay configured — the same
     non-enumerating shape `/auth/login` uses. Only a configured, matching,
@@ -667,3 +694,224 @@ async def reset_password(payload: ResetPasswordRequest, request: Request, db: Db
         ip_address=request.client.host if request.client else None,
     )
     await db.commit()
+
+
+# --- Two-factor authentication (TOTP) ---------------------------------------
+
+
+def _totp_key_or_503(settings: Settings) -> bytes:
+    key = settings.totp_encryption_key_bytes
+    if key is None:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Two-factor authentication is not configured on this deployment",
+        )
+    return key
+
+
+async def _verify_totp_or_recovery_code(db: DbSession, user: User, code: str) -> bool:
+    """True and, for a recovery code, marks it used — the caller commits.
+    False leaves the database untouched either way."""
+    settings = get_settings()
+    key = settings.totp_encryption_key_bytes
+    if user.totp_secret_encrypted is not None and key is not None:
+        secret = totp.decrypt_secret(user.totp_secret_encrypted, key=key)
+        if totp.verify_code(secret, code):
+            return True
+
+    digest = recovery_digest_of(code.strip())
+    result = await db.execute(
+        select(TotpRecoveryCode).where(
+            TotpRecoveryCode.user_id == user.id,
+            TotpRecoveryCode.code_digest == digest,
+            TotpRecoveryCode.used_at.is_(None),
+        )
+    )
+    recovery_code = result.scalar_one_or_none()
+    if recovery_code is None:
+        return False
+    recovery_code.used_at = datetime.now(UTC)
+    return True
+
+
+@router.post("/2fa/setup", response_model=TotpSetupResponse)
+async def setup_totp(current_user: CurrentUser, db: DbSession) -> TotpSetupResponse:
+    """Generate a new shared secret and return it for an authenticator app
+    to scan — not yet active. `POST /2fa/enable` confirms it by proving the
+    caller can produce a real code from it.
+
+    Refuses (409) when 2FA is already enabled: overwriting the stored
+    secret while it is still the one an authenticator app has would lock
+    the account out of its own second factor between the two calls.
+    Disable first to reconfigure.
+    """
+    settings = get_settings()
+    key = _totp_key_or_503(settings)
+    if current_user.totp_enabled:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail="Two-factor authentication is already enabled; disable it first to reconfigure",
+        )
+
+    secret = totp.generate_secret()
+    current_user.totp_secret_encrypted = totp.encrypt_secret(secret, key=key)
+    await db.commit()
+
+    return TotpSetupResponse(
+        secret=secret, provisioning_uri=totp.provisioning_uri(secret, email=current_user.email)
+    )
+
+
+@router.post("/2fa/enable", response_model=TotpEnableResponse)
+async def enable_totp(
+    payload: TotpEnableRequest, request: Request, current_user: CurrentUser, db: DbSession
+) -> TotpEnableResponse:
+    """Confirm a pending secret from `/2fa/setup` and turn 2FA on. Returns
+    ten recovery codes, shown once — the same "shown once, digest kept" UX
+    a password-reset link or an API key's plaintext token already uses."""
+    key = _totp_key_or_503(get_settings())
+    if current_user.totp_enabled:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, detail="Two-factor authentication is already enabled"
+        )
+    if current_user.totp_secret_encrypted is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Call /auth/2fa/setup first")
+
+    secret = totp.decrypt_secret(current_user.totp_secret_encrypted, key=key)
+    if not totp.verify_code(secret, payload.code):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Invalid code")
+
+    current_user.totp_enabled = True
+    # A clean slate: any recovery codes from a previous enable/disable cycle
+    # are gone, since they were minted for a secret this account no longer
+    # necessarily has any relationship to.
+    await db.execute(delete(TotpRecoveryCode).where(TotpRecoveryCode.user_id == current_user.id))
+    codes = mint_recovery_codes()
+    for _plaintext, digest in codes:
+        db.add(TotpRecoveryCode(user_id=current_user.id, code_digest=digest))
+    await record_event(
+        db,
+        action="auth.2fa_enabled",
+        resource_type="user",
+        resource_id=str(current_user.id),
+        result="allow",
+        user_id=current_user.id,
+        ip_address=request.client.host if request.client else None,
+    )
+    await db.commit()
+
+    return TotpEnableResponse(recovery_codes=[plaintext for plaintext, _ in codes])
+
+
+@router.post("/2fa/disable", status_code=status.HTTP_204_NO_CONTENT)
+async def disable_totp(
+    payload: TotpDisableRequest, request: Request, current_user: CurrentUser, db: DbSession
+) -> None:
+    """Turn 2FA off. Requires proof of possession — a current TOTP code or
+    an unused recovery code — so a hijacked session cannot silently strip
+    the account's second factor; a bearer token alone is not enough."""
+    if not current_user.totp_enabled:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, detail="Two-factor authentication is not enabled"
+        )
+
+    if not await _verify_totp_or_recovery_code(db, current_user, payload.code):
+        await record_event(
+            db,
+            action="auth.2fa_disabled",
+            resource_type="user",
+            resource_id=str(current_user.id),
+            result="deny",
+            user_id=current_user.id,
+            ip_address=request.client.host if request.client else None,
+            metadata={"reason": "invalid_code"},
+        )
+        await db.commit()
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Invalid code")
+
+    current_user.totp_enabled = False
+    current_user.totp_secret_encrypted = None
+    await db.execute(delete(TotpRecoveryCode).where(TotpRecoveryCode.user_id == current_user.id))
+    await record_event(
+        db,
+        action="auth.2fa_disabled",
+        resource_type="user",
+        resource_id=str(current_user.id),
+        result="allow",
+        user_id=current_user.id,
+        ip_address=request.client.host if request.client else None,
+    )
+    await db.commit()
+
+
+@router.post("/login/2fa", response_model=TokenResponse)
+async def login_totp(
+    payload: TotpLoginRequest, request: Request, response: Response, db: DbSession
+) -> TokenResponse:
+    """The second step of a two-factor login: redeem the challenge
+    `POST /auth/login` issued, plus a current code or a recovery code, for
+    a real session. The challenge itself is single-use, the same as every
+    other short-lived security token in this platform (a password reset
+    link, an OAuth state nonce) — `challenge_store` claims its `cid` before
+    anything else runs, so a second redemption of the same challenge fails
+    even with the correct code."""
+    try:
+        challenge = decode_totp_challenge_token(payload.challenge)
+    except InvalidTotpChallengeError:
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired challenge"
+        ) from None
+
+    try:
+        await challenge_store.consume_or_raise(challenge.challenge_id)
+    except challenge_store.TotpChallengeAlreadyConsumed:
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired challenge"
+        ) from None
+    except challenge_store.TotpChallengeConsumptionUnavailable as exc:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, detail="Login is temporarily unavailable"
+        ) from exc
+
+    # Decoding is a local JWT verification, cheap and not itself something to
+    # bound — the budget exists for guessing the six-digit code, so it is
+    # keyed on the account the now-decoded challenge names, the same way
+    # `login`'s own identity dimension is keyed on the email once the request
+    # body is parsed.
+    await ratelimit.enforce(request, "login_2fa", identity=str(challenge.user_id))
+
+    user = await db.get(User, challenge.user_id)
+    if user is None or not user.is_active or not user.totp_enabled:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired challenge")
+
+    if not await _verify_totp_or_recovery_code(db, user, payload.code):
+        await record_event(
+            db,
+            action="auth.login",
+            resource_type="user",
+            resource_id=str(user.id),
+            result="deny",
+            user_id=user.id,
+            ip_address=request.client.host if request.client else None,
+            metadata={"reason": "invalid_totp_code"},
+        )
+        await db.commit()
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Invalid code")
+
+    token = create_access_token(subject=user.id)
+    await _record_session(db, user_id=user.id, token=token, request=request)
+    await ratelimit.clear(request, "login_2fa", identity=str(user.id))
+    await record_event(
+        db,
+        action="auth.login",
+        resource_type="user",
+        resource_id=str(user.id),
+        result="allow",
+        user_id=user.id,
+        ip_address=request.client.host if request.client else None,
+        metadata={"totp_verified": True},
+    )
+    await db.commit()
+
+    _set_session_cookie(response, token)
+    return TokenResponse(access_token=token, user=UserRead.model_validate(user))

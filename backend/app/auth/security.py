@@ -1,6 +1,6 @@
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, NamedTuple
 
 import jwt
 from argon2 import PasswordHasher
@@ -91,3 +91,59 @@ def expires_at(payload: dict[str, Any]) -> datetime:
     """Second precision is fine here: this only bounds a revocation deny-list
     entry's TTL, where being off by up to a second is harmless."""
     return datetime.fromtimestamp(payload["exp"], tz=UTC)
+
+
+_TOTP_CHALLENGE_PURPOSE = "totp_challenge"
+_TOTP_CHALLENGE_TTL = timedelta(minutes=5)
+
+
+class InvalidTotpChallengeError(Exception):
+    """Not a challenge token this process issued, or it has expired."""
+
+
+class TotpChallenge(NamedTuple):
+    user_id: uuid.UUID
+    #: A fresh id per issued token, for `app.core.twofactor.challenge_store`
+    #: to key single-use consumption on — deliberately named `cid`, not
+    #: `jti`: `decode_access_token` requires both a `jti` *and* an `iat_us`
+    #: claim and raises `InvalidTokenError` on anything missing either, so
+    #: this token still can never be accepted by `get_current_user` even if
+    #: presented as a Bearer token, whatever this claim is called.
+    challenge_id: str
+
+
+def create_totp_challenge_token(*, subject: uuid.UUID) -> str:
+    """A short-lived ticket standing in for "the password check already
+    passed"; `POST /auth/login/2fa` redeems it once for a real session.
+
+    Deliberately carries no `iat_us` — see `TotpChallenge.challenge_id`'s
+    docstring for why that alone keeps this out of `get_current_user`'s
+    reach. Its authority is scoped to one purpose by construction, not by a
+    check `/auth/login/2fa` could forget.
+    """
+    settings = get_settings()
+    now = datetime.now(UTC)
+    payload: dict[str, Any] = {
+        "sub": str(subject),
+        "purpose": _TOTP_CHALLENGE_PURPOSE,
+        "cid": str(uuid.uuid4()),
+        "iat": now,
+        "exp": now + _TOTP_CHALLENGE_TTL,
+    }
+    return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+
+
+def decode_totp_challenge_token(token: str) -> TotpChallenge:
+    settings = get_settings()
+    try:
+        payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
+    except jwt.PyJWTError as exc:
+        raise InvalidTotpChallengeError(str(exc)) from exc
+    if payload.get("purpose") != _TOTP_CHALLENGE_PURPOSE:
+        raise InvalidTotpChallengeError("not a totp challenge token")
+    try:
+        return TotpChallenge(
+            user_id=uuid.UUID(str(payload["sub"])), challenge_id=str(payload["cid"])
+        )
+    except (KeyError, ValueError) as exc:
+        raise InvalidTotpChallengeError("missing or invalid claims") from exc
