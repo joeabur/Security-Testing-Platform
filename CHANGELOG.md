@@ -36,6 +36,21 @@ All notable changes to this project are recorded here. The format follows
 
 ### Added
 
+- **Optional TOTP-based two-factor authentication**, end to end: backend
+  enroll/enable/disable endpoints (`POST /auth/2fa/setup`, `.../enable`,
+  `.../disable`) and a login-time challenge (`POST /auth/login/2fa`) that
+  redeems a short-lived, single-use ticket `POST /auth/login` returns
+  instead of a session once an account has 2FA enabled; and a frontend
+  enrollment flow at `/account/security` (QR code, manual-entry secret,
+  ten one-time recovery codes shown once) plus a login-time code-entry
+  step that replaces the login form's redirect when the backend answers
+  with a challenge instead of a session. A password alone is no longer
+  sufficient to sign in to a 2FA-enabled account — verified live against
+  the running application, including the recovery-code path and disabling
+  2FA. Requires `KERVY_TOTP_ENCRYPTION_KEY` on the deployment; the setup
+  endpoint refuses with `503` rather than storing a secret insecurely
+  when it's unset. See `docs/authentication.md`.
+
 - **Native AI agent provider provisioning.** The agent engine (planner,
   tool runtime, `POST /agent/investigate`) has existed since Agent Phase
   5, but nothing could ever create an `AgentProvider` row for it —

@@ -12,10 +12,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { clientApiFetch } from "@/lib/api-client";
 import { ApiError } from "@/lib/errors";
-import type { OAuthProviders, User } from "@/lib/types";
+import type { OAuthProviders, TotpChallenge, User } from "@/lib/types";
 import { loginSchema, type LoginInput } from "@/lib/validation";
 
 import { OAuthButtons } from "./oauth-buttons";
+import { TotpChallengeForm } from "./totp-challenge-form";
 
 // Matches the `oauth_error` codes app/api/v1/routers/auth.py's callback
 // redirects with — kept as a lookup with a fallback rather than echoing the
@@ -46,6 +47,12 @@ export function LoginForm({
           "Sign-in did not complete. Try again.")
       : null,
   );
+  // Set only when `POST /auth/login` answers with a `TotpChallenge` instead
+  // of a session — the account has 2FA enabled, and the password was
+  // already correct (that is exactly what earns a challenge instead of a
+  // 401). The rest of this form's own state is left alone underneath so
+  // "Back to sign in" doesn't lose what was typed.
+  const [challenge, setChallenge] = useState<string | null>(null);
   const {
     register,
     handleSubmit,
@@ -55,10 +62,14 @@ export function LoginForm({
   async function onSubmit(values: LoginInput) {
     setFormError(null);
     try {
-      await clientApiFetch<{ user: User }>("/auth/login", {
+      const result = await clientApiFetch<{ user: User } | TotpChallenge>("/auth/login", {
         method: "POST",
         body: JSON.stringify(values),
       });
+      if ("requires_totp" in result) {
+        setChallenge(result.challenge);
+        return;
+      }
       router.push("/dashboard");
       router.refresh();
     } catch (error) {
@@ -68,6 +79,10 @@ export function LoginForm({
           : "Something went wrong. Try again.",
       );
     }
+  }
+
+  if (challenge) {
+    return <TotpChallengeForm challenge={challenge} onBack={() => setChallenge(null)} />;
   }
 
   return (

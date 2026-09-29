@@ -3772,6 +3772,81 @@ non-disclosure every other cross-tenant path in this platform uses).
 `tests/security/test_authorization_matrix.py` updated with both new
 routes. Full backend suite run as the final gate before commit.
 
+## Two-factor authentication (TOTP)
+
+### Context
+
+Requested as a direct follow-on to the OAuth/password-reset work: the
+platform's login flow was still password-only. TOTP is the standard,
+free, no-recurring-cost second factor — no external service or paid API
+required, matching the deployment's existing "no unnecessary paid
+dependency" posture.
+
+### Design
+
+`pyotp` (RFC 6238), not a hand-rolled implementation. `User` gains
+`totp_secret_encrypted` (AES-256, `KERVY_TOTP_ENCRYPTION_KEY`, mirroring
+`webhook_secret_encryption_key`'s "not optional encryption" pattern
+exactly — unset means the feature refuses with `503`, never stores a
+secret in cleartext) and `totp_enabled`. A new `TotpRecoveryCode` table
+mirrors `ApiKey`'s own shape: ten single-use codes minted at enable time,
+shown once, stored as SHA-256 digests.
+
+`POST /auth/login` returns a `TotpChallenge` instead of a session once
+`totp_enabled` is true — a short-lived JWT deliberately missing the
+`iat_us`/`jti` claims `decode_access_token` requires, so it structurally
+cannot be accepted as a Bearer token by anything else in the platform,
+whatever it is presented as. `POST /auth/login/2fa` redeems it exactly
+once through a new Redis-backed store (`app/core/twofactor/
+challenge_store.py`) — the ninth such fail-closed store in this codebase,
+following the identical idiom `OAuthStateStore` and `WebhookReplayGuard`
+already use: refuse the login attempt outright if Redis is unreachable or
+the challenge was already claimed, never treat an unconfirmed state as
+fresh.
+
+`/auth/login/2fa` was added to `ANONYMOUS_CSRF_PATHS` (not `EXEMPT_PATHS`):
+unlike `forgot-password`/`reset-password`, it *does* establish a new
+session, so it is exposed to the same login-CSRF risk `/login` and
+`/register` already are — found by a genuine test failure during this
+work, not assumed in advance.
+
+The frontend's enrollment lives at `/account/security` (a new page —
+no account/settings surface existed before this): `POST /auth/2fa/setup`
+returns a secret and a `provisioning_uri`, rendered as both a QR code
+(the `qrcode` package — free, MIT-licensed, no network call, renders
+client-side from a `data:` URL) and a manual-entry fallback, since not
+every authenticator app can scan a QR code equally easily. `POST
+.../enable` confirms with a code and shows the ten recovery codes once.
+`LoginForm` gained a branch: a `TotpChallenge` response swaps the form for
+a `TotpChallengeForm` step instead of redirecting, accepting either a
+fresh code or a recovery code (the backend accepts either identically, so
+the UI does too — no separate "use a recovery code" toggle needed).
+
+### What this does not change
+
+- No CLI command for 2FA management — matches the codebase's own
+  precedent of leaving CLI support for a later, dedicated pass rather
+  than adding one command at a time per feature.
+- No backup-method beyond recovery codes (no SMS, no email fallback) —
+  SMS/email 2FA are themselves weaker than TOTP and would be a downgrade,
+  not an addition; recovery codes are the standard mitigation for "lost
+  the authenticator app" instead.
+
+### Verified
+
+`ruff check`/`mypy app` clean; `npm run typecheck`/`npm run lint`/
+`npm run build` clean. 18 backend tests (`tests/test_twofactor.py`) plus
+3 new frontend tests (`totpCodeSchema` validation, the login form's
+challenge branch). Then verified live against the actual running
+application (backend + frontend + Postgres + Redis, not just build/test
+output) with a scripted Chromium session covering the full flow: register
+→ enable 2FA → QR code renders as a real `data:` URL → confirm code →
+ten recovery codes shown → sign out → sign back in with the correct
+password alone (stays on the login page, no session granted) → a fresh
+TOTP code completes sign-in → sign out again → a recovery code also
+completes sign-in → disable 2FA with a valid code → settings page reverts
+to the disabled state. Every step passed.
+
 ## Agent provider provisioning: close the "nothing can ever configure it" gap
 
 ### Context

@@ -10,6 +10,28 @@ export interface User {
   email: string;
   full_name: string;
   is_active: boolean;
+  totp_enabled: boolean;
+}
+
+// --- Two-factor authentication (TOTP) --------------------------------------
+
+/** What `POST /auth/login` returns instead of a session when the account
+ * has 2FA enabled — no session yet, just a short-lived ticket
+ * `POST /auth/login/2fa` redeems for one. */
+export interface TotpChallenge {
+  requires_totp: true;
+  challenge: string;
+}
+
+export interface TotpSetupResponse {
+  secret: string;
+  provisioning_uri: string;
+}
+
+export interface TotpEnableResponse {
+  /** Shown to the user exactly once, at enable time — never retrievable
+   * again, the same discipline an API key's plaintext token follows. */
+  recovery_codes: string[];
 }
 
 export interface OAuthProviders {
