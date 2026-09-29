@@ -10,6 +10,28 @@ export interface User {
   email: string;
   full_name: string;
   is_active: boolean;
+  totp_enabled: boolean;
+}
+
+// --- Two-factor authentication (TOTP) --------------------------------------
+
+/** What `POST /auth/login` returns instead of a session when the account
+ * has 2FA enabled — no session yet, just a short-lived ticket
+ * `POST /auth/login/2fa` redeems for one. */
+export interface TotpChallenge {
+  requires_totp: true;
+  challenge: string;
+}
+
+export interface TotpSetupResponse {
+  secret: string;
+  provisioning_uri: string;
+}
+
+export interface TotpEnableResponse {
+  /** Shown to the user exactly once, at enable time — never retrievable
+   * again, the same discipline an API key's plaintext token follows. */
+  recovery_codes: string[];
 }
 
 export interface OAuthProviders {
@@ -292,6 +314,76 @@ export type FindingStatus =
   | "remediated"
   | "retest_required"
   | "closed";
+
+// --- Findings (pentest module Phase 11: the fuller findings view the
+// dashboard summary's own top-findings list deliberately deferred — see
+// docs/dashboard.md) ---------------------------------------------------
+
+export type Category = "AI_SECURITY" | "API_SECURITY" | "INFRASTRUCTURE" | "DESIGN";
+export type Confidence = "LOW" | "MEDIUM" | "HIGH" | "DESIGN_REVIEW";
+export type Stability = "deterministic" | "probabilistic" | "single_shot";
+
+/** The §11 finding as the API returns it (`FindingRead`). */
+export interface Finding {
+  id: string;
+  organization_id: string;
+  target_id: string | null;
+  fingerprint: string;
+
+  title: string;
+  category: Category;
+  probe_id: string;
+  probe_version: string;
+  surface: string;
+
+  severity: Severity;
+  severity_rationale: string;
+  confidence: Confidence;
+  stability: Stability;
+
+  risk_model: string;
+  risk_score: number;
+  risk_inputs: Record<string, unknown>;
+
+  attack_success_rate: Record<string, unknown> | null;
+  control_success_rate: Record<string, unknown> | null;
+  cvss_v4: Record<string, unknown> | null;
+  aivss: Record<string, unknown> | null;
+
+  description: string;
+  impact: string;
+  remediation: string;
+  reproduction: string[];
+  mappings: Record<string, unknown>;
+  mapping_versions: Record<string, unknown>;
+
+  evidence_ref: string | null;
+  retest_result: string | null;
+  last_retest_run_id: string | null;
+
+  status: FindingStatus;
+  status_note: string | null;
+  first_seen: string;
+  last_seen: string;
+  times_seen: number;
+}
+
+/** Mirrors `ALLOWED_TRANSITIONS` in `app/models/finding.py` — kept as data
+ * here rather than derived, the same "duplicated, with a comment pointing
+ * at the source of truth" idiom `ANONYMOUS_CSRF_PATHS` in `lib/config.ts`
+ * already uses for a backend constant the frontend must not drift from. */
+export const ALLOWED_FINDING_TRANSITIONS: Record<FindingStatus, FindingStatus[]> = {
+  new: ["confirmed", "false_positive", "accepted_risk", "in_remediation"],
+  confirmed: ["in_remediation", "accepted_risk", "false_positive"],
+  in_remediation: ["remediated", "accepted_risk", "confirmed"],
+  // A remediation is a claim until a retest checks it, so the only way on
+  // from here is through one.
+  remediated: ["retest_required"],
+  retest_required: ["closed", "confirmed"],
+  accepted_risk: ["confirmed", "closed"],
+  false_positive: ["confirmed", "closed"],
+  closed: ["confirmed"],
+};
 
 export interface DashboardFinding {
   id: string;

@@ -2,7 +2,15 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Bot, Crosshair, GitBranch, LayoutDashboard, PlayCircle, Workflow } from "lucide-react";
+import {
+  Bot,
+  Crosshair,
+  GitBranch,
+  LayoutDashboard,
+  PlayCircle,
+  ShieldAlert,
+  Workflow,
+} from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 import { cn } from "@/lib/cn";
@@ -13,6 +21,7 @@ const SECTIONS: { slug: string; label: string; icon: LucideIcon }[] = [
   { slug: "repositories", label: "Repositories", icon: GitBranch },
   { slug: "workflows", label: "Workflows", icon: Workflow },
   { slug: "runs", label: "Runs", icon: PlayCircle },
+  { slug: "findings", label: "Findings", icon: ShieldAlert },
   { slug: "agent", label: "Agent", icon: Bot },
 ];
 

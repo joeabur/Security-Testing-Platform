@@ -253,9 +253,10 @@ export default async function OrganizationOverviewPage({
             <p className="text-sm text-muted-foreground">No open findings.</p>
           ) : (
             summary.top_findings.map((finding) => (
-              <div
+              <Link
                 key={finding.id}
-                className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-2 text-sm last:border-0"
+                href={`/organizations/${id}/findings/${finding.id}`}
+                className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-2 text-sm last:border-0 hover:opacity-80"
               >
                 <div className="min-w-0">
                   <p className="truncate font-medium">{finding.title}</p>
@@ -266,7 +267,7 @@ export default async function OrganizationOverviewPage({
                 <Badge tone={SEVERITY_TONE[finding.severity]} dot>
                   {finding.severity}
                 </Badge>
-              </div>
+              </Link>
             ))
           )}
           {summary.pending_retests > 0 && (

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ShieldCheck } from "lucide-react";
+import { KeyRound, ShieldCheck } from "lucide-react";
 
 import { SignOutButton } from "@/components/nav/sign-out-button";
 import { ThemeToggle } from "@/components/nav/theme-toggle";
@@ -20,6 +20,13 @@ export function TopNav({ user }: { user: User }) {
         </Link>
         <div className="flex items-center gap-1 sm:gap-3">
           <span className="hidden text-sm text-muted-foreground sm:inline">{user.full_name}</span>
+          <Link
+            href="/account/security"
+            className="inline-flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            aria-label="Security settings"
+          >
+            <KeyRound className="h-[18px] w-[18px]" aria-hidden />
+          </Link>
           <div className="mx-1 hidden h-5 w-px bg-border sm:block" aria-hidden />
           <ThemeToggle />
           <SignOutButton />

@@ -21,6 +21,29 @@ adds the Secure attribute and should be on behind TLS.
 to start** with it when `ENVIRONMENT=production`. A loud failure beats a quiet
 insecure default.
 
+## Two-factor authentication
+
+Optional, per-user TOTP (`pyotp`, RFC 6238) — off by default, enabled from
+`/account/security` in the frontend or `POST /auth/2fa/setup` + `.../enable`
+directly. Requires `KERVY_TOTP_ENCRYPTION_KEY` (AES-256, base64) to be
+configured on the deployment; without it, setup refuses with `503` rather
+than storing a secret insecurely or pretending the feature works.
+
+When enabled, `POST /auth/login` no longer returns a session for that
+account — it returns a `TotpChallenge` (a `challenge` string, five-minute
+lifetime) that carries no `iat_us`/`jti` claim, so `get_current_user` can
+never mistake it for a Bearer token even if one were presented. `POST
+/auth/login/2fa` redeems the challenge exactly once, through a Redis-backed
+store that fails **closed**: an already-redeemed challenge, or a
+`login/2fa` call made while Redis is unreachable, is refused rather than
+waved through. A correct code or one of ten single-use recovery codes
+(minted at enable time, shown once, stored as SHA-256 digests like an API
+key's own secret) both complete the second step.
+
+Disabling requires a current code or recovery code too — an attacker who
+merely hijacks an already-open session cannot turn 2FA off to make a
+password alone sufficient again.
+
 ## API keys
 
 For CI, where a standing credential lives in a runner and is the most exposed

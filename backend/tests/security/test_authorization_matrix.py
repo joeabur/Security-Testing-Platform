@@ -287,6 +287,22 @@ EXPECTED_ROLES: dict[tuple[str, str], Role] = {
         "POST",
         "/organizations/{organization_id}/agent/investigate/{investigation_id}/cancel",
     ): Role.SECURITY_ENGINEER,
+    # Provisioning which provider the agent may call, and whether it is
+    # enabled at all, is the same tier workflow/notification-channel
+    # configuration already uses: admin to change, analyst to read (never
+    # the secret itself — only an env var name is ever stored).
+    ("GET", "/organizations/{organization_id}/agent"): Role.ANALYST,
+    ("PUT", "/organizations/{organization_id}/agent"): Role.ADMIN,
+    ("GET", "/organizations/{organization_id}/agent/providers"): Role.ANALYST,
+    ("POST", "/organizations/{organization_id}/agent/providers"): Role.ADMIN,
+    (
+        "PATCH",
+        "/organizations/{organization_id}/agent/providers/{provider_id}",
+    ): Role.ADMIN,
+    (
+        "DELETE",
+        "/organizations/{organization_id}/agent/providers/{provider_id}",
+    ): Role.ADMIN,
     ("DELETE", "/organizations/{organization_id}/notification-channels/{channel_id}"): Role.ADMIN,
     ("GET", "/organizations/{organization_id}/notification-channels"): Role.ANALYST,
     (

@@ -3771,3 +3771,228 @@ from another organization is 404 (not 403, not silently ignored — the same
 non-disclosure every other cross-tenant path in this platform uses).
 `tests/security/test_authorization_matrix.py` updated with both new
 routes. Full backend suite run as the final gate before commit.
+
+## Two-factor authentication (TOTP)
+
+### Context
+
+Requested as a direct follow-on to the OAuth/password-reset work: the
+platform's login flow was still password-only. TOTP is the standard,
+free, no-recurring-cost second factor — no external service or paid API
+required, matching the deployment's existing "no unnecessary paid
+dependency" posture.
+
+### Design
+
+`pyotp` (RFC 6238), not a hand-rolled implementation. `User` gains
+`totp_secret_encrypted` (AES-256, `KERVY_TOTP_ENCRYPTION_KEY`, mirroring
+`webhook_secret_encryption_key`'s "not optional encryption" pattern
+exactly — unset means the feature refuses with `503`, never stores a
+secret in cleartext) and `totp_enabled`. A new `TotpRecoveryCode` table
+mirrors `ApiKey`'s own shape: ten single-use codes minted at enable time,
+shown once, stored as SHA-256 digests.
+
+`POST /auth/login` returns a `TotpChallenge` instead of a session once
+`totp_enabled` is true — a short-lived JWT deliberately missing the
+`iat_us`/`jti` claims `decode_access_token` requires, so it structurally
+cannot be accepted as a Bearer token by anything else in the platform,
+whatever it is presented as. `POST /auth/login/2fa` redeems it exactly
+once through a new Redis-backed store (`app/core/twofactor/
+challenge_store.py`) — the ninth such fail-closed store in this codebase,
+following the identical idiom `OAuthStateStore` and `WebhookReplayGuard`
+already use: refuse the login attempt outright if Redis is unreachable or
+the challenge was already claimed, never treat an unconfirmed state as
+fresh.
+
+`/auth/login/2fa` was added to `ANONYMOUS_CSRF_PATHS` (not `EXEMPT_PATHS`):
+unlike `forgot-password`/`reset-password`, it *does* establish a new
+session, so it is exposed to the same login-CSRF risk `/login` and
+`/register` already are — found by a genuine test failure during this
+work, not assumed in advance.
+
+The frontend's enrollment lives at `/account/security` (a new page —
+no account/settings surface existed before this): `POST /auth/2fa/setup`
+returns a secret and a `provisioning_uri`, rendered as both a QR code
+(the `qrcode` package — free, MIT-licensed, no network call, renders
+client-side from a `data:` URL) and a manual-entry fallback, since not
+every authenticator app can scan a QR code equally easily. `POST
+.../enable` confirms with a code and shows the ten recovery codes once.
+`LoginForm` gained a branch: a `TotpChallenge` response swaps the form for
+a `TotpChallengeForm` step instead of redirecting, accepting either a
+fresh code or a recovery code (the backend accepts either identically, so
+the UI does too — no separate "use a recovery code" toggle needed).
+
+### What this does not change
+
+- No CLI command for 2FA management — matches the codebase's own
+  precedent of leaving CLI support for a later, dedicated pass rather
+  than adding one command at a time per feature.
+- No backup-method beyond recovery codes (no SMS, no email fallback) —
+  SMS/email 2FA are themselves weaker than TOTP and would be a downgrade,
+  not an addition; recovery codes are the standard mitigation for "lost
+  the authenticator app" instead.
+
+### Verified
+
+`ruff check`/`mypy app` clean; `npm run typecheck`/`npm run lint`/
+`npm run build` clean. 18 backend tests (`tests/test_twofactor.py`) plus
+3 new frontend tests (`totpCodeSchema` validation, the login form's
+challenge branch). Then verified live against the actual running
+application (backend + frontend + Postgres + Redis, not just build/test
+output) with a scripted Chromium session covering the full flow: register
+→ enable 2FA → QR code renders as a real `data:` URL → confirm code →
+ten recovery codes shown → sign out → sign back in with the correct
+password alone (stays on the login page, no session granted) → a fresh
+TOTP code completes sign-in → sign out again → a recovery code also
+completes sign-in → disable 2FA with a valid code → settings page reverts
+to the disabled state. Every step passed.
+
+## Agent provider provisioning: close the "nothing can ever configure it" gap
+
+### Context
+
+A live, runtime audit of the platform (starting both servers and a Celery
+worker, not just reading source) found the native AI agent's own engine
+(planner, tool runtime, `POST .../agent/investigate`) fully built and
+correctly returning `409` when unconfigured — but there was no endpoint,
+CLI command, or UI anywhere in the codebase that could ever create the
+`AgentProvider` row an organization needs to clear that `409`. The only
+places an `AgentProvider` was ever constructed were test fixtures. The
+agent framework's own design already anticipated a local/free provider
+(`AgentProviderKind.OPENAI_COMPATIBLE`, covering Ollama/vLLM/llama.cpp),
+but a second, deeper gap made even that path non-functional once
+provisioning existed: `platform_egress_context`
+(`app/core/assistant/egress.py`) hardcoded an empty `allowed_ip_ranges`,
+so `GatedTransport` refused any provider endpoint at a private or loopback
+address — which is where a self-hosted model server almost always lives.
+
+### Design
+
+Six new endpoints on `app/api/v1/routers/agent.py`: `POST`/`GET`/`PATCH`/
+`DELETE .../agent/providers` and `GET`/`PUT .../agent`, admin tier to
+write and analyst tier to read — the same split `docs/workflows.md`'s
+admin/security-engineer tiers use, since configuring what the agent may
+reach is a configuration change, not itself a scan. `POST .../providers`
+defaults `is_default: true`: creating an organization's first provider
+both sets `Agent.default_provider_id` and `Agent.enabled = true` in the
+same request, closing the exact trap a two-step "create provider, then
+remember to separately enable the agent" flow would have reproduced. A
+new `_make_default`/`_clear_default` pair in the router is the single
+place that ever changes which provider is default, so `AgentProvider
+.is_default` (a denormalized display flag) and `Agent.default_provider_id`
+(what `_resolved_provider` actually reads) cannot drift apart, and at
+most one provider per organization is ever marked default.
+
+A new `AgentProvider.allowed_ip_ranges` column (JSON list of CIDR
+strings, migration `b6f1d84a2c19`) is threaded through `ProviderConfig`
+and into `platform_egress_context`'s `RulesOfEngagement.allowed_ip_ranges`
+— the same mechanism a scan target's own `RulesOfEngagement` already uses
+to authorize a private-network target, applied here to a provider
+endpoint for the first time. The cloud-metadata address stays blocked
+unconditionally regardless of this setting (`hostmatch.py`'s own
+`_METADATA_IPS` check ignores the allowlist entirely), so this closes a
+real functionality gap without opening the SSRF hole that check exists
+to prevent.
+
+### What this does not change
+
+- No CLI command for provider management — `aegis-ai`/`kervy-ai` has no
+  `agent` subcommand group at all today, so adding one only for
+  provisioning while the rest of agent operation has none would be scope
+  creep. Left for whenever agent CLI support is built generally.
+- No dashboard UI for provider configuration — matches every earlier
+  phase's "API-only, UI is a later phase" precedent.
+- `api_key_env_var` remains a variable *name*, never a value — this
+  endpoint set does not change how a provider's actual credential reaches
+  the process; that is still the deployment operator's own environment
+  configuration, unchanged from Agent Phase 1.
+
+### Verified
+
+`ruff check`/`mypy app` clean. New `tests/test_agent_provisioning.py`:
+creating a provider never returns a secret, creating a default provider
+enables the agent and clears `investigate`'s `409`, a second
+non-default provider does not replace the first, an invalid CIDR is
+rejected at write time (`422`), a local `openai_compatible` provider's
+`allowed_ip_ranges` survives the round trip into the actual `RunContext`
+`platform_egress_context` builds, updating `is_default` moves the agent's
+default provider, deleting the default provider leaves the agent
+unconfigured (not broken — `investigate` cleanly returns to `409`) rather
+than pointing at a row that no longer exists, provider listing is scoped
+to the caller's own organization, an unknown autonomy mode is rejected at
+write time, and a default-provider id from another organization is
+refused with `404`. RBAC and tenant isolation for all six routes are
+covered generically by `tests/security/test_authorization_matrix.py`
+(registered in `EXPECTED_ROLES`). Full backend suite run as the final
+gate before commit.
+
+## Pentest module, Phase 11 — reporting polish (a fuller Next.js findings view)
+
+### Context
+
+The last two named-but-deferred items in the backlog. Both `docs/
+dashboard.md` and this file's own Phase 10 write-up said the same thing:
+the dashboard's top-findings widget deliberately has no filtering,
+pagination, or status transitions, and "a fuller Next.js findings view is
+pentest-module Phase 11 (reporting polish)" would build it. Everything
+that view needs already existed — `GET/POST .../findings`, the
+`ALLOWED_TRANSITIONS` lifecycle, the Jinja2 dashboard's own findings page
+— none of it had a Next.js surface.
+
+### Design
+
+Two server components, no client-side data-fetching library: `/
+organizations/{id}/findings` (list, `method="get"` filter form for
+severity/status, pagination via `limit`/`offset` query params) and `/
+organizations/{id}/findings/{findingId}` (full detail + a status-
+transition client component). `GET .../findings` gained optional
+`limit`/`offset` — both default to unbounded, so the CLI, the CI gate,
+and this router's own existing tests see byte-identical responses to
+before; only a caller that opts in gets a page. "Has more" is decided by
+requesting one extra row and checking whether it came back, the same
+technique the Jinja2 dashboard's `queries.has_more_findings` already
+uses, without needing a second request or a `COUNT(*)`.
+
+The status-transition form never offers a free choice of the full
+`FindingStatus` enum: its options come from `ALLOWED_FINDING_TRANSITIONS`
+(`frontend/lib/types.ts`), a frontend mirror of `ALLOWED_TRANSITIONS` in
+`app/models/finding.py`, the same "duplicated, with a comment pointing at
+the source of truth" idiom `ANONYMOUS_CSRF_PATHS` already uses for a
+different backend constant the frontend must not drift from — backed
+here by a dedicated test (`lib/__tests__/types.test.ts`) asserting the
+two stay equal, so a future change to one without the other fails loudly
+in CI rather than silently letting the UI offer a transition the backend
+will then refuse with `409`.
+
+### What this does not change
+
+- No report-generation UI in Next.js — "reporting polish" named the
+  findings view specifically (`docs/dashboard.md`'s own wording); report
+  rendering/download stays on the existing API and the Jinja2 dashboard,
+  unchanged.
+- No historical trend or cross-organization view for findings, matching
+  every other view in this frontend.
+- No bulk status transitions — one finding at a time, the same granularity
+  `POST .../findings/{id}/status` has always offered.
+
+### Verified
+
+`ruff check`/`mypy app` clean; `npm run typecheck`/`lint`/`build` clean.
+New backend test (`test_limit_and_offset_page_through_the_same_ordering
+_omitting_them_returns`) proves pagination is additive: the unbounded
+response is unchanged, and paging through with `limit=1` reproduces the
+same ordering one row at a time. New frontend tests for
+`findingTransitionSchema` and for `ALLOWED_FINDING_TRANSITIONS` matching
+the backend map exactly. Then verified live, not just via build/test
+output: registered a user, created a real target (this backend itself,
+authorized via a loopback RoE), queued a real scan through a real Celery
+worker, and got back a real finding ("API is served over plaintext
+HTTP"). A scripted Chromium session then logged in, opened the new
+findings list, confirmed the real finding was visible, applied severity
+and status filters (finding stays visible), applied a non-matching filter
+(empty state, not a stale list), opened the detail page (description,
+impact, remediation all rendered from the live API response), transitioned
+the finding from `new` to `confirmed` with a note, and confirmed the
+status-form's options changed to exactly `confirmed`'s own allowed next
+states — proving the transitions map drives the live UI, not just the
+unit test.

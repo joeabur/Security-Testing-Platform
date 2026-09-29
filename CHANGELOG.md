@@ -36,6 +36,59 @@ All notable changes to this project are recorded here. The format follows
 
 ### Added
 
+- **Pentest module, Phase 11: a fuller Next.js findings view.** The
+  dashboard summary's top-findings list has always had "no filtering,
+  pagination, or status transitions from this surface" (`docs/dashboard.md`)
+  — that capability existed only in the older Jinja2 dashboard and the raw
+  API. New `/organizations/{id}/findings` (filterable by severity and
+  status, paginated) and `/organizations/{id}/findings/{findingId}`
+  (full detail: description, impact, remediation, reproduction steps,
+  risk inputs) pages close that gap, plus a status-transition form
+  restricted to each finding's actual allowed next states
+  (`ALLOWED_TRANSITIONS` in `app/models/finding.py`) rather than a free
+  dropdown. `GET .../findings` gained optional `limit`/`offset` query
+  params to support it — both default to "unbounded", so the CLI, the CI
+  gate, and every existing caller see the exact same response they always
+  have. Verified live: a real scan of a real target produced a real
+  finding, then a scripted browser session filtered, opened, and
+  transitioned it end to end. See `docs/dashboard.md`.
+
+- **Optional TOTP-based two-factor authentication**, end to end: backend
+  enroll/enable/disable endpoints (`POST /auth/2fa/setup`, `.../enable`,
+  `.../disable`) and a login-time challenge (`POST /auth/login/2fa`) that
+  redeems a short-lived, single-use ticket `POST /auth/login` returns
+  instead of a session once an account has 2FA enabled; and a frontend
+  enrollment flow at `/account/security` (QR code, manual-entry secret,
+  ten one-time recovery codes shown once) plus a login-time code-entry
+  step that replaces the login form's redirect when the backend answers
+  with a challenge instead of a session. A password alone is no longer
+  sufficient to sign in to a 2FA-enabled account — verified live against
+  the running application, including the recovery-code path and disabling
+  2FA. Requires `KERVY_TOTP_ENCRYPTION_KEY` on the deployment; the setup
+  endpoint refuses with `503` rather than storing a secret insecurely
+  when it's unset. See `docs/authentication.md`.
+
+- **Native AI agent provider provisioning.** The agent engine (planner,
+  tool runtime, `POST /agent/investigate`) has existed since Agent Phase
+  5, but nothing could ever create an `AgentProvider` row for it —
+  `investigate` always refused with `409` and there was no endpoint, CLI
+  command, or UI anywhere to clear it. Six new endpoints on
+  `app/api/v1/routers/agent.py` close that gap: `POST`/`GET`/`PATCH`/
+  `DELETE .../agent/providers` and `GET`/`PUT .../agent` (admin tier to
+  write, analyst tier to read — never the secret itself, only an
+  `api_key_env_var` *name*). Creating a provider with `is_default: true`
+  (the default) wires it into `Agent.default_provider_id` and enables the
+  agent in the same call, so provisioning is one request, not several.
+  `AgentProvider.allowed_ip_ranges` (new column) is what makes the
+  `openai_compatible` local-provider path actually usable: it lets a
+  self-hosted Ollama/vLLM/llama.cpp endpoint at a private/loopback
+  address (`platform_egress_context` previously hardcoded an empty
+  allowlist, so `GatedTransport` refused every such endpoint outright)
+  authorize exactly the CIDR the operator explicitly configured it at,
+  the same `RulesOfEngagement.allowed_ip_ranges` mechanism a scan
+  target's own authorization already uses. See `docs/agent.md`
+  ("Provisioning a provider").
+
 - Social OAuth login (Google, GitHub) and self-service password reset.
   `User.password_hash` is now nullable for an OAuth-only account; a new
   `OAuthIdentity` table links `(provider, provider_user_id)` to a user —

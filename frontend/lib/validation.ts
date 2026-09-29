@@ -44,6 +44,17 @@ export const resetPasswordSchema = z
   });
 export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
 
+// A 6-digit TOTP code or an 8-character recovery code (the digest-only
+// TotpRecoveryCode shape backend/app/models/totp_recovery_code.py mints) —
+// `_verify_totp_or_recovery_code` accepts either, so this input does too.
+export const totpCodeSchema = z.object({
+  code: z
+    .string()
+    .min(1, "Enter the 6-digit code from your authenticator app")
+    .max(32, "That code is too long"),
+});
+export type TotpCodeInput = z.infer<typeof totpCodeSchema>;
+
 export const createOrganizationSchema = z.object({
   name: z.string().min(1, "Organization name is required").max(200),
 });
@@ -132,6 +143,21 @@ export const startRunSchema = z.object({
   }),
 });
 export type StartRunInput = z.infer<typeof startRunSchema>;
+
+export const findingTransitionSchema = z.object({
+  status: z.enum([
+    "new",
+    "confirmed",
+    "false_positive",
+    "accepted_risk",
+    "in_remediation",
+    "remediated",
+    "retest_required",
+    "closed",
+  ]),
+  note: z.string().max(2000).optional(),
+});
+export type FindingTransitionInput = z.infer<typeof findingTransitionSchema>;
 
 export const createWorkflowSchema = z.object({
   name: z.string().min(1, "Name is required").max(120),

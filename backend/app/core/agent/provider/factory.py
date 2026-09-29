@@ -33,6 +33,10 @@ def build_provider(row: AgentProvider) -> AIProvider:
         endpoint=row.endpoint,
         model=row.model,
         api_key_env_var=row.api_key_env_var,
+        # `or ()`: the column default (`list`) only applies once the row is
+        # flushed, so an in-memory `AgentProvider` under test can carry
+        # `None` here even though it is never `NULL` in the database.
+        allowed_ip_ranges=tuple(row.allowed_ip_ranges or ()),
     )
     builder = _BUILDERS[row.kind]
     return builder(config)

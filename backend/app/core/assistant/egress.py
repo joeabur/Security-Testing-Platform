@@ -12,10 +12,14 @@ So a provider call uses the same `GatedTransport`, under a context built
 here, with three properties that make it safe to grant:
 
 * **The allowlist is derived from the configuration, never from an
-  argument.** It contains exactly the provider's host. There is no parameter
-  through which a target hostname could be passed, so this context cannot be
-  used to reach a target — which is what would turn it into the scope bypass
-  §28 forbids.
+  argument.** It contains exactly the provider's host, plus whatever
+  private/loopback CIDRs the operator explicitly authorized *for this
+  provider* (`ProviderConfig.allowed_ip_ranges` — the same mechanism a
+  target's own `RulesOfEngagement.allowed_ip_ranges` uses, so a self-hosted
+  `openai_compatible` endpoint on an internal network is reachable without
+  weakening the default-deny). There is no parameter through which a target
+  hostname could be passed, so this context cannot be used to reach a
+  target — which is what would turn it into the scope bypass §28 forbids.
 * **It carries its own budget.** Provider calls do not spend an
   assessment's request or token budget, and an assessment cannot spend the
   provider's.
@@ -66,7 +70,7 @@ def platform_egress_context(config: ProviderConfig) -> RunContext:
         # reach a target without a target's authorization.
         allowed_domains=(host,),
         excluded_domains=(),
-        allowed_ip_ranges=(),
+        allowed_ip_ranges=config.allowed_ip_ranges,
         allowed_paths=(),
         excluded_paths=(),
         allowed_methods=("POST",),

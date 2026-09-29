@@ -36,4 +36,8 @@ export const CSRF_ANON_COOKIE_NAME_INSECURE = "kervy_csrf_anon";
 // token above instead of the session-bound one, because no session exists
 // yet when they're called. Must match ANONYMOUS_CSRF_PATHS in
 // app/core/csrf/enforce.py (there, prefixed with /api/v1).
-export const ANONYMOUS_CSRF_PATHS = new Set(["/auth/login", "/auth/register"]);
+export const ANONYMOUS_CSRF_PATHS = new Set([
+  "/auth/login",
+  "/auth/login/2fa",
+  "/auth/register",
+]);

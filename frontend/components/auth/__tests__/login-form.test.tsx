@@ -49,4 +49,31 @@ describe("LoginForm", () => {
       expect.objectContaining({ method: "POST" }),
     );
   });
+
+  it("shows the two-factor challenge, then verifies and redirects", async () => {
+    fetchMock.mockResolvedValueOnce({ requires_totp: true, challenge: "challenge-token" });
+    render(<LoginForm providers={noProviders} />);
+
+    fireEvent.change(screen.getByLabelText(/email/i), { target: { value: "user@example.test" } });
+    fireEvent.change(screen.getByLabelText(/password/i), { target: { value: "secret" } });
+    fireEvent.click(screen.getByRole("button", { name: /sign in/i }));
+
+    expect(await screen.findByText(/two-factor authentication/i)).toBeInTheDocument();
+    expect(pushMock).not.toHaveBeenCalled();
+
+    fetchMock.mockResolvedValueOnce({ user: { email: "user@example.test" } });
+    fireEvent.change(screen.getByLabelText(/authentication code/i), {
+      target: { value: "123456" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^verify$/i }));
+
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/dashboard"));
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/auth/login/2fa",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ challenge: "challenge-token", code: "123456" }),
+      }),
+    );
+  });
 });
