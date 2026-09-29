@@ -11,6 +11,7 @@ from app.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
 if TYPE_CHECKING:
     from app.models.api_spec import ApiSpec
     from app.models.authorization import Authorization
+    from app.models.exploitation import ExploitationAuthorization
     from app.models.rules_of_engagement import RulesOfEngagementRecord
     from app.models.surface_endpoint import SurfaceEndpoint
     from app.models.synthetic_account import SyntheticAccount
@@ -104,6 +105,9 @@ class Target(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
 
     authorization: Mapped["Authorization | None"] = relationship(
+        back_populates="target", uselist=False, cascade="all, delete-orphan"
+    )
+    exploitation_authorization: Mapped["ExploitationAuthorization | None"] = relationship(
         back_populates="target", uselist=False, cascade="all, delete-orphan"
     )
     rules_of_engagement: Mapped["RulesOfEngagementRecord | None"] = relationship(

@@ -15,8 +15,9 @@ first; this README is the practical "how do I run it" companion.
 complete**, and three later builds sit on top of it: a broader **pentest
 module** (containers, cloud, VMs, domains, a sequenced pentest-tool adapter
 layer, multi-vendor AI throughout, Celery Beat scheduling, an HMAC-signed
-inbound webhook, and an organization-wide security-operations dashboard —
-9 of its 12 phases done, `docs/roadmap.md` tracks the rest), a **native AI
+inbound webhook, an organization-wide security-operations dashboard, and
+a simulate-then-fire exploitation tier — 10 of its 12 phases done,
+`docs/roadmap.md` tracks the rest), a **native AI
 agent** (all 7 phases — a closed, typed tool registry with risk tiers and an
 approval flow, adding zero new persistent storage beyond an explicit
 metrics allowlist, `docs/agent.md`), and a **frontend redesign** of the
@@ -96,7 +97,7 @@ opposite of the rate limiter next to it. See
 [`docs/revocation.md`](docs/revocation.md).
 
 All eighteen phases of the original AppSec/API/AI platform are built, all
-seven phases of the native AI agent are built, and 9 of the pentest
+seven phases of the native AI agent are built, and 10 of the pentest
 module's 12 phases are built. [`docs/roadmap.md`](docs/roadmap.md) records
 exactly what's built versus deferred, and why, phase by phase;
 [`docs/limitations.md`](docs/limitations.md) says what the tool cannot detect

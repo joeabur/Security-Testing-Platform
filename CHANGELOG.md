@@ -6,6 +6,38 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
+### Security
+
+- **Fixed a critical transitive vulnerability: `asteval` 1.0.6, pulled in
+  exactly-pinned by `checkov` (the IaC scanner), was subject to
+  GHSA-9w56-46f6-3qhx — with its default configuration (numpy enabled,
+  `import` disabled), an attacker-controlled expression gets an arbitrary
+  process-memory read/write primitive, a complete sandbox escape, with no
+  `import`/`eval`/`getattr` needed. checkov never evaluates
+  attacker-controlled expressions in this platform's own usage, but the
+  fix (`asteval>=1.0.9`, a same-1.0.x patch release) is pinned directly in
+  `backend/pyproject.toml`'s `appsec` extra to override checkov's own
+  unpatched exact pin, since no checkov release through 3.3.20 has bumped
+  it. Because every checkov release through 3.3.20 pins `asteval==1.0.6`
+  exactly, satisfying the override resolves to `checkov==3.2.414` instead
+  of the newest `3.3.x` — verified against this project's own AppSec/IaC
+  test suite before and after, with identical results either way.
+- **Bumped `pyjwt` to `>=2.14`**, fixing GHSA-w6j9-cwv2-h6wq (a malformed
+  RSA JWK inside a JWK Set could abort parsing of an entire JWK Set via an
+  uncaught `ValueError`). This platform doesn't call `PyJWKClient`/
+  `PyJWKSet` today, but the fix is a clean version bump with no other
+  behavior change.
+- **Deferred, and why**: `pip-audit` also flags `click` and `mcp`
+  (both exactly pinned by `semgrep`, with no compatible release yet — a
+  clean bump would require a major `mcp` version jump this project has
+  not verified against semgrep's actual usage) and `ecdsa` (an orphaned
+  package nothing in this project's dependency tree still requires, whose
+  own advisory, the Minerva timing attack, has no fixed release upstream
+  at all). None of the three has a fix available that doesn't either
+  break a pinned tool or simply not exist yet — tracked rather than
+  blindly forced, the same reasoning `.github/dependabot.yml`'s own
+  comment gives for not auto-bumping the lab fixtures' pins.
+
 ### Changed
 
 - **Renamed the platform from Aegis AI Security to Kervy Security**,
@@ -35,6 +67,25 @@ All notable changes to this project are recorded here. The format follows
   names, or database name.
 
 ### Added
+
+- **Pentest module, Phase 12: the exploitation tier's simulate-then-fire
+  two-step.** Real exploit execution — deferred since the Phase 1
+  foundation "behind its own `ExploitationAuthorization` tier" — is now
+  built, deliberately conservatively. Simulate is automatic: a scan run
+  with `asset_scope.max_depth=exploitation` never invokes the real
+  module, only an informational marker (`KERVY-PENTEST-108`) showing what
+  would be eligible to fire. Fire is a new, separate,
+  `Role.SECURITY_ENGINEER` action (`POST .../runs/{run_id}/exploitation-
+  fires`) gated by three independent allowlists that must all agree: the
+  deployment-wide `KERVY_EXPLOITATION_ALLOWED_NSE_SCRIPTS` operator
+  setting (empty by default — nothing is fireable until an operator names
+  specific scripts), a new, distinct per-target `ExploitationAuthorization`
+  grant (`PUT .../targets/{id}/exploitation-authorization`, `Role.ADMIN`),
+  and the target's own `asset_scope.approved_modules`. A successful fire
+  produces a `Severity.CRITICAL` finding with full evidence, dispatched to
+  the worker rather than run inline, the same way every other scan on this
+  platform is. See `docs/roadmap.md`'s Phase 12 write-up and
+  `docs/authorization-and-scope.md`.
 
 - **Pentest module, Phase 11: a fuller Next.js findings view.** The
   dashboard summary's top-findings list has always had "no filtering,

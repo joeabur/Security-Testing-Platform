@@ -9,6 +9,7 @@ from sqlalchemy.orm import selectinload
 from app.audit.service import record_event
 from app.auth.dependencies import DbSession, require_membership
 from app.core.orchestrator.context_builder import build_run_context
+from app.core.pentest.exploitation_service import grant_exploitation_authorization
 from app.core.rasp.contract import ClaimedControl, RuntimeProtectionProfile
 from app.core.scope.asset_scope import (
     resolve_cloud_scope,
@@ -32,6 +33,10 @@ from app.models.organization import Membership, Role
 from app.models.rules_of_engagement import RulesOfEngagementRecord
 from app.models.target import Target, TargetKind
 from app.schemas.authorization import AuthorizationGrant, AuthorizationRead
+from app.schemas.exploitation import (
+    ExploitationAuthorizationGrant,
+    ExploitationAuthorizationRead,
+)
 from app.schemas.scope import (
     RulesOfEngagementRead,
     ScopeExplainRequest,
@@ -69,6 +74,7 @@ async def load_target(organization_id: uuid.UUID, target_id: uuid.UUID, db: DbSe
         .where(Target.id == target_id, Target.organization_id == organization_id)
         .options(
             selectinload(Target.authorization),
+            selectinload(Target.exploitation_authorization),
             selectinload(Target.rules_of_engagement),
             selectinload(Target.api_spec),
         )
@@ -293,6 +299,76 @@ async def get_authorization(
     if target.authorization is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No authorization on file")
     return AuthorizationRead.model_validate(target.authorization)
+
+
+@router.put(
+    "/{target_id}/exploitation-authorization",
+    response_model=ExploitationAuthorizationRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def grant_exploitation_authorization_endpoint(
+    organization_id: uuid.UUID,
+    target_id: uuid.UUID,
+    payload: ExploitationAuthorizationGrant,
+    request: Request,
+    db: DbSession,
+    membership: Membership = Depends(require_membership(Role.ADMIN)),  # noqa: B008
+) -> ExploitationAuthorizationRead:
+    """Pentest module Phase 12. A second, distinct grant from `POST
+    .../authorization` above — this one specifically authorizes running
+    real exploit code, never implied by the general engagement
+    authorization. Same tier (`Role.ADMIN`) and same "replace, don't
+    layer" semantics as that endpoint.
+    """
+    target = await load_target(organization_id, target_id, db)
+
+    record = await grant_exploitation_authorization(
+        db,
+        target=target,
+        authorized_by_name=payload.authorized_by_name,
+        authorized_by_role=payload.authorized_by_role,
+        authorized_by_email=payload.authorized_by_email,
+        reference=payload.reference,
+        valid_from=payload.valid_from,
+        valid_until=payload.valid_until,
+        approved_script_names=payload.approved_script_names,
+        accepted_by_user_id=membership.user_id,
+    )
+
+    await record_event(
+        db,
+        action="target.exploitation_authorization.grant",
+        resource_type="target",
+        resource_id=str(target.id),
+        result="allow",
+        organization_id=organization_id,
+        user_id=membership.user_id,
+        ip_address=request.client.host if request.client else None,
+        metadata={
+            "reference": payload.reference,
+            "approved_script_names": payload.approved_script_names,
+        },
+    )
+    await db.commit()
+
+    return ExploitationAuthorizationRead.model_validate(record)
+
+
+@router.get(
+    "/{target_id}/exploitation-authorization", response_model=ExploitationAuthorizationRead
+)
+async def get_exploitation_authorization_endpoint(
+    organization_id: uuid.UUID,
+    target_id: uuid.UUID,
+    db: DbSession,
+    membership: Membership = Depends(require_membership(Role.VIEWER)),  # noqa: B008
+) -> ExploitationAuthorizationRead:
+    target = await load_target(organization_id, target_id, db)
+    if target.exploitation_authorization is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, detail="No exploitation authorization on file"
+        )
+    return ExploitationAuthorizationRead.model_validate(target.exploitation_authorization)
 
 
 @router.post("/{target_id}/scope/explain", response_model=ScopeExplainResponse)

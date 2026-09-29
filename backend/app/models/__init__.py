@@ -19,6 +19,11 @@ from app.models.assessment_run import (
 from app.models.audit import AuditEvent
 from app.models.authorization import Authorization
 from app.models.discovered_asset import AssetKind, DiscoveredAsset
+from app.models.exploitation import (
+    ExploitationAuthorization,
+    ExploitationFire,
+    ExploitationFireStatus,
+)
 from app.models.finding import Finding, FindingStatus
 from app.models.integration import (
     DeliveryStatus,
@@ -76,6 +81,9 @@ __all__ = [
     "AssessmentRun",
     "AuditEvent",
     "Authorization",
+    "ExploitationAuthorization",
+    "ExploitationFire",
+    "ExploitationFireStatus",
     "Membership",
     "Organization",
     "Role",
