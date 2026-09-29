@@ -1,0 +1,49 @@
+version: 2
+
+# No repo-wide "keep everything current" schedule is configured here — that
+# would be a separate decision this file isn't making. What this file does
+# do: stop Dependabot from proposing version/security bumps to the three lab
+# fixtures below, whose manifests are hand-pinned test data, not real
+# dependencies.
+#
+# `backend/tests/lab/repos/{hardened,supplychain,vulnerable}` are synthetic
+# fixture repositories the AppSec/SCA test suite depends on for their EXACT
+# pinned versions. `vulnerable/requirements.txt` in particular pins old
+# releases with known CVEs on purpose, so the pip-audit engine has real
+# vulnerabilities seeded in a controlled place to find — that is the whole
+# point of the fixture, not an oversight to fix. Dependabot's automatic
+# security-update scanner has no way to know that a manifest is a fixture
+# rather than a real project, and a bump here silently breaks the
+# seeded-vulnerability test contract instead of fixing anything real (see
+# the PR this superseded: it bumped `vulnerable/requirements.txt`'s
+# `requests==2.19.1` to `2.33.0`, which would have made every test that
+# expects the SCA engine to find that pin's known CVEs report nothing).
+#
+# `open-pull-requests-limit: 0` is the documented way to stop Dependabot
+# from opening pull requests for a given directory + ecosystem while still
+# letting it read the manifest (so it doesn't misreport the directory as
+# unmonitored).
+updates:
+  - package-ecosystem: "pip"
+    directory: "/backend/tests/lab/repos/hardened"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 0
+
+  - package-ecosystem: "pip"
+    directory: "/backend/tests/lab/repos/supplychain"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 0
+
+  - package-ecosystem: "npm"
+    directory: "/backend/tests/lab/repos/supplychain/src"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 0
+
+  - package-ecosystem: "pip"
+    directory: "/backend/tests/lab/repos/vulnerable"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 0
