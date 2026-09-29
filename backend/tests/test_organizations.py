@@ -183,3 +183,202 @@ async def test_cannot_invite_same_member_twice(client: AsyncClient, strong_passw
         headers=_auth_headers(owner["access_token"]),
     )
     assert second.status_code == 409
+
+
+async def _create_org_and_invite(
+    client: AsyncClient, owner_token: str, invitee_email: str, role: str
+) -> tuple[str, str]:
+    create = await client.post(
+        "/api/v1/organizations",
+        json={"name": f"Org for {invitee_email}"},
+        headers=_auth_headers(owner_token),
+    )
+    org_id = create.json()["id"]
+    invite = await client.post(
+        f"/api/v1/organizations/{org_id}/members",
+        json={"email": invitee_email, "role": role},
+        headers=_auth_headers(owner_token),
+    )
+    assert invite.status_code == 201
+    return org_id, invite.json()["id"]
+
+
+async def test_admin_cannot_grant_owner(client: AsyncClient, strong_password: str) -> None:
+    owner = await _register(client, "escalowner@example.test", strong_password)
+    admin = await _register(client, "escaladmin@example.test", strong_password)
+    accomplice = await _register(client, "escalaccomplice@example.test", strong_password)
+
+    org_id, _ = await _create_org_and_invite(
+        client, owner["access_token"], admin["user"]["email"], "admin"
+    )
+
+    forbidden = await client.post(
+        f"/api/v1/organizations/{org_id}/members",
+        json={"email": accomplice["user"]["email"], "role": "owner"},
+        headers=_auth_headers(admin["access_token"]),
+    )
+    assert forbidden.status_code == 403
+
+
+async def test_owner_can_change_a_members_role(client: AsyncClient, strong_password: str) -> None:
+    owner = await _register(client, "roleowner@example.test", strong_password)
+    member = await _register(client, "rolemember@example.test", strong_password)
+
+    org_id, member_id = await _create_org_and_invite(
+        client, owner["access_token"], member["user"]["email"], "viewer"
+    )
+
+    response = await client.patch(
+        f"/api/v1/organizations/{org_id}/members/{member_id}",
+        json={"role": "analyst"},
+        headers=_auth_headers(owner["access_token"]),
+    )
+    assert response.status_code == 200
+    assert response.json()["role"] == "analyst"
+
+
+async def test_admin_cannot_change_a_members_role_to_or_from_owner(
+    client: AsyncClient, strong_password: str
+) -> None:
+    owner = await _register(client, "roleescalowner@example.test", strong_password)
+    admin = await _register(client, "roleescaladmin@example.test", strong_password)
+    member = await _register(client, "roleescalmember@example.test", strong_password)
+
+    org_id, admin_id = await _create_org_and_invite(
+        client, owner["access_token"], admin["user"]["email"], "admin"
+    )
+    invite_member = await client.post(
+        f"/api/v1/organizations/{org_id}/members",
+        json={"email": member["user"]["email"], "role": "viewer"},
+        headers=_auth_headers(owner["access_token"]),
+    )
+    member_id = invite_member.json()["id"]
+
+    # Admin cannot promote someone to owner.
+    forbidden_promote = await client.patch(
+        f"/api/v1/organizations/{org_id}/members/{member_id}",
+        json={"role": "owner"},
+        headers=_auth_headers(admin["access_token"]),
+    )
+    assert forbidden_promote.status_code == 403
+
+    # Admin cannot demote the owner, either.
+    owner_membership = await client.get(
+        f"/api/v1/organizations/{org_id}/members", headers=_auth_headers(owner["access_token"])
+    )
+    owner_member_id = next(m["id"] for m in owner_membership.json() if m["role"] == "owner")
+    forbidden_demote = await client.patch(
+        f"/api/v1/organizations/{org_id}/members/{owner_member_id}",
+        json={"role": "admin"},
+        headers=_auth_headers(admin["access_token"]),
+    )
+    assert forbidden_demote.status_code == 403
+    assert admin_id  # the admin's own membership id, unused beyond setup
+
+
+async def test_the_last_owner_cannot_be_demoted_or_removed(
+    client: AsyncClient, strong_password: str
+) -> None:
+    owner = await _register(client, "lastowner@example.test", strong_password)
+
+    create = await client.post(
+        "/api/v1/organizations",
+        json={"name": "Solo Org"},
+        headers=_auth_headers(owner["access_token"]),
+    )
+    org_id = create.json()["id"]
+    members = await client.get(
+        f"/api/v1/organizations/{org_id}/members", headers=_auth_headers(owner["access_token"])
+    )
+    owner_member_id = members.json()[0]["id"]
+
+    demote = await client.patch(
+        f"/api/v1/organizations/{org_id}/members/{owner_member_id}",
+        json={"role": "admin"},
+        headers=_auth_headers(owner["access_token"]),
+    )
+    assert demote.status_code == 409
+
+    remove = await client.delete(
+        f"/api/v1/organizations/{org_id}/members/{owner_member_id}",
+        headers=_auth_headers(owner["access_token"]),
+    )
+    assert remove.status_code == 409
+
+
+async def test_a_second_owner_can_then_be_demoted(
+    client: AsyncClient, strong_password: str
+) -> None:
+    owner = await _register(client, "twoownersowner@example.test", strong_password)
+    second = await _register(client, "twoownerssecond@example.test", strong_password)
+
+    org_id, second_id = await _create_org_and_invite(
+        client, owner["access_token"], second["user"]["email"], "owner"
+    )
+
+    demote = await client.patch(
+        f"/api/v1/organizations/{org_id}/members/{second_id}",
+        json={"role": "admin"},
+        headers=_auth_headers(owner["access_token"]),
+    )
+    assert demote.status_code == 200
+    assert demote.json()["role"] == "admin"
+
+
+async def test_admin_can_remove_a_non_owner_member(
+    client: AsyncClient, strong_password: str
+) -> None:
+    owner = await _register(client, "removeowner@example.test", strong_password)
+    admin = await _register(client, "removeadmin@example.test", strong_password)
+    member = await _register(client, "removemember@example.test", strong_password)
+
+    org_id, _ = await _create_org_and_invite(
+        client, owner["access_token"], admin["user"]["email"], "admin"
+    )
+    invite_member = await client.post(
+        f"/api/v1/organizations/{org_id}/members",
+        json={"email": member["user"]["email"], "role": "viewer"},
+        headers=_auth_headers(owner["access_token"]),
+    )
+    member_id = invite_member.json()["id"]
+
+    remove = await client.delete(
+        f"/api/v1/organizations/{org_id}/members/{member_id}",
+        headers=_auth_headers(admin["access_token"]),
+    )
+    assert remove.status_code == 204
+
+    members = await client.get(
+        f"/api/v1/organizations/{org_id}/members", headers=_auth_headers(owner["access_token"])
+    )
+    assert member["user"]["email"] not in {m["email"] for m in members.json()}
+
+
+async def test_removing_a_member_from_another_organization_is_404(
+    client: AsyncClient, strong_password: str
+) -> None:
+    owner_a = await _register(client, "crossorga@example.test", strong_password)
+    owner_b = await _register(client, "crossorgb@example.test", strong_password)
+    member = await _register(client, "crossorgmember@example.test", strong_password)
+
+    org_a_id, member_id = await _create_org_and_invite(
+        client, owner_a["access_token"], member["user"]["email"], "viewer"
+    )
+    org_b = await client.post(
+        "/api/v1/organizations",
+        json={"name": "B's Org"},
+        headers=_auth_headers(owner_b["access_token"]),
+    )
+    org_b_id = org_b.json()["id"]
+
+    response = await client.delete(
+        f"/api/v1/organizations/{org_b_id}/members/{member_id}",
+        headers=_auth_headers(owner_b["access_token"]),
+    )
+    assert response.status_code == 404
+
+    # And the member is still there in its real organization.
+    members = await client.get(
+        f"/api/v1/organizations/{org_a_id}/members", headers=_auth_headers(owner_a["access_token"])
+    )
+    assert member["user"]["email"] in {m["email"] for m in members.json()}
