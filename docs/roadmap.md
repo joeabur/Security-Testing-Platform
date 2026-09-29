@@ -3313,6 +3313,66 @@ config` validates the new `beat` service.
   direction; adding one without that same review would be exactly the
   kind of half-built control this codebase avoids.
 
+## Pentest module, Phase 10 — security operations dashboard
+
+Closes the gap the previous phase's own deferral named ("No dashboard UI",
+task #125): an organization-wide, at-a-glance operational view, built as a
+new `GET /organizations/{id}/dashboard/summary` endpoint (`Role.VIEWER`)
+and an overview page in the Next.js frontend — open findings by severity,
+7-day run/gate activity, remediation and pending-retest counts, coverage by
+pillar, and the five most recent runs, five most recent workflow runs, and
+ten highest-risk open findings.
+
+The data model needed nothing new — `Finding`, `AssessmentRun`,
+`WorkflowRun`, `RemediationTask`, and `ScanResultRecord` already carried
+everything the summary needed. The gap was entirely on the query/API/
+frontend side, and the Jinja2 dashboard (Phase 17) had already solved half
+of it: `app/web/queries.py`'s own rule — *no hardcoded dashboard values,
+every number is a real query* — was exactly right for this endpoint too.
+Rather than reimplement it, that module moved to
+`app/core/dashboard/queries.py` (core domain logic two presentation layers
+both call, not a web-only concern) and gained three new functions:
+
+- `pillar_coverage_for()` — the org-wide version of
+  `app/core/reporting/build.py::_pillar_coverage()`'s per-report question.
+  Both now read one shared `PILLAR_PREFIXES` table (moved to
+  `app/core/reporting/model.py`, next to the `PILLARS` tuple it was always
+  paired with) rather than each keeping its own copy that could drift.
+- `remediation_summary()` — open and overdue counts straight from
+  `RemediationTask.closed_at`/`due_date`, the task's own state rather than
+  a re-derivation of the finding's status (see that model's own module
+  docstring on why there is exactly one status column for a finding's
+  security state).
+- `pending_retest_count()` — `Finding.status == RETEST_REQUIRED`, full
+  stop. A remediation is a claim until a retest checks it, so the finding's
+  own status machine already answers "how many are waiting", with no
+  second query against `retest_results` needed.
+
+Findings management itself was deliberately **not** rebuilt here: the ten
+highest-risk findings shown have no filtering, pagination, or status
+transitions from this surface. That UI already exists (the Jinja2
+dashboard's `/findings` page and the `GET/POST .../findings` API); a
+fuller Next.js findings view is pentest-module Phase 11 (reporting
+polish), not this phase.
+
+Caught during testing, not by any static tool: an early version of this
+phase's own test suite referenced a `Finding`'s `.id` before flushing the
+session, which produced a `NULL` foreign key on the very next insert and
+then, because the failed transaction wasn't cleanly rolled back within one
+pytest session, cascaded into 100+ unrelated failures across
+`test_web.py`, `test_reporting.py`, and the authorization matrix — all from
+one missing `await db_session.flush()`. Root-caused from the actual
+`asyncpg.exceptions.NotNullViolationError` in the traceback rather than
+chasing the symptom in each of the "downstream" files.
+
+Verified: `ruff check`/`mypy app` clean; targeted suite (dashboard,
+Jinja2-dashboard, reporting, authorization-matrix — the four modules
+touched by the query-module move) green: 359 passed, 2 skipped; full
+backend suite green: 1851 passed, 2 skipped, 0 failed. Frontend
+`lint`/`typecheck` clean. See
+`docs/dashboard.md` for the full design and what this phase deliberately
+left out (no historical trend, no export, no cross-organization view).
+
 ## Rebrand — Aegis AI Security → Kervy Security
 
 A user-directed rename, executed as a full technical rebrand rather than a

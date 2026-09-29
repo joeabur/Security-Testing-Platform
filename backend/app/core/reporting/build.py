@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.measure.asr import DEFAULT_RULE
 from app.core.probes.models import Severity
 from app.core.reporting.model import (
+    PILLAR_PREFIXES,
     PILLARS,
     SEVERITY_ORDER,
     NotTested,
@@ -106,27 +107,6 @@ def _not_tested_from(results: list[ScanResultRecord]) -> list[NotTested]:
     return gaps
 
 
-#: Which probe-id prefixes belong to which pillar. Prefixes rather than an
-#: explicit engine list: a new Semgrep-family engine should count as SAST
-#: without anybody remembering to add it here, and one that does not match any
-#: prefix is better reported as an untested pillar than silently attributed.
-_PILLAR_PREFIXES: dict[str, tuple[str, ...]] = {
-    "AI security": ("ai.",),
-    "API security": ("api.", "graphql."),
-    "SAST": ("appsec.sast.",),
-    "DAST": ("dast.",),
-    "SCA": ("appsec.sca.", "appsec.supplychain.", "appsec.container."),
-    "Secrets": ("appsec.secrets.",),
-    "IaC": ("appsec.iac.",),
-    "RASP": ("rasp.",),
-    "Container": ("container.",),
-    "Cloud": ("cloud.",),
-    "VM": ("vm.",),
-    "Domain": ("domain.",),
-    "Pentest": ("pentest.",),
-}
-
-
 def _pillar_coverage(results: list[ScanResultRecord], target: Target) -> list[PillarCoverage]:
     """One entry per pillar, always — that is the whole requirement.
 
@@ -150,7 +130,7 @@ def _pillar_coverage(results: list[ScanResultRecord], target: Target) -> list[Pi
     for row in results:
         if row.title.startswith("Not tested:"):
             continue
-        for pillar, prefixes in _PILLAR_PREFIXES.items():
+        for pillar, prefixes in PILLAR_PREFIXES.items():
             if row.probe_id.startswith(prefixes):
                 tested.add(pillar)
 

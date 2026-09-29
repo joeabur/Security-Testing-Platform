@@ -36,6 +36,20 @@ All notable changes to this project are recorded here. The format follows
 
 ### Added
 
+- Pentest module, Phase 10 (security operations dashboard): a new
+  `GET /organizations/{id}/dashboard/summary` endpoint (`Role.VIEWER`)
+  and an org-wide overview page in the Next.js frontend — open findings
+  by severity, 7-day run/gate activity, remediation and pending-retest
+  counts, coverage by pillar (organization-wide, sharing the
+  `PILLAR_PREFIXES` table with per-report coverage rather than a second
+  copy), and the five most recent runs, five most recent workflow runs,
+  and ten highest-risk open findings. The query module behind it
+  (`app/web/queries.py`, "no hardcoded dashboard values, every number is
+  a real query") moved to `app/core/dashboard/queries.py` so this
+  endpoint and the existing Jinja2 dashboard both call the same
+  implementation instead of each computing the same counts
+  independently. See `docs/dashboard.md`.
+
 - Frontend UI redesign: refreshed design tokens (richer primary color,
   `success`/`warning`/`accent` tokens, an elevation shadow scale, a
   softer radius scale) in `app/globals.css`/`tailwind.config.ts`; new

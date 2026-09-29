@@ -103,6 +103,30 @@ PILLARS: tuple[str, ...] = (
 )
 
 
+#: Which probe-id prefixes belong to which pillar. Prefixes rather than an
+#: explicit engine list: a new Semgrep-family engine should count as SAST
+#: without anybody remembering to add it here, and one that does not match any
+#: prefix is better reported as an untested pillar than silently attributed.
+#: Shared by per-report coverage (`build.py::_pillar_coverage`) and the
+#: org-wide rollup (`app/core/dashboard/queries.py::pillar_coverage_for`) —
+#: one prefix table, not two that can drift apart.
+PILLAR_PREFIXES: dict[str, tuple[str, ...]] = {
+    "AI security": ("ai.",),
+    "API security": ("api.", "graphql."),
+    "SAST": ("appsec.sast.",),
+    "DAST": ("dast.",),
+    "SCA": ("appsec.sca.", "appsec.supplychain.", "appsec.container."),
+    "Secrets": ("appsec.secrets.",),
+    "IaC": ("appsec.iac.",),
+    "RASP": ("rasp.",),
+    "Container": ("container.",),
+    "Cloud": ("cloud.",),
+    "VM": ("vm.",),
+    "Domain": ("domain.",),
+    "Pentest": ("pentest.",),
+}
+
+
 @dataclass(frozen=True)
 class PillarCoverage:
     """Whether one pillar ran, and what that means for this report.

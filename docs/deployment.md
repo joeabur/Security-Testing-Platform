@@ -60,8 +60,11 @@ redacted but real exchanges with a customer's system.
 - **The runtime database role must not be a superuser, and must not own the
   application's tables without `FORCE ROW LEVEL SECURITY`.** Migration
   `b2e6f4a91c7d` enables Postgres Row-Level Security (`docs/security-model.md`
-  guarantee #26) on the 14 tenant-scoped tables and sets `FORCE`, which closes
-  the table-owner exemption — but Postgres exempts a **superuser** from RLS
+  guarantee #26) and sets `FORCE`, which closes the table-owner exemption; four
+  later migrations each added RLS to their own new tenant-scoped table the same
+  way, bringing the current total to 21 tables (confirmed live against
+  `pg_policies`, not hand-counted). Every one of them needs the same non-superuser
+  role below — but Postgres exempts a **superuser** from RLS
   unconditionally, with no override available from inside the database. If the
   role the application connects as is a superuser (true of the default
   `postgres` role many hosted Postgres quickstarts create), RLS is silently a

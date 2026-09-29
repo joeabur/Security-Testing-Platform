@@ -11,13 +11,23 @@ engine, determinism/ASR methodology, domain model, and the phased build
 plan — lives in **[`docs/BUILD_SPEC.md`](docs/BUILD_SPEC.md)**. Read that
 first; this README is the practical "how do I run it" companion.
 
-**Current status: v0.1.0 — Phases 1–16 complete.** What works end to
-end today: the scope/authorization engine and its gated transport (the single
-outbound control point), target adapters and OpenAPI discovery, run
-orchestration with cancellation and live progress, 16 API probes, 11 AI
-probes measured with Wilson-interval attack success rates against their own
-controls, the SAST/SCA/secrets/IaC engines plus supply-chain analysis (end-of-life
-runtimes, licence obligations, dependency name confusion, container packages), the AI assistant layer (drafts
+**Current status: v0.1.0 — the original 18-phase AppSec/API/AI platform is
+complete**, and three later builds sit on top of it: a broader **pentest
+module** (containers, cloud, VMs, domains, a sequenced pentest-tool adapter
+layer, multi-vendor AI throughout, Celery Beat scheduling, an HMAC-signed
+inbound webhook, and an organization-wide security-operations dashboard —
+9 of its 12 phases done, `docs/roadmap.md` tracks the rest), a **native AI
+agent** (all 7 phases — a closed, typed tool registry with risk tiers and an
+approval flow, adding zero new persistent storage beyond an explicit
+metrics allowlist, `docs/agent.md`), and a **frontend redesign** of the
+Next.js dashboard (`docs/roadmap.md`'s "Frontend UI redesign" entry). What
+works end to end today: the scope/authorization engine and its gated
+transport (the single outbound control point), target adapters and OpenAPI
+discovery, run orchestration with cancellation and live progress, 16 API
+probes, 11 AI probes measured with Wilson-interval attack success rates
+against their own controls, the SAST/SCA/secrets/IaC engines plus
+supply-chain analysis (end-of-life runtimes, licence obligations, dependency
+name confusion, container packages), the AI assistant layer (drafts
 only, never execution), risk-scored findings with stable fingerprints, and
 content-addressed evidence plus reports in Markdown, HTML, PDF, JSON, SARIF
 2.1.0 and CSV, and a remediation board with a retest workflow that reports
@@ -43,16 +53,25 @@ There is an isolated, intentionally vulnerable demo lab in
 [`demo-target/`](demo-target/), and a self-review of the platform's own
 controls in [`docs/security-review.md`](docs/security-review.md).
 
-Workflows and a server-rendered dashboard are in: a workflow is five stages
-(trigger, plan, actions, evidence, result) whose plan is derived from the
-trigger and the target's configuration alone, and whose gate decision an AI
-recommendation structurally cannot alter — see
-[`docs/workflows.md`](docs/workflows.md). The dashboard at `/app` is Jinja2 with
-optional HTMX, read-only because no write actions are built yet (not, any
-longer, for lack of a CSRF token — see `docs/csrf.md`), and every
-number on it is a real query — see [`docs/dashboard.md`](docs/dashboard.md).
-The Next.js app in `frontend/` remains the Phase-1 auth scaffold and is not
-the dashboard.
+Workflows are in: five stages (trigger, plan, actions, evidence, result)
+whose plan is derived from the trigger and the target's configuration
+alone, and whose gate decision an AI recommendation structurally cannot
+alter; Celery Beat scheduling and an HMAC-signed, replay-protected inbound
+webhook trigger them unattended, always pausing for human approval before
+an unattended trigger's plan queues a scan — see
+[`docs/workflows.md`](docs/workflows.md).
+
+There are two dashboards, deliberately, for two audiences — see
+[`docs/dashboard.md`](docs/dashboard.md). The **Next.js app in `frontend/`**
+is the primary product UI: organizations, targets, runs, workflows,
+repositories, the native AI agent workspace, and an organization-wide
+security-operations overview (open findings by severity, coverage by
+pillar, remediation and retest health, recent activity). A second,
+**server-rendered dashboard at `/app`** is Jinja2 with optional HTMX,
+no build step, read-only because no write actions are built yet (not, any
+longer, for lack of a CSRF token — see `docs/csrf.md`), and every number on
+either dashboard is a real query against the same core query module, never
+two independently-computed answers to the same question.
 
 Runtime protection is recorded as a *claim*, never a measurement, and no RASP
 agent ships — this platform does not run inside anybody's process. See
@@ -76,7 +95,9 @@ Redis-backed control on the platform that fails *closed*, deliberately the
 opposite of the rate limiter next to it. See
 [`docs/revocation.md`](docs/revocation.md).
 
-All eighteen phases are built. [`docs/roadmap.md`](docs/roadmap.md) records
+All eighteen phases of the original AppSec/API/AI platform are built, all
+seven phases of the native AI agent are built, and 9 of the pentest
+module's 12 phases are built. [`docs/roadmap.md`](docs/roadmap.md) records
 exactly what's built versus deferred, and why, phase by phase;
 [`docs/limitations.md`](docs/limitations.md) says what the tool cannot detect
 and where its false positives cluster.

@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Bot, Crosshair, GitBranch, PlayCircle, Workflow } from "lucide-react";
+import { Bot, Crosshair, GitBranch, LayoutDashboard, PlayCircle, Workflow } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 import { cn } from "@/lib/cn";
 
 const SECTIONS: { slug: string; label: string; icon: LucideIcon }[] = [
+  { slug: "", label: "Overview", icon: LayoutDashboard },
   { slug: "targets", label: "Targets", icon: Crosshair },
   { slug: "repositories", label: "Repositories", icon: GitBranch },
   { slug: "workflows", label: "Workflows", icon: Workflow },
@@ -25,11 +26,14 @@ export function OrgSectionNav({ organizationId }: { organizationId: string }) {
       aria-label="Organization sections"
     >
       {SECTIONS.map(({ slug, label, icon: Icon }) => {
-        const href = `${base}/${slug}`;
-        const active = pathname === href || pathname.startsWith(`${href}/`);
+        const href = slug ? `${base}/${slug}` : base;
+        // The overview tab (empty slug, `href === base`) is active only on
+        // an exact match — `startsWith` would also match every subpage's
+        // URL, since they all begin with `base` too.
+        const active = slug ? pathname === href || pathname.startsWith(`${href}/`) : pathname === href;
         return (
           <Link
-            key={slug}
+            key={slug || "overview"}
             href={href}
             aria-current={active ? "page" : undefined}
             className={cn(

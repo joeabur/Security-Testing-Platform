@@ -39,9 +39,9 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 
 from app.auth.dependencies import DbSession, require_membership
+from app.core.dashboard import queries
 from app.models.organization import Membership, Organization, Role
 from app.models.workflow import Workflow
-from app.web import queries
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 STATIC_DIR = Path(__file__).parent / "static"

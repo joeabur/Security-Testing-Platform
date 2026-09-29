@@ -30,11 +30,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.core.csrf import anon as csrf_anon
 from app.core.csrf.enforce import HEADER_NAME
+from app.core.dashboard import queries
 from app.core.probes.models import Category, Confidence, Severity
 from app.models.assessment_run import AssessmentRun, RunStatus
 from app.models.authorization import Authorization
 from app.models.finding import Finding, FindingStatus, Stability
-from app.web import queries
 from app.web import router as web_router
 
 LAB_HOST = "dash.example.test"

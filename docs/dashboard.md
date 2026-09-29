@@ -1,4 +1,62 @@
-# The dashboard
+# The dashboards
+
+Two dashboards exist, for two different audiences, and neither replaced the
+other:
+
+- **The Next.js app in `frontend/`** is the primary, richly interactive
+  product UI — organizations, targets, runs, workflows, repositories, the
+  native AI agent workspace, and (pentest module Phase 10) an at-a-glance
+  security-operations overview. It talks to the same `/api/v1` the CLI and
+  CI use.
+- **The server-rendered dashboard at `/app`**, documented below, is a
+  lighter, no-JS-build, read-only operational view served by the same
+  FastAPI application as the API — useful where standing up the Next.js
+  build isn't wanted, or as a fast, dependency-free check on an
+  organization's state.
+
+Both read from the same core query module
+(`app/core/dashboard/queries.py`), not two independent implementations of
+"how many open findings does this org have" — see "Every number is a query"
+below and `docs/architecture.md`'s "two dashboards, one set of queries"
+decision.
+
+## The security-operations dashboard (Next.js, pentest module Phase 10)
+
+`GET /organizations/{organization_id}/dashboard/summary` (`Role.VIEWER`,
+the same floor as every other read-only organization-scoped list endpoint)
+returns a single `DashboardSummary`: open findings by severity, 7-day
+run/gate activity, remediation and pending-retest counts, coverage by
+pillar, and the five most recent runs, five most recent workflow runs, and
+ten highest-risk open findings. The Next.js frontend renders this at
+`/organizations/{id}` (the organization's landing page, replacing what used
+to be a redirect straight to its targets list).
+
+Every number in that response is a call into
+`app/core/dashboard/queries.py` — the same module `/app`'s own overview
+page below calls. Two additions specific to this endpoint:
+
+- **Coverage by pillar is organization-wide**, not per-run. It reads the
+  same `PILLAR_PREFIXES` table `app/core/reporting/build.py`'s per-report
+  coverage section uses (now published from `app/core/reporting/model.py`
+  so both readers share one prefix table) directly against `scan_results`,
+  so "has SAST ever produced a real result anywhere in this org" and "did
+  SAST run in this one report" can never disagree about what counts as
+  SAST.
+- **"Pending retests" is `Finding.status == RETEST_REQUIRED`**, full stop —
+  no second query against `retest_results`. A remediation is a claim until
+  a retest checks it (`Finding`'s own status-machine docstring), so the
+  finding status already *is* the pending-retest count.
+
+This is not a findings-management UI: the ten highest-risk findings shown
+have no filtering, pagination, or status transitions from this surface —
+that already exists (`GET/POST .../findings`) and stays where it is until
+pentest-module Phase 11 (reporting polish) decides to build a fuller
+Next.js findings view. There is also no historical trend (every count is
+"right now" or "last 7 days" — no time-series storage) and no
+cross-organization view (every query is organization-scoped at the
+database level, same as everywhere else in this platform).
+
+## The Jinja2+HTMX dashboard (`/app`, pentest module Phase 17)
 
 A server-rendered dashboard at `/app`, served by the same FastAPI application as
 the API. Jinja2 templates, one inline stylesheet, no build step and no
@@ -17,7 +75,7 @@ It authenticates with the session cookie the API's `/auth/login` and
 `/auth/register` set. There is no sign-in form: a second credential path is a
 second thing to get wrong.
 
-## It is read-only, and that is a scope decision now, not a security one
+### It is read-only, and that is a scope decision now, not a security one
 
 Every route under `/app` is a `GET`. Not "mostly", and not "for now" —
 `tests/test_web.py::test_every_dashboard_route_is_a_get` walks the route table
@@ -42,12 +100,15 @@ These routes are the obvious place to put a write handler if one is ever
 built — and the route-table test above is what will make that a deliberate
 change rather than an accident.
 
-## Every number is a query
+### Every number is a query
 
-§27's other rule: *no hardcoded dashboard values*. Every figure the dashboard
-renders comes from `app/web/queries.py`, and nothing else is passed to a
-template. A template that wanted a number not in that module would have to add
-it there first.
+§27's other rule: *no hardcoded dashboard values*. Every figure this dashboard
+renders comes from `app/core/dashboard/queries.py`, and nothing else is passed
+to a template. A template that wanted a number not in that module would have
+to add it there first. (That module lived at `app/web/queries.py` through
+Phase 17; it moved to `app/core/` in Phase 10 specifically so the Next.js
+summary endpoint above and this page could both call it, rather than each
+computing the same counts independently.)
 
 `tests/test_web.py::test_every_number_on_the_overview_comes_from_a_query` reads
 the card values and the severity table **back out of the rendered HTML** and
@@ -69,7 +130,7 @@ Two rules the queries follow:
   `require_membership(...)`, and a non-member gets the same **404** the API
   gives — 403 would confirm the organization exists.
 
-## The targets page names what blocks a scan
+### The targets page names what blocks a scan
 
 A target with no authorization grant is refused at run time. A dashboard that
 listed only its name would leave an operator to discover that by trying, so the
@@ -78,7 +139,7 @@ no adapter configured. An expired grant renders as `expired`, never as
 `granted` — the window is checked per request, and the dashboard must not say
 the opposite of what the orchestrator is about to do.
 
-## HTMX
+### HTMX
 
 The templates carry `hx-get` / `hx-target` attributes and the handlers honour
 the `HX-Request` header, returning the fragment instead of the page. One
@@ -103,7 +164,7 @@ every script a template loads is served by this application.
 document reachable by an ordinary link; HTMX only swaps a fragment instead of
 the page.
 
-## Templates escape what they render
+### Templates escape what they render
 
 A findings dashboard renders attacker-influenced text: a probe's payload,
 echoed back by the target and stored on the finding. Autoescaping is on and
@@ -112,5 +173,11 @@ the stored-XSS sink it tests its clients for.
 
 ## What replaced what
 
-The Next.js scaffold from Phase 1 remains in `frontend/` and is not the
-dashboard. `docs/roadmap.md` records that.
+Nothing did. Through Phase 17 this section correctly said the Next.js app
+was "the Phase-1 auth scaffold and not the dashboard" — that stopped being
+true well before pentest-module Phase 10: the Next.js frontend grew into
+the full product UI (organizations, targets, runs, workflows, repositories,
+the native agent) across the phases `docs/roadmap.md` records, then gained
+its own security-operations overview in Phase 10. The two dashboards now
+serve different, deliberate purposes (above) rather than one having
+superseded the other.

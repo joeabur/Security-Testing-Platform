@@ -227,3 +227,82 @@ export interface Investigation {
   summary: string | null;
   pending_approval: PendingApproval | null;
 }
+
+// --- Security operations dashboard (pentest module, Phase 10) --------------
+
+export type Severity = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "INFORMATIONAL";
+
+export interface SeverityCounts {
+  critical: number;
+  high: number;
+  medium: number;
+  low: number;
+  informational: number;
+}
+
+export interface PillarCoverageEntry {
+  pillar: string;
+  tested: boolean;
+}
+
+export interface RemediationSummary {
+  open: number;
+  overdue: number;
+}
+
+export interface DashboardRun {
+  id: string;
+  target_id: string;
+  target_name: string;
+  status: RunStatus;
+  profile: string;
+  findings_reported: number;
+  created_at: string;
+}
+
+export interface DashboardWorkflowRun {
+  id: string;
+  workflow_id: string;
+  workflow_name: string;
+  status: string;
+  gate_passed: boolean | null;
+  created_at: string;
+}
+
+export type FindingStatus =
+  | "new"
+  | "confirmed"
+  | "false_positive"
+  | "accepted_risk"
+  | "in_remediation"
+  | "remediated"
+  | "retest_required"
+  | "closed";
+
+export interface DashboardFinding {
+  id: string;
+  title: string;
+  severity: Severity;
+  risk_score: number;
+  status: FindingStatus;
+  target_id: string | null;
+  target_name: string | null;
+  last_seen: string;
+}
+
+export interface DashboardSummary {
+  targets: number;
+  open_findings: number;
+  open_findings_by_severity: SeverityCounts;
+  runs_last_7_days: number;
+  failed_runs_last_7_days: number;
+  workflows: number;
+  failing_gates_last_7_days: number;
+  undelivered_notifications: number;
+  remediation: RemediationSummary;
+  pending_retests: number;
+  pillar_coverage: PillarCoverageEntry[];
+  recent_runs: DashboardRun[];
+  recent_workflow_runs: DashboardWorkflowRun[];
+  top_findings: DashboardFinding[];
+}

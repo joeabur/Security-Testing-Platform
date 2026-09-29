@@ -5,6 +5,7 @@ from app.api.v1.routers import (
     api_keys,
     assistant,
     auth,
+    dashboard,
     findings,
     health,
     integrations,
@@ -32,6 +33,7 @@ api_router.include_router(runs.router)
 api_router.include_router(reports.router)
 api_router.include_router(findings.router)
 api_router.include_router(remediation.router)
+api_router.include_router(dashboard.router)
 api_router.include_router(integrations.router)
 api_router.include_router(vcs.router)
 api_router.include_router(assistant.router)
