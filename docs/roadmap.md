@@ -3925,3 +3925,74 @@ refused with `404`. RBAC and tenant isolation for all six routes are
 covered generically by `tests/security/test_authorization_matrix.py`
 (registered in `EXPECTED_ROLES`). Full backend suite run as the final
 gate before commit.
+
+## Pentest module, Phase 11 — reporting polish (a fuller Next.js findings view)
+
+### Context
+
+The last two named-but-deferred items in the backlog. Both `docs/
+dashboard.md` and this file's own Phase 10 write-up said the same thing:
+the dashboard's top-findings widget deliberately has no filtering,
+pagination, or status transitions, and "a fuller Next.js findings view is
+pentest-module Phase 11 (reporting polish)" would build it. Everything
+that view needs already existed — `GET/POST .../findings`, the
+`ALLOWED_TRANSITIONS` lifecycle, the Jinja2 dashboard's own findings page
+— none of it had a Next.js surface.
+
+### Design
+
+Two server components, no client-side data-fetching library: `/
+organizations/{id}/findings` (list, `method="get"` filter form for
+severity/status, pagination via `limit`/`offset` query params) and `/
+organizations/{id}/findings/{findingId}` (full detail + a status-
+transition client component). `GET .../findings` gained optional
+`limit`/`offset` — both default to unbounded, so the CLI, the CI gate,
+and this router's own existing tests see byte-identical responses to
+before; only a caller that opts in gets a page. "Has more" is decided by
+requesting one extra row and checking whether it came back, the same
+technique the Jinja2 dashboard's `queries.has_more_findings` already
+uses, without needing a second request or a `COUNT(*)`.
+
+The status-transition form never offers a free choice of the full
+`FindingStatus` enum: its options come from `ALLOWED_FINDING_TRANSITIONS`
+(`frontend/lib/types.ts`), a frontend mirror of `ALLOWED_TRANSITIONS` in
+`app/models/finding.py`, the same "duplicated, with a comment pointing at
+the source of truth" idiom `ANONYMOUS_CSRF_PATHS` already uses for a
+different backend constant the frontend must not drift from — backed
+here by a dedicated test (`lib/__tests__/types.test.ts`) asserting the
+two stay equal, so a future change to one without the other fails loudly
+in CI rather than silently letting the UI offer a transition the backend
+will then refuse with `409`.
+
+### What this does not change
+
+- No report-generation UI in Next.js — "reporting polish" named the
+  findings view specifically (`docs/dashboard.md`'s own wording); report
+  rendering/download stays on the existing API and the Jinja2 dashboard,
+  unchanged.
+- No historical trend or cross-organization view for findings, matching
+  every other view in this frontend.
+- No bulk status transitions — one finding at a time, the same granularity
+  `POST .../findings/{id}/status` has always offered.
+
+### Verified
+
+`ruff check`/`mypy app` clean; `npm run typecheck`/`lint`/`build` clean.
+New backend test (`test_limit_and_offset_page_through_the_same_ordering
+_omitting_them_returns`) proves pagination is additive: the unbounded
+response is unchanged, and paging through with `limit=1` reproduces the
+same ordering one row at a time. New frontend tests for
+`findingTransitionSchema` and for `ALLOWED_FINDING_TRANSITIONS` matching
+the backend map exactly. Then verified live, not just via build/test
+output: registered a user, created a real target (this backend itself,
+authorized via a loopback RoE), queued a real scan through a real Celery
+worker, and got back a real finding ("API is served over plaintext
+HTTP"). A scripted Chromium session then logged in, opened the new
+findings list, confirmed the real finding was visible, applied severity
+and status filters (finding stays visible), applied a non-matching filter
+(empty state, not a stale list), opened the detail page (description,
+impact, remediation all rendered from the live API response), transitioned
+the finding from `new` to `confirmed` with a note, and confirmed the
+status-form's options changed to exactly `confirmed`'s own allowed next
+states — proving the transitions map drives the live UI, not just the
+unit test.

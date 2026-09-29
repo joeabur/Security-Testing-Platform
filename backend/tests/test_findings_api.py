@@ -286,6 +286,41 @@ async def test_findings_can_be_filtered_and_are_ordered_by_risk(
     assert len(filtered) == len(findings)
 
 
+async def test_limit_and_offset_page_through_the_same_ordering_omitting_them_returns(
+    client: AsyncClient, strong_password: str
+) -> None:
+    """`limit`/`offset` are additive: a caller that never passes either
+    (the CLI, the CI gate, every test above) must see the identical,
+    unbounded response it always has — only a caller that opts in gets a
+    page. Added for the frontend's findings view (pentest module
+    Phase 11), not a change to the existing contract."""
+    org_id, target_id, headers = await _setup(client, strong_password, "j")
+    await _run(client, org_id, target_id, headers)
+
+    unbounded = (
+        await client.get(f"/api/v1/organizations/{org_id}/findings", headers=headers)
+    ).json()
+    assert len(unbounded) >= 2, "the vulnerable lab run must produce more than one finding"
+
+    first_page = (
+        await client.get(
+            f"/api/v1/organizations/{org_id}/findings",
+            params={"limit": 1, "offset": 0},
+            headers=headers,
+        )
+    ).json()
+    second_page = (
+        await client.get(
+            f"/api/v1/organizations/{org_id}/findings",
+            params={"limit": 1, "offset": 1},
+            headers=headers,
+        )
+    ).json()
+
+    assert [f["id"] for f in first_page] == [unbounded[0]["id"]]
+    assert [f["id"] for f in second_page] == [unbounded[1]["id"]]
+
+
 async def test_findings_are_not_visible_across_organizations(
     client: AsyncClient, strong_password: str
 ) -> None:

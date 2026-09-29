@@ -47,14 +47,45 @@ page below calls. Two additions specific to this endpoint:
   a retest checks it (`Finding`'s own status-machine docstring), so the
   finding status already *is* the pending-retest count.
 
-This is not a findings-management UI: the ten highest-risk findings shown
-have no filtering, pagination, or status transitions from this surface —
-that already exists (`GET/POST .../findings`) and stays where it is until
-pentest-module Phase 11 (reporting polish) decides to build a fuller
-Next.js findings view. There is also no historical trend (every count is
-"right now" or "last 7 days" — no time-series storage) and no
+This is still not a findings-management UI: it is a ten-row summary, on
+purpose, with no filtering, pagination, or status transitions of its own —
+each top finding links out to the fuller `/organizations/{id}/findings`
+view instead (pentest-module Phase 11), which is where that management
+surface actually lives now. There is also no historical trend (every
+count is "right now" or "last 7 days" — no time-series storage) and no
 cross-organization view (every query is organization-scoped at the
 database level, same as everywhere else in this platform).
+
+## The findings view (`/organizations/{id}/findings`, pentest module Phase 11)
+
+The fuller view the paragraph above refers to. Two server-rendered pages,
+no client-side state beyond the one status-transition form:
+
+- `/organizations/{id}/findings` — every finding the organization has
+  (not just the dashboard's top ten), filterable by `severity` and
+  `status` via plain `method="get"` form fields (no JavaScript needed to
+  filter), paginated 25 at a time. Filters and page number both live in
+  the URL's query string, so a filtered, paginated view is a link a
+  reviewer can share or bookmark, the same as everywhere else server
+  components are used in this frontend.
+- `/organizations/{id}/findings/{findingId}` — full detail (description,
+  impact, remediation, reproduction steps, risk inputs, severity
+  rationale) plus a status-transition form. The form's options are never
+  a free-text or full-enum dropdown: they come from
+  `ALLOWED_FINDING_TRANSITIONS` (`lib/types.ts`), a frontend mirror of
+  `ALLOWED_TRANSITIONS` in `app/models/finding.py` — the same
+  "duplicated, with a comment pointing at the source of truth" idiom
+  `ANONYMOUS_CSRF_PATHS` already uses for a backend constant the frontend
+  must not drift from, checked by a dedicated test
+  (`lib/__tests__/types.test.ts`) that fails loudly if the two ever
+  diverge.
+
+`GET .../findings` gained optional `limit`/`offset` query parameters to
+support pagination. Both default to "unbounded" — a caller that never
+passes either (the CLI, the CI gate, every route this frontend doesn't
+touch) gets the exact same full, ordered response it always has; the
+pagination is opt-in, not a breaking change to an endpoint other clients
+already depend on.
 
 ## The Jinja2+HTMX dashboard (`/app`, pentest module Phase 17)
 

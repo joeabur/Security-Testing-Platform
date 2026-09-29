@@ -9,7 +9,7 @@ that is what these endpoints change.
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import select
 
 from app.audit.service import record_event
@@ -29,6 +29,14 @@ async def list_findings(
     severity: Severity | None = None,
     finding_status: FindingStatus | None = None,
     run_id: uuid.UUID | None = None,
+    # Both optional and both backward compatible: a caller that passes
+    # neither (every existing one — the CLI, the CI gate, this router's own
+    # earlier tests) gets the exact same unbounded, fully-ordered list as
+    # before. Only a caller that opts in by passing `limit` gets a page —
+    # the frontend's findings view, added once pagination had a reason to
+    # exist (pentest module Phase 11).
+    limit: int | None = Query(default=None, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
     membership: Membership = Depends(require_membership(Role.VIEWER)),  # noqa: B008
 ) -> list[FindingRead]:
     query = select(Finding).where(Finding.organization_id == organization_id)
@@ -42,7 +50,11 @@ async def list_findings(
         # organization have open in total".
         query = query.where(Finding.last_run_id == run_id)
 
-    rows = await db.execute(query.order_by(Finding.risk_score.desc(), Finding.last_seen.desc()))
+    query = query.order_by(Finding.risk_score.desc(), Finding.last_seen.desc()).offset(offset)
+    if limit is not None:
+        query = query.limit(limit)
+
+    rows = await db.execute(query)
     return [FindingRead.model_validate(row) for row in rows.scalars().all()]
 
 

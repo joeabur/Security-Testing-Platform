@@ -144,6 +144,21 @@ export const startRunSchema = z.object({
 });
 export type StartRunInput = z.infer<typeof startRunSchema>;
 
+export const findingTransitionSchema = z.object({
+  status: z.enum([
+    "new",
+    "confirmed",
+    "false_positive",
+    "accepted_risk",
+    "in_remediation",
+    "remediated",
+    "retest_required",
+    "closed",
+  ]),
+  note: z.string().max(2000).optional(),
+});
+export type FindingTransitionInput = z.infer<typeof findingTransitionSchema>;
+
 export const createWorkflowSchema = z.object({
   name: z.string().min(1, "Name is required").max(120),
   target_id: z.string().min(1, "Choose a target"),

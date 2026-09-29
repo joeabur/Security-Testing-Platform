@@ -36,6 +36,23 @@ All notable changes to this project are recorded here. The format follows
 
 ### Added
 
+- **Pentest module, Phase 11: a fuller Next.js findings view.** The
+  dashboard summary's top-findings list has always had "no filtering,
+  pagination, or status transitions from this surface" (`docs/dashboard.md`)
+  — that capability existed only in the older Jinja2 dashboard and the raw
+  API. New `/organizations/{id}/findings` (filterable by severity and
+  status, paginated) and `/organizations/{id}/findings/{findingId}`
+  (full detail: description, impact, remediation, reproduction steps,
+  risk inputs) pages close that gap, plus a status-transition form
+  restricted to each finding's actual allowed next states
+  (`ALLOWED_TRANSITIONS` in `app/models/finding.py`) rather than a free
+  dropdown. `GET .../findings` gained optional `limit`/`offset` query
+  params to support it — both default to "unbounded", so the CLI, the CI
+  gate, and every existing caller see the exact same response they always
+  have. Verified live: a real scan of a real target produced a real
+  finding, then a scripted browser session filtered, opened, and
+  transitioned it end to end. See `docs/dashboard.md`.
+
 - **Optional TOTP-based two-factor authentication**, end to end: backend
   enroll/enable/disable endpoints (`POST /auth/2fa/setup`, `.../enable`,
   `.../disable`) and a login-time challenge (`POST /auth/login/2fa`) that

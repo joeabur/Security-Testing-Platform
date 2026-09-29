@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   createOrganizationSchema,
+  findingTransitionSchema,
   loginSchema,
   registerSchema,
   totpCodeSchema,
@@ -66,6 +67,26 @@ describe("totpCodeSchema", () => {
 
   it("rejects an empty code", () => {
     const result = totpCodeSchema.safeParse({ code: "" });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("findingTransitionSchema", () => {
+  it("accepts a known status with no note", () => {
+    const result = findingTransitionSchema.safeParse({ status: "confirmed" });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts a known status with a note", () => {
+    const result = findingTransitionSchema.safeParse({
+      status: "accepted_risk",
+      note: "compensating control in place",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects an unknown status", () => {
+    const result = findingTransitionSchema.safeParse({ status: "not-a-real-status" });
     expect(result.success).toBe(false);
   });
 });
