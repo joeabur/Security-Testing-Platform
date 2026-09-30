@@ -1,0 +1,25 @@
+# Documented, dated exemptions for the `container` workflow's image
+# vulnerability scan (`.github/workflows/container.yml`) — mirrors the
+# same "documented, dated exemption" convention `.github/workflows/
+# deps.yml`'s own pip-audit `--ignore-vuln` flags already use, rather
+# than a silent, undated suppression.
+#
+# Both entries below are OS-package advisories in the `python:3.12-slim`
+# base image (Debian's `libssl3t64`/`openssl`), not anything this
+# repository's own code or dependencies introduce. No patched Debian
+# package is resolvable through the currently-published `python:3.12-
+# slim` tag yet. Revisit and remove once Debian ships the fix and a
+# fresh `docker build` no longer reports it — do not carry either of
+# these past that point.
+#
+# Added 2026-09-30.
+
+# CVE-2026-75804 — openssl: OpenSSL Denial of Service via unenforced
+# QUIC connection flow control. Fixed in 3.5.7-1~deb13u3; the currently
+# resolvable python:3.12-slim image carries 3.5.7-1~deb13u2.
+CVE-2026-75804
+
+# CVE-2026-84782 — openssl: compat-openssl: Information disclosure via
+# DTLS handshake retransmission. Same fixed/installed version gap as
+# CVE-2026-75804 above.
+CVE-2026-84782
