@@ -374,13 +374,16 @@ def test_a_real_installed_distribution_hashes_reproducibly() -> None:
 
 
 def test_the_documented_configuration_parses() -> None:
+    # A run of one character, not a real digest: a 64-hex-char literal here
+    # would itself look like a leaked secret to a secrets scanner.
+    fake_digest = "a" * 64
     policy = load_policy(
-        """
+        f"""
 plugins:
   enabled: true
   allowlist:
     - name: kervy-plugin-example
-      sha256: 3f786850e387550fdab836ed7e6dc881de23001b00000000000000000000aaaa
+      sha256: {fake_digest}
     - kervy-plugin-simple
 """
     )

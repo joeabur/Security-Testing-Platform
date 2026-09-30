@@ -15,7 +15,7 @@ from pathlib import Path
 DEFAULT_BASE_URL = "http://localhost:8000/api/v1"
 
 ENV_BASE_URL = "KERVY_BASE_URL"
-ENV_TOKEN = "KERVY_API_KEY"
+ENV_TOKEN = "KERVY_API_KEY"  # pragma: allowlist secret
 ENV_ORG = "KERVY_ORGANIZATION"
 
 

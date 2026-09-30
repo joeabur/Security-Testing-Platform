@@ -160,7 +160,7 @@ async def test_a_channel_pointing_at_an_unsanctioned_host_is_refused(
             "kind": "generic_webhook",
             "events": ["finding.critical"],
             "endpoint_env_var": "KERVY_TEST_EVIL",
-            "signing_secret_env_var": "KERVY_TEST_SIGNING",
+            "signing_secret_env_var": "KERVY_TEST_SIGNING",  # pragma: allowlist secret
         },
         headers=headers,
     )
@@ -185,7 +185,7 @@ async def test_a_refused_channel_is_audited(
             "kind": "generic_webhook",
             "events": ["finding.critical"],
             "endpoint_env_var": "KERVY_TEST_EVIL2",
-            "signing_secret_env_var": "KERVY_TEST_SIGNING",
+            "signing_secret_env_var": "KERVY_TEST_SIGNING",  # pragma: allowlist secret
         },
         headers=headers,
     )

@@ -19,8 +19,8 @@ from app.core.csrf.enforce import HEADER_NAME
 from app.models.audit import AuditEvent
 from app.models.vcs import PullRequestPost, VcsConnection
 
-TOKEN = "ghp_exampleexampleexampleexample5678"
-TOKEN_ENV = "KERVY_TEST_VCS_TOKEN"
+TOKEN = "ghp_exampleexampleexampleexample5678"  # pragma: allowlist secret
+TOKEN_ENV = "KERVY_TEST_VCS_TOKEN"  # pragma: allowlist secret
 
 
 @pytest.fixture(autouse=True)

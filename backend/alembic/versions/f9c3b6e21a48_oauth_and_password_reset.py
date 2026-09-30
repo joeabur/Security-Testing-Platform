@@ -1,7 +1,7 @@
 """oauth identities and password reset tokens
 
-Revision ID: f9c3b6e21a48
-Revises: e1d16423a6b1
+Revision ID: f9c3b6e21a48  # pragma: allowlist secret
+Revises: e1d16423a6b1  # pragma: allowlist secret
 Create Date: 2026-09-29
 
 Social OAuth login (Google, GitHub) and a self-service password reset flow.
@@ -24,8 +24,8 @@ import sqlalchemy as sa
 
 from alembic import op
 
-revision: str = "f9c3b6e21a48"
-down_revision: str | None = "e1d16423a6b1"
+revision: str = "f9c3b6e21a48"  # pragma: allowlist secret
+down_revision: str | None = "e1d16423a6b1"  # pragma: allowlist secret
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

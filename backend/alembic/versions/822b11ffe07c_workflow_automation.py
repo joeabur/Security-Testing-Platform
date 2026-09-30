@@ -1,7 +1,7 @@
 """workflow automation
 
-Revision ID: 822b11ffe07c
-Revises: d8b3f6a1c2e4
+Revision ID: 822b11ffe07c  # pragma: allowlist secret
+Revises: d8b3f6a1c2e4  # pragma: allowlist secret
 Create Date: 2026-09-29 06:16:01.425118
 """
 
@@ -11,8 +11,8 @@ import sqlalchemy as sa
 
 from alembic import op
 
-revision: str = "822b11ffe07c"
-down_revision: str | None = "d8b3f6a1c2e4"
+revision: str = "822b11ffe07c"  # pragma: allowlist secret
+down_revision: str | None = "d8b3f6a1c2e4"  # pragma: allowlist secret
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

@@ -1,7 +1,7 @@
 """agent provider IP allowlist
 
-Revision ID: b6f1d84a2c19
-Revises: a8d4e1c93f76
+Revision ID: b6f1d84a2c19  # pragma: allowlist secret
+Revises: a8d4e1c93f76  # pragma: allowlist secret
 Create Date: 2026-09-29
 
 `agent_providers.allowed_ip_ranges` mirrors `RulesOfEngagement.allowed_ip_ranges`
@@ -20,8 +20,8 @@ import sqlalchemy as sa
 
 from alembic import op
 
-revision: str = "b6f1d84a2c19"
-down_revision: str | None = "a8d4e1c93f76"
+revision: str = "b6f1d84a2c19"  # pragma: allowlist secret
+down_revision: str | None = "a8d4e1c93f76"  # pragma: allowlist secret
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
