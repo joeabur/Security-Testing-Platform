@@ -648,3 +648,292 @@ checks the token itself is refused afterward — verified to fail with
 `revocation.revoke`, which would leave the list looking right while the
 token underneath kept working, before restoring the real fix.
 
+## Social OAuth login and TOTP two-factor authentication
+
+Two new ways to establish a session, both reviewed for the same failure
+mode: does the new path quietly reuse or weaken an existing control.
+
+**OAuth identity is matched by `(provider, provider_user_id)`, never by
+email.** `app/models/oauth.py` links `OAuthIdentity` to a `User` by that
+pair only. A callback whose email matches an existing password-only
+account refuses with `409` rather than linking silently — matching by
+email would let anyone who controls an address at a provider that does not
+itself verify ownership claim an existing account, the same account-
+takeover shape `POST /auth/register`'s duplicate-email case already
+guards against.
+
+**The OAuth flow gets its own egress context and its own CSRF nonce.**
+`app/core/oauth/egress.py` is the fourth instance of this platform's
+"fresh `RunContext`, one host in `allowed_domains`, through the sole
+`GatedTransport`" pattern — the same shape `app/core/vcs/egress.py` and
+`app/core/assistant/egress.py` already use. The authorization-code flow's
+CSRF protection is a single-use, Redis-backed state nonce
+(`app/core/oauth/state.py`), fail-closed like every other Redis-backed
+store on this platform except the rate limiter — it plays the role the
+anonymous CSRF token (`app/core/csrf/anon.py`) plays for `/auth/login`,
+since there is no session yet to bind an ordinary token to.
+
+**A TOTP challenge cannot be replayed as a session, and cannot be presented
+as an access token.** `POST /auth/login` returns a `TotpChallenge` — a
+short-lived JWT deliberately missing the `iat_us`/`jti` claims
+`decode_access_token` requires — instead of a session once `totp_enabled`
+is true. That omission means it structurally cannot be accepted as a
+Bearer token by anything else in the platform, whatever it is presented
+as. `POST /auth/login/2fa` redeems it exactly once through a Redis-backed
+store (`app/core/twofactor/challenge_store.py`), fail-closed: an
+unreachable store refuses the login attempt rather than treating an
+unconfirmed challenge as fresh.
+
+**The TOTP secret is encrypted, not merely hashed, and unset key means
+refuse, not store plaintext.** `User.totp_secret_encrypted` follows
+`webhook_secret_encryption_key`'s exact "not optional encryption"
+pattern: `KERVY_TOTP_ENCRYPTION_KEY` unset means enabling 2FA refuses with
+`503`, never stores a secret in cleartext. Ten recovery codes are minted
+at enable time, shown once, and stored as SHA-256 digests — the same shape
+`ApiKey` already uses.
+
+**`/auth/login/2fa` needed the anonymous CSRF token; `forgot-password` and
+`reset-password` did not, and that is a real distinction, not an
+inconsistency.** `/auth/login/2fa` establishes a new session, so it carries
+the same login-CSRF exposure `/login` and `/register` already have, and is
+in `ANONYMOUS_CSRF_PATHS`. `forgot-password`/`reset-password` never read the
+caller's session — their entire authority is the request body — so a forged
+request achieves nothing a direct call would not, and they sit in
+`EXEMPT_PATHS` instead. Found by a genuine test failure during this work (a
+shared test client already carrying a session cookie from an earlier
+`register()` call), not assumed correct by design review alone.
+
+Verified: `tests/test_oauth.py`, `tests/test_password_reset.py`,
+`tests/test_twofactor.py`, plus the existing `test_auth.py`/`test_csrf.py`/
+`test_rate_limit.py`/`test_authorization_matrix.py` suites re-run against the
+new routes. OAuth's outbound calls never touch a real network in tests — a
+`FakeDnsResolver` satisfies the scope engine's allowlist check and `respx`
+replaces the socket. The TOTP flow was additionally verified live against
+the running application (backend, frontend, Postgres, Redis together, not
+build/test output alone): register, enable 2FA, scan the real rendered QR
+code, confirm, sign out, sign back in with the password alone (refused —
+stays on the login page), a fresh TOTP code completes sign-in, sign out
+again, a recovery code also completes sign-in, disable 2FA. Every step
+passed.
+
+## Membership control: an owner-only ceiling on owner grants
+
+Found during a direct request to confirm an organization owner has full
+membership control without global or cross-tenant privileges. Cross-tenant
+isolation was already true; membership control was not, in two ways at
+once. `app/api/v1/routers/organizations.py` had no route to remove a member
+or change an existing member's role — regardless of who was asking. And the
+one membership-write route that did exist, `invite_member`, had `Role.ADMIN`
+as its floor, which meant an Admin — not only an Owner — could grant
+`Role.OWNER` to anyone, including an account they controlled themselves. That
+is a real privilege-escalation path: `Role.OWNER` is the most senior role in
+`seniority_order()`, so nothing above it exists to check the grant.
+
+New `PATCH`/`DELETE /organizations/{organization_id}/members/{member_id}`,
+both `Role.ADMIN` like `invite_member` — an Admin still manages ordinary
+membership day to day. The carve-out: granting, changing away from, or
+removing `Role.OWNER` additionally requires the caller's own membership to
+already be `Role.OWNER`. The same check was added retroactively to
+`invite_member`'s grant side.
+
+**The last remaining owner cannot be demoted or removed, even by another
+owner.** Refused with `409`, not merely discouraged. Without that rail, the
+owner-only check above would still pass for the last owner acting on
+themselves, and the organization would be left with no one able to perform
+an owner-only action ever again — including undoing the mistake.
+`_owner_count()` is a single `COUNT(*) WHERE role = 'owner'`, scoped to the
+organization and checked before the write.
+
+Verified: new tests in `tests/test_organizations.py` — an admin cannot grant
+or revoke owner, an owner can change a member's role, the last owner cannot
+be demoted or removed, a second owner then can be, an admin can remove a
+non-owner member, and removing a member by id from another organization is
+`404`, the same cross-tenant non-disclosure every other route in this
+platform uses. `tests/security/test_authorization_matrix.py` updated with
+both new routes.
+
+## Agent provider provisioning, and the private-network gap it exposed
+
+Found by a live runtime audit — starting the API, the frontend and a Celery
+worker, not reading source alone. The native agent's own engine (planner,
+tool runtime, `POST .../agent/investigate`) was fully built and correctly
+returned `409` when unconfigured, but nothing anywhere in the codebase —
+no endpoint, no CLI command, no UI — could ever create the `AgentProvider`
+row that clears that `409`. The only place one was ever constructed was a
+test fixture.
+
+A second, deeper gap sat behind the first: even once provisioning existed,
+`platform_egress_context` (`app/core/assistant/egress.py`) hardcoded an
+empty `allowed_ip_ranges`, so `GatedTransport` refused any provider endpoint
+at a private or loopback address — exactly where a self-hosted model server
+(`AgentProviderKind.OPENAI_COMPATIBLE`, covering Ollama/vLLM/llama.cpp)
+almost always lives. A local, free provider the agent framework's own design
+already anticipated would have been non-functional the moment someone tried
+to point at one.
+
+Six new endpoints on `app/api/v1/routers/agent.py`:
+`POST`/`GET`/`PATCH`/`DELETE .../agent/providers` and `GET`/`PUT .../agent`,
+admin to write and analyst to read — configuring what the agent may reach is
+a configuration change, not itself a scan, the same split `docs/workflows.md`
+draws between admin and security-engineer tiers. A new
+`AgentProvider.allowed_ip_ranges` column threads into
+`platform_egress_context`'s own `RulesOfEngagement.allowed_ip_ranges` — the
+same mechanism a scan target's own rules of engagement already use to
+authorize a private-network target, applied here to a provider endpoint for
+the first time. **The cloud-metadata address stays blocked unconditionally
+regardless of this setting** — `hostmatch.py`'s metadata check ignores the
+allowlist entirely, the same absolute carve-out §"Private ranges are
+blocked" above describes for an ordinary target.
+
+Verified: `tests/test_agent_provisioning.py` — creating a provider never
+returns a secret, creating a default provider enables the agent and clears
+`investigate`'s `409`, an invalid CIDR is rejected at write time (`422`), a
+local `openai_compatible` provider's `allowed_ip_ranges` survives the round
+trip into the actual `RunContext` `platform_egress_context` builds, deleting
+the default provider leaves the agent cleanly unconfigured rather than
+pointing at a row that no longer exists, and a default-provider id from
+another organization is refused with `404`. RBAC and tenant isolation for
+all six routes are covered by `tests/security/test_authorization_matrix.py`.
+
+## `AgentTool.enabled` and `minimum_role_override`: enforced, not merely stored
+
+`AgentTool.enabled` and `AgentTool.minimum_role_override` had existed in the
+schema since the agent's earliest phase with no code anywhere that ever read
+or wrote either column — `grep -rn "AgentTool(" --include "*.py" .` returned
+only test-fixture instantiations. An organization admin who believed they
+had disabled a tool, or raised its minimum role, was silently unprotected:
+the exact "looks enforced but isn't" shape this review exists to catch.
+
+New `app/core/agent/tool_config.py`: `load_tool_config` (one query per
+request or plan, not one per tool call), `effective_minimum_role` and
+`is_tool_enabled`. **`effective_minimum_role` enforces the "never lower the
+bar" invariant a second time, at read time** — a stored override that would
+lower a tool's effective minimum role below its code default is ignored,
+not trusted, even though `validate_role_override` already refuses to write
+one at `PUT` time. The same defence-in-depth reasoning
+`exploitation_service.py`'s three-allowlist gate applies to what can be
+fired is applied here to what a stored row is allowed to mean.
+`app/core/agent/permissions.py` gained a third independent check —
+`authorize_enabled` raises `ToolDisabledError`, a subclass of the existing
+`ToolPermissionError` rather than a sibling, so every caller that already
+catches the parent handles a disabled tool with no new branch.
+
+New `GET`/`PUT .../agent/tools/{tool_name}/config` (analyst read, admin
+write), upserting the whole `AgentTool` row per call rather than a `PATCH`
+that could leave a stale field. Both `call_tool` (the direct single-tool
+surface `backend/mcp_server/` uses) and `run_plan` now check
+`is_tool_enabled`/`effective_minimum_role` before permitting a call. **A
+resumed, post-approval-pause investigation reloads this configuration
+fresh** rather than trusting a decision made when the plan was first
+enqueued — a tool disabled or raised during the pause window is caught at
+resume time, mirroring the pentest exploitation-fire task's own
+re-validation-at-execution-time pattern below.
+
+Verified: `tests/test_agent_tool_config.py` (pure-function coverage, plus a
+DB-backed test proving `load_tool_config` is scoped per organization),
+additions to `tests/test_agent_permissions.py`, and integration tests in
+`tests/test_agent_api.py` — a `PUT`/`GET` round trip, `PUT` rejecting a
+lowering override with `422`, disabling a tool refusing even the
+organization's own `OWNER` on a direct call with `403`.
+`tests/security/test_authorization_matrix.py` extended for both new routes.
+
+## The pentest module's exploitation tier: a dual-control gate
+
+The exploitation tier (`TestDepth.EXPLOITATION`) is simulate-then-fire: an
+ordinary run only ever emits an eligibility marker (`KERVY-PENTEST-108`);
+firing a real exploit — a live `nmap -Pn --script <exploit>` invocation — is
+a separate, deliberate action, gated by its own `ExploitationAuthorization`
+(`docs/authorization-and-scope.md`) and, as of this section, by a second
+human.
+
+**One person holding `Role.SECURITY_ENGINEER` was never meant to be
+sufficient to both decide a real exploit should run and be the one whose
+click ran it**, given the blast radius a live exploit carries — closer to a
+missing control than an accepted trade-off, and found by re-reading the
+exploitation tier's own stated deferrals rather than by a new report.
+`request_fire` now creates every fire `AWAITING_APPROVAL`, never `QUEUED`,
+so `POST .../exploitation-fires` no longer dispatches the worker itself.
+`approve_fire` (`app/core/pentest/exploitation_service.py`) is where dual
+control actually lives: it refuses with `409` if the approver is the same
+person as the requester — the one check that makes "a second approver" mean
+a second *person*, not a second click by the same one. `reject_fire` carries
+no such restriction, deliberately: calling off a live exploit is the safe
+direction dual control does not need to slow down.
+
+**The three-allowlist gate runs three times, not once — at request, at
+approval, and again inside the worker task immediately before the real
+`nmap` invocation.** Never trust that an earlier check is still true later,
+the same reasoning `GatedTransport` re-resolves DNS per request rather than
+trusting an earlier resolution. An authorization can expire, or an operator
+can narrow the allowlist, in whatever time a fire sits awaiting approval; the
+worker re-checks the dual-control invariant itself too, rather than trusting
+that the API route only ever dispatches it after `approve_fire` ran.
+
+New endpoints on `app/api/v1/routers/runs.py`:
+`POST .../exploitation-fires/{fire_id}/approve` and `.../reject`, both
+`Role.SECURITY_ENGINEER` — the second approver needs to be at least as
+senior as the first, not a lower bar. No configurable approver list or
+four-eyes-per-target policy: any `SECURITY_ENGINEER`-or-above who did not
+request the fire may approve it, the same flat role check every other
+sensitive action on this platform uses.
+
+Verified: `tests/test_pentest_exploitation.py`'s dual-control section — a
+created fire is `awaiting_approval` and never self-queued; the requester's
+own approve attempt is refused with `409`; a second, distinct
+`SECURITY_ENGINEER` approving moves it to `queued` and dispatches the worker
+task; approving an already-approved fire is refused; an analyst cannot
+approve; rejecting records the reason and moves it to `rejected`. Both new
+routes are in `tests/security/test_authorization_matrix.py`'s pinned table.
+
+## Cross-engine duplicate linking is human-verified, never automatic
+
+"No cross-engine deduplication" was a stated, honest gap since the AppSec
+engine's earliest phase: a SAST finding and a DAST finding describing the
+same underlying defect get different `probe_id` prefixes and therefore
+different fingerprints (`app/core/findings/fingerprint.py` hashes
+`probe_id + surface + evidence signature`), so they have always been two
+separate `Finding` rows, inflating counts. **Closing it did not mean
+building a similarity heuristic** — that was explicitly rejected earlier as
+something that "would be worse than the honest gap," and nothing about that
+reasoning changed. It means giving a human a structural way to record a
+judgment they were already making informally.
+
+`Finding` gains `duplicate_of_finding_id` (nullable, self-referential FK,
+`ondelete="SET NULL"`), `duplicate_note`, `duplicate_linked_by_user_id` and
+`duplicate_linked_at`. The column is written only by a human's explicit
+say-so through `app/core/findings/service.py::link_duplicate` — never
+inferred. `AIService.correlate_findings()` still only offers a read-only,
+AI-drafted correlation *suggestion*; nothing was changed to let that
+suggestion write to this column, and closing the loop from suggestion to
+structural link is explicitly not what this did.
+
+**Kept two levels deep by construction, not by walking a graph.**
+`link_duplicate` refuses a self-link, refuses linking to a finding that is
+itself already a duplicate of something else (no chains), and refuses
+making a finding a duplicate of anything once other findings already point
+at it as their primary (no finding is ever both a primary and a duplicate).
+`unlink_duplicate` carries no such restriction, the safe direction.
+
+**The fix reaches every reader of the findings count the same way.**
+`GET .../findings` gained `include_duplicates: bool = Query(default=False)`
+— a linked duplicate drops out of the default listing the same way it drops
+out of `build_report`'s own findings-by-severity section
+(`Finding.duplicate_of_finding_id.is_(None)`, `app/core/reporting/build.py`).
+Both defaults are backward compatible: no finding had this column set before
+this shipped, so every existing caller sees exactly what it always did until
+an analyst starts linking duplicates. The one place this fix does *not*
+reach is a PR check run — see the gap table above and `docs/pull-requests.md`.
+
+New `POST`/`DELETE .../findings/{finding_id}/duplicate` (`Role.ANALYST`, the
+same tier that already changes a finding's lifecycle status) and
+`GET .../findings/{finding_id}/duplicates` (`Role.VIEWER`).
+
+Verified: new tests in `tests/test_findings_api.py`, run against real
+findings promoted from a real vulnerable-lab scan rather than fabricated
+rows — linking a duplicate removes it from the default list and total count,
+`include_duplicates=true` still shows it, unlinking restores it, self-linking
+is refused, both two-level-only directions are refused, a viewer is refused
+and an analyst is not, and a linked duplicate is excluded from a run's own
+JSON report with the finding count dropping by one. Both new routes are in
+`tests/security/test_authorization_matrix.py`'s pinned table.
+

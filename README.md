@@ -213,7 +213,7 @@ make lint            # ruff + eslint
 make typecheck       # mypy --strict + tsc --noEmit
 ```
 
-Backend: 571 test functions across 108 files (`backend/tests/` and
+Backend: 1,348 test functions across 103 files (`backend/tests/` and
 `backend/tests/security/`), covering registration, login/logout, OAuth,
 2FA, session cookies vs. bearer tokens, RBAC (owner/admin/
 security_engineer/analyst/viewer) enforced via a pinned

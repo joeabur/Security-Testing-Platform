@@ -40,10 +40,14 @@ repository's release workflow", which is checkable.
 ```bash
 pip install sigstore
 
-sigstore verify identity kervy_ai-0.2.0-py3-none-any.whl \
-  --cert-identity "https://github.com/joeabur/Generative-AI-Risk-Identification-Security-Testing-Platform/.github/workflows/release.yml@refs/tags/v0.2.0" \
+sigstore verify identity kervy_security_backend-0.2.0-py3-none-any.whl \
+  --cert-identity "https://github.com/joeabur/Security-Testing-Platform/.github/workflows/release.yml@refs/tags/v0.2.0" \
   --cert-oidc-issuer "https://token.actions.githubusercontent.com"
 ```
+
+The wheel and sdist filenames come from `backend/pyproject.toml`'s
+`name = "kervy-security-backend"` (hyphens become underscores) — not from the
+`kervy-ai` console script the CLI installs.
 
 `--cert-identity` is the part that matters. Verifying only that *a* valid
 Sigstore signature exists proves nothing — anyone can sign anything. Pinning
@@ -53,8 +57,8 @@ something.
 Provenance, using the GitHub CLI:
 
 ```bash
-gh attestation verify kervy_ai-0.2.0-py3-none-any.whl \
-  --repo joeabur/Generative-AI-Risk-Identification-Security-Testing-Platform
+gh attestation verify kervy_security_backend-0.2.0-py3-none-any.whl \
+  --repo joeabur/Security-Testing-Platform
 ```
 
 And the checksums:
@@ -67,11 +71,14 @@ sha256sum -c SHA256SUMS
 
 Stated here rather than left to be assumed:
 
-- **No release has been cut yet.** The workflow is written and its structure is
-  asserted by `backend/tests/test_ci_workflows.py`, but nothing in CI has run
-  it end to end, because doing so means publishing a real tag. The first real
-  release is where its behaviour gets proved, and `docs/roadmap.md` records
-  that.
+- **`v0.1.0` is tagged and has a GitHub release, but not one this pipeline
+  produced.** `release.yml`'s `verify` job failed on that tag at the "Lint,
+  types, tests" step, so `build` and `publish` never ran — no wheel, sdist,
+  SBOM, Sigstore signature, or SLSA attestation exists for it, and the
+  `v0.1.0` release's asset list on GitHub is empty. The workflow's structure
+  is still asserted by `backend/tests/test_ci_workflows.py`, but the first tag
+  to actually make it through `verify` → `build` → `publish` end to end is
+  still ahead of this repository, not behind it.
 - **The SBOM describes the build environment**, not a transitive guarantee.
   It lists what was installed when the wheel was built, which is the honest
   scope of a CycloneDX environment report.
