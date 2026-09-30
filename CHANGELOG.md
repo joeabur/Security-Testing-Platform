@@ -27,16 +27,29 @@ All notable changes to this project are recorded here. The format follows
   uncaught `ValueError`). This platform doesn't call `PyJWKClient`/
   `PyJWKSet` today, but the fix is a clean version bump with no other
   behavior change.
-- **Deferred, and why**: `pip-audit` also flags `click` and `mcp`
-  (both exactly pinned by `semgrep`, with no compatible release yet — a
-  clean bump would require a major `mcp` version jump this project has
-  not verified against semgrep's actual usage) and `ecdsa` (an orphaned
-  package nothing in this project's dependency tree still requires, whose
-  own advisory, the Minerva timing attack, has no fixed release upstream
-  at all). None of the three has a fix available that doesn't either
-  break a pinned tool or simply not exist yet — tracked rather than
-  blindly forced, the same reasoning `.github/dependabot.yml`'s own
-  comment gives for not auto-bumping the lab fixtures' pins.
+- **Deferred, and why**: `pip-audit` also flags `click` (PYSEC-2026-2132,
+  a command-injection in `click.edit()`) and `mcp` (three advisories,
+  PYSEC-2026-3481/3482/3483, all requiring an opt-in server feature —
+  `enable_tasks()`, an HTTP transport with bearer auth, or the deprecated
+  WebSocket transport). A fix does exist — `semgrep>=1.173` pulls in
+  `click>=8.4.2`/`mcp==1.29.0` — but every `semgrep` release from `1.173`
+  onward hard-pins `pyjwt[crypto]~=2.13.0`, which directly conflicts with
+  this file's own `pyjwt>=2.14` fix above (verified: `pip install
+  "semgrep>=1.173" "pyjwt>=2.14"` in a clean venv is `ResolutionImpossible`,
+  not just a warning). Neither side of that trade is reachable in this
+  codebase either way: `semgrep` is invoked only as a CLI subprocess
+  against a local `--config` path, never as a library and never via its
+  `mcp` subcommand; `backend/mcp_server/` is a hand-rolled implementation
+  that never imports the `mcp` package; and nothing here calls
+  `PyJWKClient`/`PyJWKSet`. Swapping one unreachable-path CVE for three
+  equally-unreachable ones is a lateral move, not a fix, so the existing
+  `pyjwt>=2.14` pin stays and `click`/`mcp` stay deferred. `ecdsa` (an
+  orphaned package nothing in this project's dependency tree still
+  requires, whose own advisory, the Minerva timing attack, has no fixed
+  release upstream at all) remains deferred for the reason already given —
+  tracked rather than blindly forced, the same reasoning
+  `.github/dependabot.yml`'s own comment gives for not auto-bumping the
+  lab fixtures' pins.
 
 ### Changed
 
