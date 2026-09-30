@@ -56,16 +56,16 @@ class _ProviderConfig:
 _CONFIGS: dict[OAuthProvider, _ProviderConfig] = {
     OAuthProvider.GOOGLE: _ProviderConfig(
         authorize_url="https://accounts.google.com/o/oauth2/v2/auth",
-        token_url="https://oauth2.googleapis.com/token",
-        token_host="oauth2.googleapis.com",
+        token_url="https://oauth2.googleapis.com/token",  # pragma: allowlist secret
+        token_host="oauth2.googleapis.com",  # pragma: allowlist secret
         userinfo_url="https://openidconnect.googleapis.com/v1/userinfo",
         userinfo_host="openidconnect.googleapis.com",
         scope="openid email profile",
     ),
     OAuthProvider.GITHUB: _ProviderConfig(
         authorize_url="https://github.com/login/oauth/authorize",
-        token_url="https://github.com/login/oauth/access_token",
-        token_host="github.com",
+        token_url="https://github.com/login/oauth/access_token",  # pragma: allowlist secret
+        token_host="github.com",  # pragma: allowlist secret
         userinfo_url="https://api.github.com/user",
         userinfo_host="api.github.com",
         scope="read:user user:email",

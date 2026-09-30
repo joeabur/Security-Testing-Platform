@@ -1,7 +1,7 @@
 """two-factor authentication (TOTP)
 
-Revision ID: a8d4e1c93f76
-Revises: f9c3b6e21a48
+Revision ID: a8d4e1c93f76  # pragma: allowlist secret
+Revises: f9c3b6e21a48  # pragma: allowlist secret
 Create Date: 2026-09-29
 
 TOTP-based two-factor login. `users.totp_secret_encrypted` and
@@ -19,8 +19,8 @@ import sqlalchemy as sa
 
 from alembic import op
 
-revision: str = "a8d4e1c93f76"
-down_revision: str | None = "f9c3b6e21a48"
+revision: str = "a8d4e1c93f76"  # pragma: allowlist secret
+down_revision: str | None = "f9c3b6e21a48"  # pragma: allowlist secret
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

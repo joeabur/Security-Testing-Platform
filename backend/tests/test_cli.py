@@ -464,7 +464,7 @@ def test_login_writes_an_owner_only_config(
     assert code == 0
     path = tmp_path / "config.json"
     stored = json.loads(path.read_text(encoding="utf-8"))
-    assert stored["token"] == "jwt-token"
+    assert stored["token"] == "jwt-token"  # pragma: allowlist secret
     # A credential readable by every account on the machine has already leaked.
     assert path.stat().st_mode & 0o077 == 0
 
@@ -478,7 +478,7 @@ def test_a_corrupt_config_does_not_stop_the_cli(
     monkeypatch.setenv("KERVY_API_KEY", "kervy_0011223344556677_secret")
 
     loaded = Profile.load()
-    assert loaded.token == "kervy_0011223344556677_secret"
+    assert loaded.token == "kervy_0011223344556677_secret"  # pragma: allowlist secret
 
 
 def test_no_command_prints_help_and_exits_two() -> None:

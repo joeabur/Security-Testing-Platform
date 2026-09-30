@@ -16,9 +16,9 @@ from typing import Any
 
 import httpx
 
-TOKEN_A = "lab-token-account-a"
-TOKEN_B = "lab-token-account-b"
-TOKEN_ADMIN = "lab-token-admin"
+TOKEN_A = "lab-token-account-a"  # pragma: allowlist secret
+TOKEN_B = "lab-token-account-b"  # pragma: allowlist secret
+TOKEN_ADMIN = "lab-token-admin"  # pragma: allowlist secret
 ORDER_OWNED_BY_A = "order-1001"
 
 _TRACEBACK = (

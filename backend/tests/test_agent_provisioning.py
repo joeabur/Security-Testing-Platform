@@ -57,7 +57,7 @@ def _provider_payload(**overrides: object) -> dict[str, object]:
         "kind": "anthropic",
         "endpoint": "https://api.anthropic.test/v1/messages",
         "model": "claude-sonnet",
-        "api_key_env_var": "ANTHROPIC_API_KEY",
+        "api_key_env_var": "ANTHROPIC_API_KEY",  # pragma: allowlist secret
     }
     payload.update(overrides)
     return payload
@@ -80,7 +80,7 @@ async def test_creating_a_provider_never_returns_a_secret_value(
     # could be a key, and never even the literal string "sk-" a real
     # Anthropic key would start with, to catch a future regression that
     # accidentally started accepting a value here.
-    assert body["api_key_env_var"] == "ANTHROPIC_API_KEY"
+    assert body["api_key_env_var"] == "ANTHROPIC_API_KEY"  # pragma: allowlist secret
     assert "api_key" not in body
     assert "sk-" not in str(body)
 

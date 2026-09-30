@@ -39,7 +39,7 @@ from app.core.vcs.render import (
     conclusion_for,
 )
 
-TOKEN = "ghp_exampleexampleexampleexample1234"
+TOKEN = "ghp_exampleexampleexampleexample1234"  # pragma: allowlist secret
 ENV = {"KERVY_TEST_GH_TOKEN": TOKEN}
 
 

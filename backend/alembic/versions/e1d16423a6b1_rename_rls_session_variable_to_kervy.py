@@ -1,7 +1,7 @@
 """rename rls session variable to kervy
 
-Revision ID: e1d16423a6b1
-Revises: 822b11ffe07c
+Revision ID: e1d16423a6b1  # pragma: allowlist secret
+Revises: 822b11ffe07c  # pragma: allowlist secret
 Create Date: 2026-09-29 07:00:18.542301
 
 The Aegis -> Kervy rebrand. Every `tenant_isolation` policy created so far
@@ -27,8 +27,8 @@ from collections.abc import Sequence
 
 from alembic import op
 
-revision: str = "e1d16423a6b1"
-down_revision: str | None = "822b11ffe07c"
+revision: str = "e1d16423a6b1"  # pragma: allowlist secret
+down_revision: str | None = "822b11ffe07c"  # pragma: allowlist secret
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

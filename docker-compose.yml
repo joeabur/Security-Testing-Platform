@@ -35,7 +35,7 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://kervy:kervy-dev-only-change-me@postgres:5432/kervy}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://kervy:kervy-dev-only-change-me@postgres:5432/kervy}  # pragma: allowlist secret
     depends_on:
       postgres:
         condition: service_healthy
@@ -49,7 +49,7 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://kervy:kervy-dev-only-change-me@postgres:5432/kervy}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://kervy:kervy-dev-only-change-me@postgres:5432/kervy}  # pragma: allowlist secret
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       # Shared with the worker: the worker writes evidence, the API serves it.
       EVIDENCE_ROOT: ${EVIDENCE_ROOT:-/var/lib/kervy/evidence}
@@ -71,7 +71,7 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://kervy:kervy-dev-only-change-me@postgres:5432/kervy}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://kervy:kervy-dev-only-change-me@postgres:5432/kervy}  # pragma: allowlist secret
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       EVIDENCE_ROOT: ${EVIDENCE_ROOT:-/var/lib/kervy/evidence}
     volumes:
@@ -108,7 +108,7 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://kervy:kervy-dev-only-change-me@postgres:5432/kervy}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://kervy:kervy-dev-only-change-me@postgres:5432/kervy}  # pragma: allowlist secret
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
     depends_on:
       migrate:

@@ -24,7 +24,7 @@ jobs:
         image: postgres:16-alpine
         env:
           POSTGRES_USER: kervy
-          POSTGRES_PASSWORD: kervy-ci-only
+          POSTGRES_PASSWORD: kervy-ci-only  # pragma: allowlist secret
           POSTGRES_DB: kervy_test
         ports:
           - 5432:5432
@@ -43,7 +43,7 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     env:
-      DATABASE_URL: postgresql+asyncpg://kervy:kervy-ci-only@localhost:5432/kervy_test
+      DATABASE_URL: postgresql+asyncpg://kervy:kervy-ci-only@localhost:5432/kervy_test  # pragma: allowlist secret
       REDIS_URL: redis://localhost:6379/0
       ENVIRONMENT: ci
       JWT_SECRET: ci-only-secret-do-not-use-elsewhere

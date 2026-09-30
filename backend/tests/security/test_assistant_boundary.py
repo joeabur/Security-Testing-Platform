@@ -276,7 +276,7 @@ def test_provider_configuration_holds_a_variable_name_not_a_key() -> None:
         provider="openai_compatible",
         endpoint="https://api.example.test/v1/chat/completions",
         model="test-model",
-        api_key_env_var="KERVY_AI_KEY",
+        api_key_env_var="KERVY_AI_KEY",  # pragma: allowlist secret
     )
 
     assert config.resolve_key({"KERVY_AI_KEY": "sk-secret"}) == "sk-secret"

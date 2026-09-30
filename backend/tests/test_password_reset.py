@@ -124,13 +124,19 @@ async def test_requesting_a_new_link_invalidates_the_old_one(
 
     stale = await client.post(
         "/api/v1/auth/reset-password",
-        json={"token": first_token, "new_password": "Another-Strong-Password-42"},
+        json={
+            "token": first_token,
+            "new_password": "Another-Strong-Password-42",  # pragma: allowlist secret
+        },
     )
     assert stale.status_code == 400
 
     fresh = await client.post(
         "/api/v1/auth/reset-password",
-        json={"token": second_token, "new_password": "Another-Strong-Password-42"},
+        json={
+            "token": second_token,
+            "new_password": "Another-Strong-Password-42",  # pragma: allowlist secret
+        },
     )
     assert fresh.status_code == 204
 
@@ -142,7 +148,7 @@ async def test_reset_password_sets_the_new_password_and_logs_in_with_it(
     await client.post("/api/v1/auth/forgot-password", json={"email": "changeit@example.test"})
     token = sent_emails[0]["url"].split("token=")[1]
 
-    new_password = "Brand-New-Password-99"
+    new_password = "Brand-New-Password-99"  # pragma: allowlist secret
     reset = await client.post(
         "/api/v1/auth/reset-password", json={"token": token, "new_password": new_password}
     )
@@ -175,7 +181,10 @@ async def test_reset_password_invalidates_every_existing_session(
     token = sent_emails[0]["url"].split("token=")[1]
     await client.post(
         "/api/v1/auth/reset-password",
-        json={"token": token, "new_password": "Yet-Another-Strong-One-7"},
+        json={
+            "token": token,
+            "new_password": "Yet-Another-Strong-One-7",  # pragma: allowlist secret
+        },
     )
 
     me_after = await client.get("/api/v1/auth/me")
@@ -193,7 +202,10 @@ async def test_reset_password_invalidates_every_existing_session(
 async def test_reset_password_rejects_an_unknown_token(client: AsyncClient) -> None:
     response = await client.post(
         "/api/v1/auth/reset-password",
-        json={"token": "not-a-real-token", "new_password": "Whatever-Strong-Password-1"},
+        json={
+            "token": "not-a-real-token",  # pragma: allowlist secret
+            "new_password": "Whatever-Strong-Password-1",  # pragma: allowlist secret
+        },
     )
     assert response.status_code == 400
 
@@ -217,7 +229,10 @@ async def test_reset_password_rejects_an_expired_token(
 
     response = await client.post(
         "/api/v1/auth/reset-password",
-        json={"token": token, "new_password": "Whatever-Strong-Password-1"},
+        json={
+            "token": token,
+            "new_password": "Whatever-Strong-Password-1",  # pragma: allowlist secret
+        },
     )
     assert response.status_code == 400
 
@@ -231,13 +246,19 @@ async def test_reset_password_token_is_single_use(
 
     first = await client.post(
         "/api/v1/auth/reset-password",
-        json={"token": token, "new_password": "First-Strong-Password-1"},
+        json={
+            "token": token,
+            "new_password": "First-Strong-Password-1",  # pragma: allowlist secret
+        },
     )
     assert first.status_code == 204
 
     second = await client.post(
         "/api/v1/auth/reset-password",
-        json={"token": token, "new_password": "Second-Strong-Password-2"},
+        json={
+            "token": token,
+            "new_password": "Second-Strong-Password-2",  # pragma: allowlist secret
+        },
     )
     assert second.status_code == 400
 

@@ -138,7 +138,7 @@ def _parse_json(body: bytes) -> Any | None:
 def _parse_usage(parsed: Any) -> TokenUsage | None:
     """Read the `usage` block from either API shape.
 
-    `chat/completions` reports `prompt_tokens`/`completion_tokens`;
+    `chat/completions` reports `prompt_tokens`/`completion_tokens`;  # pragma: allowlist secret
     `responses` reports `input_tokens`/`output_tokens`. Both are accepted
     regardless of configured shape, since self-hosted "OpenAI-compatible"
     servers are inconsistent about which they emit.
