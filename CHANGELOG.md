@@ -123,6 +123,17 @@ All notable changes to this project are recorded here. The format follows
 
 ### Added
 
+- **A "Findings trend" chart on the organization overview page**: a new
+  `GET /organizations/{organization_id}/dashboard/findings-trend` endpoint
+  (`app/core/dashboard/queries.py::findings_trend`) buckets findings by day
+  and severity over a trailing window (30 days by default, clamped to at
+  most 180), and a new stacked-area chart
+  (`components/dashboard/findings-trend-chart.tsx`) renders it — the first
+  use of the `recharts` dependency, which had sat unused in
+  `package.json` since the UI redesign. Bucketed by `first_seen`, not
+  `last_seen`/`created_at`: a finding's row updates in place every time a
+  later scan sees the same one again, so `first_seen` is the one
+  timestamp that answers "when did this first show up" and never moves.
 - **CLI: `kervy-ai assist` and `kervy-ai workflow`.** Two domains with a
   real API and no CLI command group at all — Phase 16's own write-up
   named `kervy assist` as deferred, and Phase 17 explicitly refused to add

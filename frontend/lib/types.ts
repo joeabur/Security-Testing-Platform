@@ -456,6 +456,17 @@ export interface DashboardFinding {
   last_seen: string;
 }
 
+export interface TrendPoint {
+  day: string;
+  severity: Severity;
+  count: number;
+}
+
+export interface FindingsTrend {
+  days: number;
+  points: TrendPoint[];
+}
+
 export interface DashboardSummary {
   targets: number;
   open_findings: number;
