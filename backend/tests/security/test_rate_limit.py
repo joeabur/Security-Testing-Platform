@@ -495,3 +495,100 @@ async def test_forging_a_forwarded_header_does_not_escape_the_registration_limit
         "a forged X-Forwarded-For minted a fresh bucket per request; the limiter "
         "is enabled but enforcing nothing."
     )
+
+
+# --------------------------------------------------------------------------
+# The general ceiling over the rest of the API (`api_default`).
+# --------------------------------------------------------------------------
+
+
+def test_api_default_is_a_coarse_ceiling_on_both_dimensions() -> None:
+    """Unlike `login`, this budget exists to bound *every other* route, not
+    one attack's specific shape — so, like `login`, it needs both
+    dimensions: IP alone falls to a botnet, identity alone is unavailable
+    for every unauthenticated or API-key-authenticated request."""
+    dimensions = {rule.dimension for rule in POLICY["api_default"]}
+    assert dimensions == {Dimension.IP, Dimension.IDENTITY}
+
+
+async def test_the_api_default_budget_is_consumed_and_then_refused() -> None:
+    limiter = RateLimiter(MemoryStore(), pepper="p")
+    rule = next(r for r in POLICY["api_default"] if r.dimension is Dimension.IP)
+    for _ in range(rule.limit):
+        decision = await limiter.check("api_default", client_ip="203.0.113.9")
+        assert decision.allowed
+    refused = await limiter.check("api_default", client_ip="203.0.113.9")
+    assert not refused.allowed
+    assert refused.retry_after_seconds > 0
+
+
+async def test_an_ordinary_authenticated_route_is_eventually_throttled(
+    _fresh_rate_limit_store: MemoryStore, strong_password: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The middleware, end to end, against a route with no rule of its own.
+
+    `api_default`'s real budget (1200/5 min) is deliberately generous, so
+    this swaps in a small one for speed — the same reason
+    `test_registration_is_bounded_from_one_address` loops only
+    `POLICY["register"][0].limit + 3` times rather than the real limit's
+    worth. The middleware wiring, not the specific numbers, is what this
+    proves; the numbers themselves are `test_api_default_is_a_coarse_ceiling
+    _on_both_dimensions`'s and the module docstring's job.
+    """
+    from app.core.ratelimit import policy as ratelimit_policy
+    from app.db.session import get_db
+    from app.main import create_app
+    from tests.conftest import TestSessionLocal
+
+    tiny = Rule(name="api_default", dimension=Dimension.IP, limit=5, window_seconds=60)
+    monkeypatch.setitem(ratelimit_policy.POLICY, "api_default", (tiny,))
+
+    app = create_app()
+
+    async def _override_get_db():  # type: ignore[no-untyped-def]
+        async with TestSessionLocal() as session:
+            yield session
+
+    app.dependency_overrides[get_db] = _override_get_db
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as ac:
+        statuses = []
+        for _ in range(tiny.limit + 3):
+            # No credential at all: the middleware runs, and therefore
+            # charges the IP budget, before a route's own auth dependency
+            # ever gets a chance to refuse the request for a different
+            # reason.
+            response = await ac.get("/api/v1/organizations")
+            statuses.append(response.status_code)
+    assert 429 in statuses, "an ordinary API route was never throttled by the general ceiling"
+    assert all(status in (401, 429) for status in statuses)
+
+
+async def test_health_is_exempt_from_the_general_ceiling(
+    _fresh_rate_limit_store: MemoryStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A liveness probe is not the traffic this ceiling exists to bound —
+    throttling it would turn a rate limit into a self-inflicted outage
+    detector."""
+    from app.core.ratelimit import policy as ratelimit_policy
+    from app.db.session import get_db
+    from app.main import create_app
+    from tests.conftest import TestSessionLocal
+
+    tiny = Rule(name="api_default", dimension=Dimension.IP, limit=2, window_seconds=60)
+    monkeypatch.setitem(ratelimit_policy.POLICY, "api_default", (tiny,))
+
+    app = create_app()
+
+    async def _override_get_db():  # type: ignore[no-untyped-def]
+        async with TestSessionLocal() as session:
+            yield session
+
+    app.dependency_overrides[get_db] = _override_get_db
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as ac:
+        for _ in range(tiny.limit + 5):
+            response = await ac.get("/api/v1/health")
+            assert response.status_code == 200

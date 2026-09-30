@@ -123,6 +123,16 @@ All notable changes to this project are recorded here. The format follows
 
 ### Added
 
+- **A general rate-limit ceiling over the rest of the API**, closing a gap
+  `docs/rate-limiting.md` named plainly: only login/register/2FA/
+  forgot-password/OAuth-callback were throttled; every authenticated route
+  had no rate limit at all beyond RBAC. A new `api_default` policy entry
+  (1200 requests/5 min per IP, 600/5 min per identity when one is cheaply
+  available) is applied by a new `api_rate_limit_middleware`
+  (`app/main.py`) — middleware rather than a per-route call, the same
+  reasoning the CSRF middleware beside it already gives, so it covers every
+  route under `/api/v1` including any added later. `GET /health` is
+  exempt. See `docs/rate-limiting.md` and `docs/roadmap.md`.
 - **CLI: `kervy-ai assist` and `kervy-ai workflow`.** Two domains with a
   real API and no CLI command group at all — Phase 16's own write-up
   named `kervy assist` as deferred, and Phase 17 explicitly refused to add
