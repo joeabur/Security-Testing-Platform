@@ -76,6 +76,16 @@ record or log line contains it.
 | `finding.critical` | …and it is critical |
 | `retest.completed` | **defined, not yet emitted** — see below |
 | `gate.failed` | **defined, not yet emitted** — see below |
+| `agent_investigation.completed` | a native-agent investigation reached `COMPLETED` |
+| `agent_investigation.failed` | a native-agent investigation reached `FAILED` |
+
+The two agent events fire only on a terminal state — never while an
+investigation is `AWAITING_APPROVAL`, and never on a human `CANCELLED`. The
+payload carries the same fixed scalar shape as every other event (§ below);
+`event_for_investigation()` (`app/core/integrations/dispatch.py`) builds it
+from the investigation's own outcomes, never from the request text or a
+tool's raw output — the same zero-persistence discipline `docs/agent.md`
+describes for the agent's own storage.
 
 `retest.completed` and `gate.failed` are part of the event vocabulary and a
 channel may subscribe to them, but nothing emits them yet: the retest worker and
