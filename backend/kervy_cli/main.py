@@ -403,11 +403,7 @@ def cmd_findings_link_duplicate(args: argparse.Namespace, profile: Profile) -> E
 
 def cmd_findings_unlink_duplicate(args: argparse.Namespace, profile: Profile) -> ExitCode:
     org = _org(args, profile)
-    _emit(
-        _client(profile).request(
-            "DELETE", f"/organizations/{org}/findings/{args.id}/duplicate"
-        )
-    )
+    _emit(_client(profile).request("DELETE", f"/organizations/{org}/findings/{args.id}/duplicate"))
     return ExitCode.PASS
 
 
@@ -470,6 +466,162 @@ def cmd_evidence_verify(args: argparse.Namespace, profile: Profile) -> ExitCode:
     # A broken chain is a failure, not information: it means the evidence
     # behind a report cannot be trusted.
     return ExitCode.PASS if result.get("ok") else ExitCode.GATE_FAILED
+
+
+def cmd_assist_status(args: argparse.Namespace, profile: Profile) -> ExitCode:
+    org = _org(args, profile)
+    _emit(_client(profile).request("GET", f"/organizations/{org}/assistant/status"))
+    return ExitCode.PASS
+
+
+def cmd_assist_draft(args: argparse.Namespace, profile: Profile) -> ExitCode:
+    org = _org(args, profile)
+    payload: dict[str, object] = {"field": args.field}
+    if args.scan_result:
+        payload["scan_result_id"] = args.scan_result
+    _emit(
+        _client(profile).request(
+            "POST",
+            f"/organizations/{org}/assistant/runs/{args.run}/drafts",
+            json_body=payload,
+        )
+    )
+    return ExitCode.PASS
+
+
+def cmd_assist_drafts(args: argparse.Namespace, profile: Profile) -> ExitCode:
+    org = _org(args, profile)
+    _emit(_client(profile).request("GET", f"/organizations/{org}/assistant/runs/{args.run}/drafts"))
+    return ExitCode.PASS
+
+
+def cmd_assist_accept(args: argparse.Namespace, profile: Profile) -> ExitCode:
+    """Accept a draft into the record. This is the only command that turns
+    AI-written text into report content — reading a draft is cheap, and
+    accepting one is not, so it is its own explicit step."""
+    org = _org(args, profile)
+    _emit(
+        _client(profile).request("POST", f"/organizations/{org}/assistant/drafts/{args.id}/accept")
+    )
+    return ExitCode.PASS
+
+
+def cmd_workflow_list(args: argparse.Namespace, profile: Profile) -> ExitCode:
+    org = _org(args, profile)
+    _emit(_client(profile).request("GET", f"/organizations/{org}/workflows"))
+    return ExitCode.PASS
+
+
+def cmd_workflow_show(args: argparse.Namespace, profile: Profile) -> ExitCode:
+    org = _org(args, profile)
+    _emit(_client(profile).request("GET", f"/organizations/{org}/workflows/{args.id}"))
+    return ExitCode.PASS
+
+
+def cmd_workflow_create(args: argparse.Namespace, profile: Profile) -> ExitCode:
+    org = _org(args, profile)
+    payload: dict[str, object] = {
+        "name": args.name,
+        "target_id": args.target,
+        "trigger_kind": args.trigger_kind,
+        "enabled": not args.disabled,
+    }
+    if args.gate_config:
+        payload["gate_config"] = json.loads(_read_file(args.gate_config))
+    if args.schedule_minutes is not None:
+        payload["schedule_interval_minutes"] = args.schedule_minutes
+    _emit(_client(profile).request("POST", f"/organizations/{org}/workflows", json_body=payload))
+    return ExitCode.PASS
+
+
+def cmd_workflow_update(args: argparse.Namespace, profile: Profile) -> ExitCode:
+    org = _org(args, profile)
+    payload: dict[str, object] = {}
+    if args.name is not None:
+        payload["name"] = args.name
+    if args.enable:
+        payload["enabled"] = True
+    elif args.disable:
+        payload["enabled"] = False
+    if args.gate_config:
+        payload["gate_config"] = json.loads(_read_file(args.gate_config))
+    if args.schedule_minutes is not None:
+        payload["schedule_interval_minutes"] = args.schedule_minutes
+    _emit(
+        _client(profile).request(
+            "PATCH", f"/organizations/{org}/workflows/{args.id}", json_body=payload
+        )
+    )
+    return ExitCode.PASS
+
+
+def cmd_workflow_delete(args: argparse.Namespace, profile: Profile) -> ExitCode:
+    org = _org(args, profile)
+    _client(profile).request(
+        "DELETE", f"/organizations/{org}/workflows/{args.id}", expect_json=False
+    )
+    print(f"removed {args.id}")
+    return ExitCode.PASS
+
+
+def cmd_workflow_trigger(args: argparse.Namespace, profile: Profile) -> ExitCode:
+    org = _org(args, profile)
+    payload: dict[str, object] = {}
+    if args.ref:
+        payload["ref"] = args.ref
+    if args.commit:
+        payload["commit"] = args.commit
+    if args.pull_number is not None:
+        payload["pull_number"] = args.pull_number
+    _emit(
+        _client(profile).request(
+            "POST", f"/organizations/{org}/workflows/{args.id}/runs", json_body=payload
+        )
+    )
+    return ExitCode.PASS
+
+
+def cmd_workflow_runs(args: argparse.Namespace, profile: Profile) -> ExitCode:
+    org = _org(args, profile)
+    _emit(_client(profile).request("GET", f"/organizations/{org}/workflows/{args.id}/runs"))
+    return ExitCode.PASS
+
+
+def cmd_workflow_webhook_secret(args: argparse.Namespace, profile: Profile) -> ExitCode:
+    """Rotates and returns the webhook secret in plaintext, exactly once —
+    the API never shows it again after this call."""
+    org = _org(args, profile)
+    _emit(
+        _client(profile).request("POST", f"/organizations/{org}/workflows/{args.id}/webhook-secret")
+    )
+    return ExitCode.PASS
+
+
+def cmd_workflow_approve(args: argparse.Namespace, profile: Profile) -> ExitCode:
+    org = _org(args, profile)
+    payload: dict[str, object] = {}
+    if args.reason:
+        payload["reason"] = args.reason
+    _emit(
+        _client(profile).request(
+            "POST",
+            f"/organizations/{org}/workflows/{args.id}/runs/{args.run}/approve",
+            json_body=payload,
+        )
+    )
+    return ExitCode.PASS
+
+
+def cmd_workflow_reject(args: argparse.Namespace, profile: Profile) -> ExitCode:
+    org = _org(args, profile)
+    _emit(
+        _client(profile).request(
+            "POST",
+            f"/organizations/{org}/workflows/{args.id}/runs/{args.run}/reject",
+            json_body={"reason": args.reason},
+        )
+    )
+    return ExitCode.PASS
 
 
 def cmd_channels_list(args: argparse.Namespace, profile: Profile) -> ExitCode:
@@ -841,6 +993,82 @@ def _parser() -> argparse.ArgumentParser:
     ev_verify = evidence.add_parser("verify")
     ev_verify.add_argument("--run", required=True)
     ev_verify.set_defaults(handler=cmd_evidence_verify)
+
+    assist = subparsers.add_parser("assist", help="AI-drafted text").add_subparsers(dest="action")
+    assist.add_parser("status").set_defaults(handler=cmd_assist_status)
+    assist_draft = assist.add_parser("draft", help="ask the assistant to draft a field")
+    assist_draft.add_argument("--run", required=True)
+    assist_draft.add_argument(
+        "--field",
+        required=True,
+        choices=["explanation", "remediation", "severity_rationale", "run_summary"],
+    )
+    assist_draft.add_argument("--scan-result", help="required unless --field run_summary")
+    assist_draft.set_defaults(handler=cmd_assist_draft)
+    assist_drafts = assist.add_parser("drafts", help="list drafts for a run")
+    assist_drafts.add_argument("--run", required=True)
+    assist_drafts.set_defaults(handler=cmd_assist_drafts)
+    assist_accept = assist.add_parser("accept", help="accept a draft into the record")
+    assist_accept.add_argument("id")
+    assist_accept.set_defaults(handler=cmd_assist_accept)
+
+    workflow = subparsers.add_parser("workflow", help="workflows").add_subparsers(dest="action")
+    workflow.add_parser("list").set_defaults(handler=cmd_workflow_list)
+    wf_show = workflow.add_parser("show")
+    wf_show.add_argument("id")
+    wf_show.set_defaults(handler=cmd_workflow_show)
+    wf_create = workflow.add_parser("create")
+    wf_create.add_argument("--name", required=True)
+    wf_create.add_argument("--target", required=True, help="target id")
+    wf_create.add_argument(
+        "--trigger-kind",
+        default="repository_change",
+        choices=["repository_change", "pull_request", "schedule", "manual"],
+    )
+    wf_create.add_argument("--disabled", action="store_true", help="create it disabled")
+    wf_create.add_argument("--gate-config", help="path to a gate configuration JSON file")
+    wf_create.add_argument(
+        "--schedule-minutes",
+        type=int,
+        help="only meaningful with --trigger-kind schedule; 60-minute floor",
+    )
+    wf_create.set_defaults(handler=cmd_workflow_create)
+    wf_update = workflow.add_parser("update")
+    wf_update.add_argument("id")
+    wf_update.add_argument("--name")
+    enable_group = wf_update.add_mutually_exclusive_group()
+    enable_group.add_argument("--enable", action="store_true")
+    enable_group.add_argument("--disable", action="store_true")
+    wf_update.add_argument("--gate-config", help="path to a gate configuration JSON file")
+    wf_update.add_argument("--schedule-minutes", type=int)
+    wf_update.set_defaults(handler=cmd_workflow_update)
+    wf_delete = workflow.add_parser("delete")
+    wf_delete.add_argument("id")
+    wf_delete.set_defaults(handler=cmd_workflow_delete)
+    wf_trigger = workflow.add_parser("trigger", help="trigger a workflow run")
+    wf_trigger.add_argument("id")
+    wf_trigger.add_argument("--ref")
+    wf_trigger.add_argument("--commit")
+    wf_trigger.add_argument("--pull-number", type=int)
+    wf_trigger.set_defaults(handler=cmd_workflow_trigger)
+    wf_runs = workflow.add_parser("runs", help="list a workflow's runs")
+    wf_runs.add_argument("id")
+    wf_runs.set_defaults(handler=cmd_workflow_runs)
+    wf_webhook = workflow.add_parser(
+        "webhook-secret", help="rotate the webhook secret, shown once in plaintext"
+    )
+    wf_webhook.add_argument("id")
+    wf_webhook.set_defaults(handler=cmd_workflow_webhook_secret)
+    wf_approve = workflow.add_parser("approve", help="resume a run paused for human approval")
+    wf_approve.add_argument("id")
+    wf_approve.add_argument("--run", required=True, help="the workflow run id")
+    wf_approve.add_argument("--reason")
+    wf_approve.set_defaults(handler=cmd_workflow_approve)
+    wf_reject = workflow.add_parser("reject")
+    wf_reject.add_argument("id")
+    wf_reject.add_argument("--run", required=True, help="the workflow run id")
+    wf_reject.add_argument("--reason", required=True)
+    wf_reject.set_defaults(handler=cmd_workflow_reject)
 
     channels = subparsers.add_parser("channels", help="notification channels").add_subparsers(
         dest="action"

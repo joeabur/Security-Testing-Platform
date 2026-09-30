@@ -608,7 +608,12 @@ Deferred out of Phase 16, with reasons:
   presenting a guess as a measurement, so the field is carried and the
   enforcement waits for per-model pricing data.
 - **No CLI surface yet** (`kervy assist`, `kervy findings accept-draft`) —
-  the CLI is Phase 10 and the API is the tested surface.
+  the CLI is Phase 10 and the API is the tested surface. *Closed later*:
+  `kervy-ai assist status|draft|drafts|accept` now covers the assistant's
+  own endpoints — see the "CLI: assist and workflow surfaces" entry near
+  the end of this file. `findings accept-draft` was never a real
+  operation on its own: accepting a draft is `assist accept`, scoped to
+  the draft, not to a finding.
 - **No structured-output use yet.** The provider implements
   `structured_output` and it is tested, but every current capability drafts
   prose. It exists for the correlation and prioritisation work above.
@@ -3296,6 +3301,10 @@ config` validates the new `beat` service.
   `kervy-ai` has no `workflow` subcommand group at all yet, confirmed
   absent before this phase; adding CLI support only for the new pieces
   while base workflow CRUD has none would be inconsistent scope creep.
+  *Closed later*: `kervy-ai workflow` now covers the full surface —
+  create/list/show/update/delete, trigger, list runs, webhook-secret
+  rotation, and approve/reject for a paused unattended run — see the "CLI:
+  assist and workflow surfaces" entry near the end of this file.
 - **No dashboard UI** for schedule/webhook/approval configuration — matches
   every earlier pentest-module phase's "API-only, dashboard is a later
   phase" precedent (Phase 10, task #125, is the dashboard phase).
@@ -4418,3 +4427,77 @@ refusal.
 `npm run lint`, `npx tsc --noEmit`, and `npm run build` all clean.
 Backend: `ruff check`/`mypy` clean on the two new CLI commands in
 `kervy_cli/main.py`.
+
+## CLI: assist and workflow surfaces
+
+### Context
+
+Two stated gaps, both closed at once because they share a root cause:
+this CLI had a domain with a real, established API (the assistant's
+drafts, and workflows) and simply no command group for it at all, unlike
+the deliberate *partial*-coverage refusals this codebase has made
+elsewhere (agent, exploitation — see the dashboard/CLI wiring entry
+above). Phase 16's own write-up named `kervy assist`/`kervy findings
+accept-draft` as deferred "the CLI is Phase 10 and the API is the tested
+surface"; Phase 17 (workflows) named the same gap and explicitly ruled out
+adding CLI support for only the newer pieces (scheduling, webhooks) while
+base workflow CRUD had none, calling that "inconsistent scope creep."
+Once the CLI is going to cover a domain at all, the right increment is the
+whole domain, not a slice of it — so both ship complete in this entry.
+
+### Design
+
+`kervy-ai assist` is four commands, one per assistant endpoint
+(`app/api/v1/routers/assistant.py`): `status` (discovery), `draft --run
+--field [--scan-result]` (create — `--scan-result` required for every
+field except `run_summary`, matching the API's own `422`), `drafts --run`
+(list), and `accept <id>` (the one command that turns AI-written text into
+report content, at the API's own higher `security_engineer` bar rather
+than the `analyst` tier requesting a draft needs).
+
+`kervy-ai workflow` is ten commands, one per `app/api/v1/routers/
+workflows.py` endpoint: `create`/`list`/`show`/`update`/`delete` for the
+resource itself, `trigger`/`runs` for firing one and reading its history,
+`webhook-secret` for rotating the inbound-acceptance secret (shown once,
+plaintext, never again — the CLI does not echo it back on a second call
+because there is no second call that could), and `approve`/`reject` for
+resolving a run Celery Beat or the inbound webhook paused before it would
+queue a scan-touching action. `update`'s `--enable`/`--disable` are an
+`argparse` mutually exclusive group rather than a single `--enabled
+true|false` flag, matching this CLI's existing preference for flags over
+stringified booleans (`repo add --authorized`, `ci --unsafe`).
+`--gate-config` on `create`/`update` takes a path to a JSON file, parsed
+client-side and sent as a body field exactly the way `target roe/adapter/
+code/runtime-protection` already send a parsed YAML file's contents — the
+server validates it through the same `load_config` the standalone `gate`
+command uses, so a malformed gate is still rejected at the point someone
+typed it, not silently accepted by the CLI and refused only inside a
+later `trigger` call.
+
+No new backend endpoints, schemas, or business logic. Every command is a
+direct call to an endpoint that already existed and is unchanged.
+
+### What this does not change
+
+- No CLI surface for 2FA or agent-provider management — those are
+  separate, already-named gaps (`docs/roadmap.md`'s own "no CLI command
+  for 2FA management"/"no CLI command for provider management" notes)
+  that this entry does not claim to close.
+- No vendor-webhook translators, no rate limit on the inbound webhook —
+  both still named as Phase 17's own deferrals; nothing about adding a
+  CLI client changes what the API accepts or protects.
+
+### Verified
+
+`ruff check`/`ruff format --check`/`mypy` clean on `kervy_cli/main.py`.
+Thirteen new tests in `tests/test_cli.py` (`respx`-mocked, the same
+pattern every other CLI test in that file already uses): each `assist`
+command's request shape, including that `--field run_summary` omits
+`scan_result_id` entirely rather than sending a null; `workflow create`'s
+gate-config-file-plus-schedule body; `workflow update`'s `--enable`/
+`--disable` mutual exclusivity (an `argparse` usage error, asserted via
+`SystemExit`) and its `--disable` request body; `workflow delete`'s
+`DELETE`; `workflow trigger`'s ref/commit/pull-number body;
+`workflow webhook-secret`'s bodyless `POST`; and `workflow approve`/
+`reject`'s run-scoped paths and bodies. Full `tests/test_cli.py` (44
+tests) green.
