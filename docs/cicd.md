@@ -201,19 +201,25 @@ kervy-ai scope explain "$TARGET_ID" --url "https://$HOST/api/health"   # exits 4
 
 | Workflow | What it does |
 |---|---|
-| `ci.yml` | ruff, mypy, pytest with coverage, frontend lint and typecheck |
+| `ci.yml` | ruff, mypy, pytest with coverage, frontend lint, typecheck and build |
 | `security.yml` | Bandit, Semgrep against the platform's own ruleset, detect-secrets |
 | `deps.yml` | pip-audit against the installed environment, npm audit |
 | `codeql.yml` | CodeQL for Python and TypeScript |
-| `sbom.yml` | CycloneDX SBOMs for the backend environment and the frontend lockfile |
+| `container.yml` | Trivy image scan (vulnerabilities, misconfiguration, secrets) for the backend, worker and demo-target images |
+| `sbom.yml` | CycloneDX SBOMs for the backend environment and the frontend lockfile, plus the ML-BOM |
+| `framework-drift.yml` | weekly check that pinned framework mappings (§3.4) still match the upstream version |
+| `lab-e2e.yml` | a real assessment run against the demo lab over real sockets |
+| `release.yml` | on a tag: re-verify, then build, sign and attest the release artifacts (`docs/releasing.md`) |
 
 `security.yml` runs the same Semgrep rules the product's SAST engine ships,
 including `kervy.ungated-http-client` — the rule that catches an HTTP client
 built outside the scope engine. A security tool that does not run its own
 rules against itself is making a claim it has not tested. That rule currently
-has exactly two suppressions, each annotated at the line it applies to: the
-gated transport itself, which *is* the choke point, and the CLI's client,
-which talks to the Kervy API rather than to a target.
+has exactly three suppressions, each annotated at the line it applies to: the
+gated transport itself (`app/core/scope/transport.py`), which *is* the choke
+point, and two in the CLI's client (`kervy_cli/client.py`) — the pre-session
+CSRF fetch and the general request path — which talk to the Kervy API rather
+than to a target.
 
 detect-secrets runs against `.secrets.baseline` rather than as a bare scan.
 A bare scan is red on day one here — migration revision hashes, environment
@@ -223,7 +229,28 @@ the team turns off. The baseline records those as hashes, never as values, so
 the step fails only on something new. Re-audit it with
 `detect-secrets audit .secrets.baseline`.
 
-Not yet present, and tracked in `docs/roadmap.md` rather than stubbed:
-`container.yml` (Trivy), `lab-e2e.yml` (needs the Phase 12 demo lab),
-`release.yml` (needs the Phase 13 release process) and `framework-drift.yml`
-(needs the pinned framework corpus from §3.4).
+`container.yml` scans three images on different terms, matrixed per image
+rather than one severity for all of them: `backend` and `worker` fail on
+`HIGH,CRITICAL`, because they are products; `demo-target` fails only on
+`CRITICAL` (`scanners: misconfig,secret` still runs at `HIGH,CRITICAL` for all
+three) — its application-layer findings are the point of it, not a defect to
+scan away. All three images build from `python:3.12-slim`, so
+`.trivyignore` at the repo root applies to each: two dated, documented
+exemptions for OS-package (openssl) advisories with no patched Debian package
+resolvable yet, not for anything this repository's own code or dependencies
+introduce. Revisit each entry once Debian ships the fix; don't carry either
+past that point.
+
+`deps.yml`'s pip-audit step carries four `--ignore-vuln` exemptions
+(`PYSEC-2026-2132`, `PYSEC-2026-3481`, `PYSEC-2026-3482`, `PYSEC-2026-3483`),
+each dated and justified inline in the workflow: a `semgrep>=1.173` upgrade
+would fix all four but hard-pins a `pyjwt` version that conflicts with this
+project's own `pyjwt>=2.14` fix, and none of the four is reachable through how
+this codebase actually calls `click` or `mcp`. Read the comment in
+`.github/workflows/deps.yml` for the current, dated reasoning before adding or
+removing one — it is revisited, not evergreen.
+
+`lab-e2e.yml` runs the lab under uvicorn on loopback rather than in Docker
+(no container runtime needed in CI) and, before the assessment, asserts the
+lab still refuses to start with a provider credential in its environment —
+the property that makes running it in CI safe at all.
