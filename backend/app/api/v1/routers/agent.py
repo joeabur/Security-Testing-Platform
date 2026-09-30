@@ -56,7 +56,7 @@ from app.auth.dependencies import DbSession, effective_role, require_membership
 from app.core.agent.audit import record_tool_call
 from app.core.agent.context import AgentContext
 from app.core.agent.investigation import Investigation, InvestigationStatus
-from app.core.agent.permissions import ToolPermissionError, authorize_role
+from app.core.agent.permissions import ToolPermissionError, authorize_enabled, authorize_role
 from app.core.agent.planner import PlanningError, build_plan
 from app.core.agent.provider.factory import build_provider
 from app.core.agent.runtime import ExecutionResult, StepOutcome, StepStatus, run_plan
@@ -65,19 +65,28 @@ from app.core.agent.session_store import (
     PausedInvestigation,
     SessionStoreUnavailable,
 )
+from app.core.agent.tool_config import (
+    effective_minimum_role,
+    is_tool_enabled,
+    load_tool_config,
+    permitted_tools,
+    validate_role_override,
+)
 from app.core.agent.tools.contract import RiskLevel, ToolExecutionError, ToolNotFoundError
 from app.core.agent.tools.registry import agent_tools, tools_by_name
 from app.core.assistant.autonomy import AutonomyMode
 from app.core.assistant.provider import ProviderError
 from app.core.integrations.dispatch import event_for_investigation
 from app.core.integrations.service import enqueue
-from app.models.agent import Agent, AgentProvider
+from app.models.agent import Agent, AgentProvider, AgentTool
 from app.models.organization import Membership, Role
 from app.schemas.agent import (
     AgentProviderCreate,
     AgentProviderRead,
     AgentProviderUpdate,
     AgentRead,
+    AgentToolConfigRead,
+    AgentToolConfigUpdate,
     AgentUpdate,
     ApproveRequest,
     CallToolRequest,
@@ -433,18 +442,111 @@ async def _maybe_notify(db: DbSession, organization_id: uuid.UUID, result: Execu
 @router.get("/tools", response_model=list[ToolCatalogEntry])
 async def list_tools(
     organization_id: uuid.UUID,
+    db: DbSession,
     membership: Membership = Depends(_READER),  # noqa: B008
 ) -> list[ToolCatalogEntry]:
+    config = await load_tool_config(db, organization_id)
     return [
         ToolCatalogEntry(
             name=tool.name,
             description=tool.description,
             risk_level=tool.risk_level.value,
             minimum_role=tool.minimum_role.value,
+            effective_minimum_role=effective_minimum_role(tool, config).value,
+            enabled=is_tool_enabled(tool, config),
             input_schema=tool.input_model.model_json_schema(),
         )
         for tool in agent_tools()
     ]
+
+
+async def _load_agent_tool(
+    db: DbSession, organization_id: uuid.UUID, tool_name: str
+) -> AgentTool | None:
+    return (
+        await db.execute(
+            select(AgentTool).where(
+                AgentTool.organization_id == organization_id,
+                AgentTool.tool_name == tool_name,
+            )
+        )
+    ).scalar_one_or_none()
+
+
+@router.get("/tools/{tool_name}/config", response_model=AgentToolConfigRead)
+async def get_tool_config(
+    organization_id: uuid.UUID,
+    tool_name: str,
+    db: DbSession,
+    membership: Membership = Depends(_CONFIG_READER),  # noqa: B008
+) -> AgentToolConfigRead:
+    tool = tools_by_name().get(tool_name)
+    if tool is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail=f"unknown tool {tool_name!r}")
+    config = await load_tool_config(db, organization_id)
+    row = config.get(tool_name)
+    return AgentToolConfigRead(
+        tool_name=tool_name,
+        enabled=is_tool_enabled(tool, config),
+        minimum_role=tool.minimum_role.value,
+        minimum_role_override=row.minimum_role_override if row else None,
+        effective_minimum_role=effective_minimum_role(tool, config).value,
+    )
+
+
+@router.put("/tools/{tool_name}/config", response_model=AgentToolConfigRead)
+async def put_tool_config(
+    organization_id: uuid.UUID,
+    tool_name: str,
+    payload: AgentToolConfigUpdate,
+    db: DbSession,
+    membership: Membership = Depends(_CONFIG_ADMIN),  # noqa: B008
+) -> AgentToolConfigRead:
+    """Replace this organization's configuration for one tool wholesale —
+    the same "one row, replaced not layered" shape `RulesOfEngagement` and
+    `ExploitationAuthorization` already use for their own per-target
+    config, rather than a PATCH that could leave a stale field from a
+    previous write.
+    """
+    tool = tools_by_name().get(tool_name)
+    if tool is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail=f"unknown tool {tool_name!r}")
+
+    try:
+        validate_role_override(tool, payload.minimum_role_override)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+
+    row = await _load_agent_tool(db, organization_id, tool_name)
+    if row is None:
+        row = AgentTool(organization_id=organization_id, tool_name=tool_name)
+        db.add(row)
+    row.enabled = payload.enabled
+    row.minimum_role_override = (
+        payload.minimum_role_override.value if payload.minimum_role_override else None
+    )
+    await db.flush()
+
+    await record_event(
+        db,
+        action="agent_tool_config.updated",
+        resource_type="agent_tool",
+        resource_id=tool_name,
+        result="allow",
+        organization_id=organization_id,
+        user_id=membership.user_id,
+        metadata={"enabled": row.enabled, "minimum_role_override": row.minimum_role_override},
+    )
+    await db.commit()
+
+    config = {tool_name: row}
+    return AgentToolConfigRead(
+        tool_name=tool_name,
+        enabled=is_tool_enabled(tool, config),
+        minimum_role=tool.minimum_role.value,
+        minimum_role_override=row.minimum_role_override,
+        effective_minimum_role=effective_minimum_role(tool, config).value,
+    )
 
 
 @router.post("/tools/{tool_name}/call", response_model=StepOutcomeRead)
@@ -467,10 +569,12 @@ async def call_tool(
     if tool is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=f"unknown tool {tool_name!r}")
 
+    config = await load_tool_config(db, organization_id)
     api_key = getattr(request.state, "api_key", None)
     effective = effective_role(membership, api_key)
     try:
-        authorize_role(effective, tool)
+        authorize_enabled(tool, enabled=is_tool_enabled(tool, config))
+        authorize_role(effective, tool, minimum_role=effective_minimum_role(tool, config))
     except ToolPermissionError as exc:
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     if tool.risk_level is RiskLevel.SENSITIVE:
@@ -569,12 +673,13 @@ async def investigate(
         )
     provider = build_provider(provider_row)
 
+    config = await load_tool_config(db, organization_id)
     api_key = getattr(request.state, "api_key", None)
     effective = effective_role(membership, api_key)
-    permitted_tools = [tool for tool in agent_tools() if effective.at_least(tool.minimum_role)]
+    planning_tools = permitted_tools(agent_tools(), config, effective_role=effective)
 
     try:
-        plan = await build_plan(provider, payload.request, permitted_tools)
+        plan = await build_plan(provider, payload.request, planning_tools)
     except PlanningError as exc:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_CONTENT, detail=f"could not plan this request: {exc}"
@@ -593,7 +698,9 @@ async def investigate(
         provider=provider,
     )
     investigation = Investigation.start(organization_id=organization_id, user_id=membership.user_id)
-    result = await run_plan(ctx, plan, tools_by_name(), investigation, summarize=True)
+    result = await run_plan(
+        ctx, plan, tools_by_name(), investigation, tool_config=config, summarize=True
+    )
 
     await _record_outcomes(db, ctx, result.outcomes)
     await _maybe_notify(db, organization_id, result)
@@ -668,6 +775,7 @@ async def approve_investigation(
         )
     provider = build_provider(provider_row)
 
+    config = await load_tool_config(db, organization_id)
     api_key = getattr(request.state, "api_key", None)
     effective = effective_role(membership, api_key)
     ctx = AgentContext(
@@ -685,12 +793,17 @@ async def approve_investigation(
     # `approved_tool_names`. Nothing here needs to pre-clear
     # `pending_approval` or advance the index by hand; the loop's own
     # branches set both correctly regardless of which way this step goes.
+    # `config` is loaded fresh in this request rather than carried over
+    # from whichever request paused the investigation — a tool disabled,
+    # or given a raised minimum role, during the pause is enforced now,
+    # not skipped because it passed a now-stale earlier check.
     result = await run_plan(
         ctx,
         paused.plan,
         tools_by_name(),
         paused.investigation,
         approved_tool_names=frozenset({pending.tool_name}),
+        tool_config=config,
         summarize=True,
     )
 

@@ -32,6 +32,7 @@ from app.core.agent.context import AgentContext
 from app.core.agent.investigation import Investigation, PendingApproval
 from app.core.agent.permissions import ApprovalRequiredError, ToolPermissionError, authorize_tool
 from app.core.agent.planner import Plan
+from app.core.agent.tool_config import ToolConfig, effective_minimum_role, is_tool_enabled
 from app.core.agent.tools.contract import Tool, ToolExecutionError, ToolNotFoundError
 from app.core.assistant.prompts import PromptTemplate, quote_evidence
 from app.core.assistant.provider import AIProvider
@@ -100,6 +101,7 @@ async def run_plan(
     investigation: Investigation,
     *,
     approved_tool_names: frozenset[str] = frozenset(),
+    tool_config: ToolConfig | None = None,
     summarize: bool = False,
 ) -> ExecutionResult:
     """Run `plan.steps[investigation.plan_step_index:]` against `tools`.
@@ -109,7 +111,17 @@ async def run_plan(
     from `session_store.py`) and that tool's name in `approved_tool_names`
     — there is no separate "resume" function, only the same loop starting
     partway through.
+
+    `tool_config` is re-read by the caller for every call into this
+    function, including a resumed one — never cached across the pause, the
+    same "never trust an earlier check" reasoning
+    `exploitation_service.py`'s fire task re-validates its own allowlists
+    for rather than trusting the enqueue-time check alone. A tool disabled,
+    or given a raised minimum role, after a plan was built but before a
+    step runs is refused here, not silently allowed through on a stale
+    decision.
     """
+    config: ToolConfig = tool_config or {}
     outcomes: list[StepOutcome] = []
 
     for index in range(investigation.plan_step_index, len(plan.steps)):
@@ -121,7 +133,13 @@ async def run_plan(
             return ExecutionResult(investigation, outcomes)
 
         try:
-            authorize_tool(ctx.effective_role, tool, approved=tool.name in approved_tool_names)
+            authorize_tool(
+                ctx.effective_role,
+                tool,
+                approved=tool.name in approved_tool_names,
+                minimum_role=effective_minimum_role(tool, config),
+                enabled=is_tool_enabled(tool, config),
+            )
         except ToolPermissionError as exc:
             outcomes.append(StepOutcome(tool.name, StepStatus.PERMISSION_DENIED, error=str(exc)))
             investigation.fail()

@@ -3603,13 +3603,9 @@ cluster re-run standalone as well as inside the full suite.
   configuring them today is direct-database/migration-seeded only,
   faithful to the literal endpoint list in the approved plan rather than
   expanding scope to a settings UI this phase did not ask for.
-- **`AgentTool.minimum_role_override` is inert.** The column and table
-  exist; the permission check that would read it to raise (never lower) a
-  tool's effective minimum role lands in a later phase.
 - **No per-tool rate-limit policy entries yet.** `Tool.rate_limit_rule`
   exists on the contract; wiring specific policy names into
-  `app.core.ratelimit.policy.POLICY` per tool is deferred alongside the
-  `AgentTool` override work above.
+  `app.core.ratelimit.policy.POLICY` per tool is deferred.
 - **Scheduled automation is still blocked on Celery Beat**, unchanged from
   the pentest-module Phase 1 note: `create_workflow` can store a
   `TriggerKind.SCHEDULE` workflow correctly, but nothing fires it on a
@@ -4113,3 +4109,83 @@ matrix.py`'s pin test covers all four new routes, including its own
 `exploitation-authorization` route ends in "authorization" and is picked
 up by that test automatically). Full backend suite green alongside this
 work.
+
+## Agent framework: enforce `AgentTool.minimum_role_override`
+
+### Context
+
+A whole-system review, benchmarking this platform against garak/PyRIT/
+promptfoo/DeepTeam/Giskard/Snyk/Aikido and its own stated deferrals, found
+that `AgentTool.enabled` and `AgentTool.minimum_role_override` had been
+present in the schema since the agent's Phase 2 with zero code anywhere
+that ever read or wrote either column (`grep -rn "AgentTool(" --include
+"*.py" .` returned only test-fixture instantiations). An organization
+admin who believed they had disabled a tool, or raised its minimum role,
+was silently unprotected — the exact "looks enforced but isn't" gap the
+review was looking for.
+
+### Design
+
+New `app/core/agent/tool_config.py`: `load_tool_config` (one query per
+request/plan, batched — not per tool call), `effective_minimum_role` and
+`is_tool_enabled` (pure functions an `AgentTool` row's config maps onto a
+`Tool`), `permitted_tools`, and `validate_role_override` — the write-time
+half of the model's own "may only ever raise a tool's effective minimum
+role, never lower it" invariant. `effective_minimum_role` also enforces
+this defensively at *read* time (a stored value that would lower the bar
+is ignored, not trusted), matching this codebase's established "defence
+in depth, never trust a single check" reasoning
+(`exploitation_service.py`'s three-independent-allowlist gate).
+
+`app/core/agent/permissions.py` gains a third independent check alongside
+the existing role-ceiling and `SENSITIVE`-approval gates: `authorize_
+enabled` raises the new `ToolDisabledError(ToolPermissionError)` — a
+subclass, not a sibling, so every existing caller that already catches
+`ToolPermissionError` (`run_plan`, `call_tool`) handles a disabled tool
+with no new branch. `authorize_role` gained an optional `minimum_role`
+parameter (defaults to the tool's own code default) so a caller can pass
+an organization's resolved override in without a second, parallel check
+path.
+
+`app/api/v1/routers/agent.py`: `GET`/`PUT .../agent/tools/{tool_name}
+/config` (analyst read, admin write — the same tier split every other
+agent-configuration endpoint uses), upserting the whole `AgentTool` row
+per call rather than a PATCH that could leave a stale field, matching
+`RulesOfEngagement`'s own shape. `GET .../agent/tools` now reports each
+tool's `enabled` and `effective_minimum_role` alongside its code default.
+`call_tool` (the direct single-tool surface `backend/mcp_server/` uses)
+and `run_plan` (via a new `tool_config` parameter) both now check
+`is_tool_enabled`/`effective_minimum_role` before permitting a call.
+`run_plan`'s config is loaded fresh on every invocation — including a
+*resumed*, post-approval-pause investigation — so a tool disabled or
+raised during the pause window is caught at resume time rather than
+trusted from a stale enqueue-time decision, mirroring the pentest
+exploitation-fire task's own re-validation-at-execution-time pattern.
+
+### What this does not change
+
+- No bulk/organization-wide tool policy — configuration is still one
+  `PUT` per tool, matching every other per-resource config endpoint in
+  this codebase; a bulk endpoint is a later increment if ever wanted.
+- No UI for tool configuration — API-only, the same "dashboard/CLI is a
+  later phase" precedent every earlier phase states.
+- `AgentTool.minimum_role_override` still cannot lower a tool's bar below
+  its code default — enforced identically at write time (`422`) and read
+  time (silently ignored), unchanged from the model's own original intent.
+
+### Verified
+
+`ruff check`/`mypy app` clean. New `tests/test_agent_tool_config.py`
+(pure-function coverage of `effective_minimum_role`/`is_tool_enabled`/
+`permitted_tools`/`validate_role_override`, plus a DB-backed test proving
+`load_tool_config` is scoped per organization) and additions to
+`tests/test_agent_permissions.py` (`ToolDisabledError` is a
+`ToolPermissionError`; `authorize_tool` checks enabled before role or
+approval; an organization's raised minimum role is applied). New
+integration tests in `tests/test_agent_api.py`: a `PUT`/`GET` round trip,
+`PUT` rejecting a lowering override with `422`, disabling a tool refusing
+even the organization's `OWNER` on a direct call with `403`, and the
+`GET .../agent/tools` catalog reflecting a configured override and
+disablement. `tests/security/test_authorization_matrix.py`'s pin test
+extended for both new routes. Full backend suite green (351 passed, 2
+pre-existing skips) alongside this work.

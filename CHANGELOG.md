@@ -87,6 +87,21 @@ All notable changes to this project are recorded here. The format follows
 
 ### Added
 
+- **Agent framework: `AgentTool.enabled`/`minimum_role_override` are now
+  enforced**, closing a gap a whole-system review found: both columns had
+  existed since the agent's Phase 2 with no code anywhere reading or
+  writing them, so an org admin who believed they had disabled a tool or
+  raised its minimum role was silently unprotected. New `GET`/
+  `PUT .../agent/tools/{tool_name}/config` endpoints (analyst read, admin
+  write) let an organization disable a tool or raise (never lower — `422`
+  on a lowering attempt) its minimum role above the code default; both
+  `POST .../agent/tools/{tool_name}/call` and every step of
+  `POST .../agent/investigate`/`.../approve` now enforce it, including on
+  a *resumed* investigation, where the configuration is re-loaded fresh
+  rather than trusted from before the approval pause. `GET .../agent/tools`
+  now reports each tool's `enabled` state and `effective_minimum_role`
+  alongside its code default. See `docs/roadmap.md`.
+
 - **Pentest module, Phase 12: the exploitation tier's simulate-then-fire
   two-step.** Real exploit execution — deferred since the Phase 1
   foundation "behind its own `ExploitationAuthorization` tier" — is now

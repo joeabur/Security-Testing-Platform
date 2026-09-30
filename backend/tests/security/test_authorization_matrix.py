@@ -294,6 +294,13 @@ EXPECTED_ROLES: dict[tuple[str, str], Role] = {
     # same two-layer pattern POST .../investigate already uses for its
     # per-step tool authorization.
     ("POST", "/organizations/{organization_id}/agent/tools/{tool_name}/call"): Role.VIEWER,
+    # Per-tool enable/disable and minimum-role-override configuration is the
+    # same admin-to-write/analyst-to-read tier as the agent-provider config
+    # directly above and below — a change here decides which tools the
+    # agent may even offer, not something a lower tier should be able to
+    # widen or narrow on its own.
+    ("GET", "/organizations/{organization_id}/agent/tools/{tool_name}/config"): Role.ANALYST,
+    ("PUT", "/organizations/{organization_id}/agent/tools/{tool_name}/config"): Role.ADMIN,
     ("POST", "/organizations/{organization_id}/agent/investigate"): Role.ANALYST,
     (
         "GET",
