@@ -6,6 +6,30 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **Frontend CI was broken on `main` for every PR**: the zod 3.23.8→4.5.0
+  security bump left `lib/validation.ts`'s three `z.literal(true, {
+  errorMap: ... })` calls using a v3-only option zod v4 no longer accepts
+  (`tsc` failure). Migrated them to v4's own syntax, `z.literal(true,
+  "message")`. Fixing only that surfaced a second, deeper break invisible
+  until typecheck passed: `@hookform/resolvers@3.9.0`'s zod adapter detects
+  a `ZodError` via `Array.isArray(r?.errors)`, but zod v4 only exposes
+  `.issues`, not a `.errors` alias — so on any validation failure the
+  adapter re-threw instead of converting it, leaving forms stuck mid-submit
+  with an unhandled rejection instead of a validation message. Bumped
+  `@hookform/resolvers` to `5.9.1` (the first release whose compiled zod
+  resolver checks `.issues` via the schema's `_zod` trait marker) and its
+  required peer `react-hook-form` to `7.89.0`; verified two intermediate
+  versions (`4.1.3`, `5.0.1`) still shipped the old `.errors`-checking
+  resolver despite their package metadata suggesting otherwise. The newer
+  `@hookform/resolvers` also tightened its `Resolver` type to distinguish a
+  schema's pre-coerce input shape from its post-coerce output shape, which
+  `components/runs/exploitation-fires.tsx`'s `z.coerce.number()` port field
+  needs — added `ExploitationFireCreateFormInput` (`z.input<...>`) in
+  `lib/validation.ts` alongside the existing output-typed
+  `ExploitationFireCreateInput`, and split `useForm`'s generics accordingly.
+
 ### Security
 
 - **Fixed a critical transitive vulnerability: `asteval` 1.0.6, pulled in
