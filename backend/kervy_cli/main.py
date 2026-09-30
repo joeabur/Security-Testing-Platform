@@ -389,6 +389,28 @@ def cmd_findings_set_status(args: argparse.Namespace, profile: Profile) -> ExitC
     return ExitCode.PASS
 
 
+def cmd_findings_link_duplicate(args: argparse.Namespace, profile: Profile) -> ExitCode:
+    org = _org(args, profile)
+    _emit(
+        _client(profile).request(
+            "POST",
+            f"/organizations/{org}/findings/{args.id}/duplicate",
+            json_body={"duplicate_of_finding_id": args.of, "note": args.note},
+        )
+    )
+    return ExitCode.PASS
+
+
+def cmd_findings_unlink_duplicate(args: argparse.Namespace, profile: Profile) -> ExitCode:
+    org = _org(args, profile)
+    _emit(
+        _client(profile).request(
+            "DELETE", f"/organizations/{org}/findings/{args.id}/duplicate"
+        )
+    )
+    return ExitCode.PASS
+
+
 def cmd_retest(args: argparse.Namespace, profile: Profile) -> ExitCode:
     org = _org(args, profile)
     client = _client(profile)
@@ -785,6 +807,14 @@ def _parser() -> argparse.ArgumentParser:
     set_status.add_argument("--status", required=True)
     set_status.add_argument("--note")
     set_status.set_defaults(handler=cmd_findings_set_status)
+    link_duplicate = findings.add_parser("link-duplicate")
+    link_duplicate.add_argument("id")
+    link_duplicate.add_argument("--of", required=True, help="the finding this duplicates")
+    link_duplicate.add_argument("--note")
+    link_duplicate.set_defaults(handler=cmd_findings_link_duplicate)
+    unlink_duplicate = findings.add_parser("unlink-duplicate")
+    unlink_duplicate.add_argument("id")
+    unlink_duplicate.set_defaults(handler=cmd_findings_unlink_duplicate)
 
     retest = subparsers.add_parser("retest", help="re-check specific findings")
     retest.add_argument("target")

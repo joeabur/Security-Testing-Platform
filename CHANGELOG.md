@@ -99,6 +99,28 @@ All notable changes to this project are recorded here. The format follows
 
 ### Added
 
+- **Dashboard and CLI: tool config, exploitation approve/reject, and
+  duplicate-linking are no longer API-only.** The three whole-system-review
+  fixes above shipped as REST endpoints with nothing in the dashboard or
+  CLI to reach them — a real user had no way to see or use any of them.
+  The finding detail page now shows a "Duplicate" card (link/unlink, plus
+  the reverse "Duplicates of this finding" list) and the findings list
+  gained an `include_duplicates` filter and a "Duplicate" badge;
+  `kervy-ai findings link-duplicate`/`unlink-duplicate` mirror the same
+  API from the CLI. The agent workspace's "Available tools" card now shows
+  each tool's enabled state and effective vs. code-default minimum role,
+  with an inline form calling `PUT .../agent/tools/{tool_name}/config`
+  directly. The target detail page gained an "Exploitation authorization"
+  card (mirroring the existing Authorization card) to grant/view
+  `ExploitationAuthorization`, and the run detail page gained an
+  "Exploitation fires" section: a create-fire form, a live-polled list of
+  fires, and approve/reject actions enforcing the same dual-control rule
+  the API already requires. No CLI commands were added for the agent or
+  exploitation surfaces — this CLI has never had partial coverage of
+  either domain, and adding one command while leaving the rest uncovered
+  would be scope creep, the same reasoning already on record for agent
+  provider provisioning. See `docs/roadmap.md`.
+
 - **Findings: human-verified cross-engine duplicate linking.** "No
   cross-engine deduplication" has been an honest, stated gap since the
   AppSec engine's own Phase 14 — a SAST finding and a DAST finding

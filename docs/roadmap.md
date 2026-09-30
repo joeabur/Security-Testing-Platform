@@ -4339,3 +4339,82 @@ one. Two new routes added to `tests/security/test_authorization_matrix
 .py`'s `EXPECTED_ROLES`. Full targeted regression (`test_findings_api.py`,
 `test_findings_and_risk.py`, `test_reporting.py`, `test_reports_api.py`,
 `test_authorization_matrix.py`) green alongside this work.
+
+## Dashboard and CLI: wiring the three whole-system-review fixes
+
+### Context
+
+Each of the three preceding items — `AgentTool` enforcement, the
+exploitation tier's dual-control gate, and cross-engine duplicate linking —
+shipped API-only and said so explicitly in its own "what this does not
+change" section, citing "dashboard/CLI is a later phase" as this
+codebase's own established precedent. That precedent assumed a later phase
+would actually come; this is it. A real user of the dashboard had no way
+to see or use any of the three.
+
+### Design
+
+**Duplicate linking** got the fullest treatment since it touches a surface
+users already spend time on. The finding detail page
+(`frontend/app/(dashboard)/organizations/[id]/findings/[findingId]/page.tsx`)
+gained a "Duplicate" card backed by a new client component,
+`components/findings/finding-duplicate-form.tsx` — a link form
+(finding ID + optional note) when unlinked, an "Unlink" button plus the
+recorded note when linked, following the same `clientApiFetch` +
+`ApiError` + `router.refresh()` pattern `FindingStatusForm` already
+established. A "Duplicates of this finding" list (the reverse direction,
+`GET .../duplicates`) renders alongside it when non-empty. The findings
+list page gained an `include_duplicates` checkbox wired to the API's own
+query parameter of the same name, and a "Duplicate" badge on any row
+that's currently linked. `kervy-ai findings link-duplicate`/
+`unlink-duplicate` extend the CLI's existing `findings` subcommand group
+with the same two calls.
+
+**Tool configuration** reuses the agent workspace's existing "Available
+tools" card (`components/agent/agent-workspace.tsx`) rather than a new
+page: each tool now shows a "Disabled" badge when off, its effective
+role next to its code default when an override raises it, and a new
+inline `AgentToolConfigForm` (`components/agent/agent-tool-config-form.tsx`)
+— an enabled checkbox and a minimum-role `<select>` (empty option clears
+the override back to the code default) — calling
+`PUT .../agent/tools/{tool_name}/config` directly.
+
+**Exploitation** needed two new surfaces, since the tier itself had never
+been in the dashboard at all (it predates the dashboard's own Phase 10).
+The target detail page gained an "Exploitation authorization" card —
+`components/targets/exploitation-authorization-grant-form.tsx`, a near-
+mirror of the existing `AuthorizationGrantForm` with an added
+comma-separated approved-script-names field — making explicit in the UI
+that this is a second, distinct grant from ordinary Authorization, exactly
+as Phase 12's own design intended. The run detail page gained an
+"Exploitation fires" section (`components/runs/exploitation-fires.tsx`,
+composed into `RunDetail` once a run is `completed`): a create-fire form
+(host, port, script names, the same explicit `authorization_confirmed`
+checkbox the API requires), a self-polling list of fires that stops
+polling once every fire is terminal (mirroring `RunDetail`'s own run-status
+poll), and approve/reject actions on any fire still `awaiting_approval` —
+enforcing nothing client-side beyond what the API already refuses, since
+this frontend has no role-gating convention anywhere (confirmed by grep
+before writing any of this): a 403 from attempting to approve one's own
+request surfaces through the existing `ApiError` path like any other
+refusal.
+
+### What this does not change
+
+- No CLI commands for the agent or exploitation surfaces. This CLI has
+  never had partial coverage of either domain — no `agent` or
+  `exploitation` subcommand group exists at all — and adding one command
+  while leaving the rest uncovered would be scope creep, the identical
+  reasoning already on record for agent provider provisioning. Only
+  `findings`, which already had a subcommand group, was extended.
+- No new backend endpoints, schemas, or business logic — every call this
+  work makes already existed and is unchanged.
+- No client-side role checks anywhere in the new code, matching this
+  frontend's existing, unbroken convention: every form renders
+  unconditionally and a 403 surfaces as an ordinary `ApiError` message.
+
+### Verified
+
+`npm run lint`, `npx tsc --noEmit`, and `npm run build` all clean.
+Backend: `ruff check`/`mypy` clean on the two new CLI commands in
+`kervy_cli/main.py`.

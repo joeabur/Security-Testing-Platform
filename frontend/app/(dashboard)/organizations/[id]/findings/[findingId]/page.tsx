@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 
+import { FindingDuplicateForm } from "@/components/findings/finding-duplicate-form";
 import { FindingStatusForm } from "@/components/findings/finding-status-form";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -53,6 +54,9 @@ export default async function FindingDetailPage({
         () => null,
       )
     : null;
+  const duplicates = await serverApiFetch<Finding[]>(
+    `/organizations/${id}/findings/${findingId}/duplicates`,
+  );
 
   return (
     <div className="flex max-w-4xl animate-fade-in flex-col gap-4">
@@ -146,6 +150,44 @@ export default async function FindingDetailPage({
               <FindingStatusForm organizationId={id} finding={finding} />
             </CardContent>
           </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Duplicate</CardTitle>
+              <CardDescription>
+                A human&apos;s explicit judgment that this and another finding describe the same
+                underlying defect — never inferred automatically.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <FindingDuplicateForm organizationId={id} finding={finding} />
+            </CardContent>
+          </Card>
+
+          {duplicates.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Duplicates of this finding</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ul className="flex flex-col gap-2 text-sm">
+                  {duplicates.map((duplicate) => (
+                    <li key={duplicate.id}>
+                      <Link
+                        href={`/organizations/${id}/findings/${duplicate.id}`}
+                        className="font-medium text-foreground hover:text-primary hover:underline"
+                      >
+                        {duplicate.title}
+                      </Link>
+                      <span className="ml-2 text-xs text-muted-foreground">
+                        {duplicate.severity}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </CardContent>
+            </Card>
+          )}
 
           <Card>
             <CardHeader>

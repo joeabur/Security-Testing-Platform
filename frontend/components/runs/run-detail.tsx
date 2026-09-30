@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 
+import { ExploitationFires } from "@/components/runs/exploitation-fires";
 import { Alert } from "@/components/ui/alert";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -184,6 +185,10 @@ export function RunDetail({
           )}
         </CardContent>
       </Card>
+
+      {run.status === "completed" && (
+        <ExploitationFires organizationId={organizationId} runId={runId} />
+      )}
     </div>
   );
 }

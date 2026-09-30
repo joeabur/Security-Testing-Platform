@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Bot, CheckCircle2, ShieldQuestion, Sparkles, XCircle } from "lucide-react";
 
+import { AgentToolConfigForm } from "@/components/agent/agent-tool-config-form";
 import { Alert } from "@/components/ui/alert";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -190,14 +191,22 @@ export function AgentWorkspace({
           <ul className="flex flex-col gap-3 text-sm">
             {tools.map((tool) => (
               <li key={tool.name} className="border-b border-border pb-3 last:border-0 last:pb-0">
-                <p className="font-mono text-xs font-medium">{tool.name}</p>
+                <div className="flex items-center justify-between gap-2">
+                  <p className="font-mono text-xs font-medium">{tool.name}</p>
+                  {!tool.enabled && <Badge tone="destructive">Disabled</Badge>}
+                </div>
                 <p className="text-muted-foreground">{tool.description}</p>
                 <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                   <Badge tone={RISK_TONE[tool.risk_level] ?? "neutral"}>
                     {RISK_LABEL[tool.risk_level] ?? tool.risk_level}
                   </Badge>
-                  <span className="text-xs text-muted-foreground">role: {tool.minimum_role}</span>
+                  <span className="text-xs text-muted-foreground">
+                    role: {tool.effective_minimum_role}
+                    {tool.effective_minimum_role !== tool.minimum_role &&
+                      ` (default ${tool.minimum_role})`}
+                  </span>
                 </div>
+                <AgentToolConfigForm organizationId={organizationId} tool={tool} />
               </li>
             ))}
           </ul>

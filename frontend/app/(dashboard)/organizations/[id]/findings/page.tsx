@@ -5,6 +5,7 @@ import { ShieldAlert } from "lucide-react";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Select } from "@/components/ui/select";
 import { serverApiFetch } from "@/lib/api-server";
 import type { Finding, FindingStatus, Severity, Target } from "@/lib/types";
@@ -41,16 +42,23 @@ export default async function FindingsPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ severity?: string; status?: string; page?: string }>;
+  searchParams: Promise<{
+    severity?: string;
+    status?: string;
+    page?: string;
+    include_duplicates?: string;
+  }>;
 }) {
   const { id } = await params;
   const query = await searchParams;
   const page = Math.max(1, Number.parseInt(query.page ?? "1", 10) || 1);
   const offset = (page - 1) * PAGE_SIZE;
+  const includeDuplicates = query.include_duplicates === "true";
 
   const apiParams = new URLSearchParams();
   if (query.severity) apiParams.set("severity", query.severity);
   if (query.status) apiParams.set("finding_status", query.status);
+  if (includeDuplicates) apiParams.set("include_duplicates", "true");
   // One extra row, never rendered — its presence is how "Next" is decided
   // without a second request or a total count the API doesn't return.
   apiParams.set("limit", String(PAGE_SIZE + 1));
@@ -68,6 +76,7 @@ export default async function FindingsPage({
     const href = new URLSearchParams();
     if (query.severity) href.set("severity", query.severity);
     if (query.status) href.set("status", query.status);
+    if (includeDuplicates) href.set("include_duplicates", "true");
     if (nextPage > 1) href.set("page", String(nextPage));
     const suffix = href.toString();
     return `/organizations/${id}/findings${suffix ? `?${suffix}` : ""}`;
@@ -115,10 +124,21 @@ export default async function FindingsPage({
             <option value="closed">Closed</option>
           </Select>
         </div>
+        <div className="flex items-center gap-2 pb-2">
+          <Checkbox
+            id="include_duplicates"
+            name="include_duplicates"
+            value="true"
+            defaultChecked={includeDuplicates}
+          />
+          <label htmlFor="include_duplicates" className="text-sm text-muted-foreground">
+            Include findings linked as duplicates
+          </label>
+        </div>
         <Button type="submit" size="sm">
           Apply filters
         </Button>
-        {(query.severity || query.status) && (
+        {(query.severity || query.status || includeDuplicates) && (
           <Link
             href={`/organizations/${id}/findings`}
             className="text-sm font-medium text-muted-foreground hover:text-foreground"
@@ -159,6 +179,11 @@ export default async function FindingsPage({
                     >
                       {finding.title}
                     </Link>
+                    {finding.duplicate_of_finding_id && (
+                      <Badge tone="neutral" className="ml-2">
+                        Duplicate
+                      </Badge>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-muted-foreground">
                     {finding.target_id ? targetNames.get(finding.target_id) ?? "Unknown target" : "—"}

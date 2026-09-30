@@ -1,13 +1,14 @@
 import type { Metadata } from "next";
-import { ClipboardCheck, PlayCircle, ShieldCheck } from "lucide-react";
+import { ClipboardCheck, FlaskConical, PlayCircle, ShieldCheck } from "lucide-react";
 
 import { AuthorizationGrantForm } from "@/components/targets/authorization-grant-form";
+import { ExploitationAuthorizationGrantForm } from "@/components/targets/exploitation-authorization-grant-form";
 import { RulesOfEngagementForm } from "@/components/targets/rules-of-engagement-form";
 import { StartRunForm } from "@/components/runs/start-run-form";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { serverApiFetch } from "@/lib/api-server";
-import type { Authorization, RulesOfEngagement, Target } from "@/lib/types";
+import type { Authorization, ExploitationAuthorization, RulesOfEngagement, Target } from "@/lib/types";
 
 export const metadata: Metadata = { title: "Target — Kervy Security" };
 
@@ -19,7 +20,7 @@ export default async function TargetDetailPage({
   const { id, targetId } = await params;
   const target = await serverApiFetch<Target>(`/organizations/${id}/targets/${targetId}`);
 
-  const [roe, authorization] = await Promise.all([
+  const [roe, authorization, exploitationAuthorization] = await Promise.all([
     target.has_rules_of_engagement
       ? serverApiFetch<RulesOfEngagement>(
           `/organizations/${id}/targets/${targetId}/rules-of-engagement`,
@@ -28,6 +29,9 @@ export default async function TargetDetailPage({
     target.has_authorization
       ? serverApiFetch<Authorization>(`/organizations/${id}/targets/${targetId}/authorization`)
       : Promise.resolve(null),
+    serverApiFetch<ExploitationAuthorization>(
+      `/organizations/${id}/targets/${targetId}/exploitation-authorization`,
+    ).catch(() => null),
   ]);
 
   const readyToRun = Boolean(roe) && Boolean(authorization);
@@ -150,6 +154,54 @@ export default async function TargetDetailPage({
             </dl>
           )}
           <AuthorizationGrantForm organizationId={id} targetId={targetId} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <FlaskConical className="h-4 w-4 text-muted-foreground" aria-hidden />
+            <CardTitle>Exploitation authorization</CardTitle>
+          </div>
+          <CardDescription>
+            A second, distinct grant from Authorization above — this one specifically authorizes
+            running real exploit code against this target, and names exactly which scripts.
+            Submitting again replaces it wholesale.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          {exploitationAuthorization && (
+            <dl className="grid divide-y divide-border rounded-lg border border-border bg-muted/40 text-sm sm:grid-cols-2 sm:divide-x sm:divide-y-0">
+              <div className="flex flex-col gap-0.5 px-4 py-3">
+                <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Authorized by
+                </dt>
+                <dd>
+                  {exploitationAuthorization.authorized_by_name} (
+                  {exploitationAuthorization.authorized_by_role})
+                </dd>
+              </div>
+              <div className="flex flex-col gap-0.5 px-4 py-3">
+                <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Reference
+                </dt>
+                <dd>{exploitationAuthorization.reference}</dd>
+              </div>
+              <div className="flex flex-col gap-0.5 px-4 py-3">
+                <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Valid until
+                </dt>
+                <dd>{new Date(exploitationAuthorization.valid_until).toLocaleString()}</dd>
+              </div>
+              <div className="flex flex-col gap-0.5 px-4 py-3">
+                <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Approved scripts
+                </dt>
+                <dd>{exploitationAuthorization.approved_script_names.join(", ")}</dd>
+              </div>
+            </dl>
+          )}
+          <ExploitationAuthorizationGrantForm organizationId={id} targetId={targetId} />
         </CardContent>
       </Card>
 
