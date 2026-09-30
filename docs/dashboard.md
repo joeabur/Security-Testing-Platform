@@ -132,6 +132,22 @@ role-gating convention anywhere (every form renders unconditionally; the
 backend's RBAC is the only enforcement). See
 `docs/authorization-and-scope.md`.
 
+### Report download
+
+The run detail page's "Report" card (`components/runs/report-download.tsx`,
+shown once a run is past `draft`/`queued`) is a format `<select>`
+(markdown/HTML/PDF/JSON/SARIF/CSV), an audience-template `<select>`
+(technical/executive/developer/compliance), and a download button —
+`GET .../report` has rendered every one of these since Phase 9's reporting
+work, but nothing in the dashboard ever called it before this. Downloading
+uses `clientApiDownload` (`lib/api-client.ts`), not `clientApiFetch`: the
+response is a file with a `Content-Disposition` header rather than JSON,
+so it reads the blob and the filename the backend already chose, then
+triggers the browser's save dialog via a transient object-URL anchor
+instead of navigating to the API URL directly. A `501` (PDF requested
+without the optional `weasyprint` dependency present) surfaces as a plain
+message naming the problem, not a raw error.
+
 ## The Jinja2+HTMX dashboard (`/app`, pentest module Phase 17)
 
 A server-rendered dashboard at `/app`, served by the same FastAPI application as

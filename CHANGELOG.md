@@ -123,6 +123,22 @@ All notable changes to this project are recorded here. The format follows
 
 ### Added
 
+- **A "Report" card on the run detail page**: the backend has rendered
+  markdown/HTML/PDF/JSON/SARIF/CSV reports across four audience templates
+  (`/reports` API, §14) since Phase 9, but nothing in the dashboard ever
+  offered a way to request one — a member had to already know the API
+  shape to get a report out. Added `ReportDownload`
+  (`components/runs/report-download.tsx`) to `RunDetail`: a format and
+  audience-template picker plus a download button, shown once a run is
+  past `draft`/`queued` (mirroring the API's own 409 gate for "nothing to
+  report on yet"). Downloading goes through a new `clientApiDownload`
+  helper (`lib/api-client.ts`) rather than `clientApiFetch`, since a
+  report response is a file with a `Content-Disposition` header, not
+  JSON — it fetches the blob under the same session-cookie auth, reads
+  the filename the backend already chose, and triggers the browser's own
+  save via a transient object-URL anchor. A `501` (PDF requested without
+  the optional `weasyprint` dependency installed) surfaces as a plain
+  message pointing at another format, instead of a raw error.
 - **CLI: `kervy-ai assist` and `kervy-ai workflow`.** Two domains with a
   real API and no CLI command group at all — Phase 16's own write-up
   named `kervy assist` as deferred, and Phase 17 explicitly refused to add
