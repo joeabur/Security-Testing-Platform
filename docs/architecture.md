@@ -61,7 +61,7 @@ Core engines and domain logic:
 | `app/core/container/` | Container engine — live registry pulls, RoE-scoped |
 | `app/core/cloud/` | Cloud engine — read-only AWS/Azure/GCP posture checks against an RoE-authorized account |
 | `app/core/vm/` | VM engine — authorized port/service discovery |
-| `app/core/pentest/` | The pentest-tool adapter layer: discovery, vulnerability assessment, validation kept as distinct, sequenced stages, up to and including authorized exploit execution |
+| `app/core/pentest/` | The pentest-tool adapter layer: discovery, vulnerability assessment, validation kept as distinct, sequenced stages. The exploitation tier is simulate-then-fire: an ordinary run only ever emits an eligibility marker; firing a real exploit is a separate, dual-control action (`exploitation_service.py`) |
 | `app/core/dast/` | DAST engine (Nuclei, ZAP) — the first engine that discovers its own targets rather than working from a document a human supplied; safe-mode gated |
 | `app/core/rasp/` | Runtime-protection extension points only — deliberately no RASP-effectiveness engine (§4.5's own resolved conflict) |
 | `app/core/risk/` | Ordinal scoring, banding, generated rationale |
@@ -82,6 +82,8 @@ Core engines and domain logic:
 | `app/core/csrf/` | CSRF tokens for the one place this platform uses cookie-based sessions (the browser-facing login flow) |
 | `app/core/ratelimit/` | Login and per-route rate limiting |
 | `app/core/revocation/` | Server-side JWT revocation — an authorization decision, fails closed |
+| `app/core/oauth/` | Social login (Google, GitHub): a Redis-backed anti-CSRF state token, token exchange through its own gated egress context (never a bare `httpx` call), account linking to an existing email |
+| `app/core/twofactor/` | TOTP enrollment and verification, plus one-time recovery codes for a lost authenticator |
 | `app/plugins/` | Entry-point discovery, allowlist |
 | `app/models/`, `app/schemas/`, `app/api/` | Persistence, wire shapes, routes |
 | `app/web/` | The Jinja2+HTMX read-only dashboard — a second, no-JS-build presentation layer over the same core query modules |
@@ -147,7 +149,28 @@ closed allowlist of operational configuration and metrics — no conversation
 history, no stored transcript. Every tool it can call wraps a platform
 capability reachable directly, at the same role and authorization checks;
 the agent is a typed calling convention over existing capabilities, not a
-new privilege surface. See `docs/agent.md`.
+new privilege surface. Per-organization tool `enabled`/`minimum_role_override`
+configuration is enforced on every call, including a *resumed*
+investigation, where it is re-loaded fresh rather than trusted from before
+an approval pause. See `docs/agent.md`.
+
+**Firing a real exploit requires two different people.** The exploitation
+tier's simulate step is automatic and never runs real attack code; the fire
+step is a separate action gated by three independent allowlists (operator
+NSE-script allowlist, a target-specific `ExploitationAuthorization`, and the
+run's own RoE `approved_modules`) plus dual control — the person who
+requests a fire can never be the one who approves it, checked again by the
+worker at execution time rather than trusted from the enqueue-time decision.
+See `docs/authorization-and-scope.md`.
+
+**A duplicate is a human's claim, never an inference.** Two engines finding
+the same underlying defect get different `probe_id` prefixes and therefore
+different fingerprints — `app/core/findings/service.py::link_duplicate`
+lets an analyst explicitly record that one finding duplicates another (and
+excludes it from default listings and report counts), but nothing computes
+a similarity score or links anything automatically. The relationship is
+two levels deep by construction: a duplicate cannot itself gain duplicates,
+and a finding with duplicates cannot become one.
 
 ## Request lifecycle of a scan
 
@@ -181,8 +204,9 @@ PostgreSQL for everything relational, with Row-Level Security enabled on
 every tenant-scoped table as a second, independent boundary behind the
 application's own `organization_id` filters; Redis for the Celery broker,
 the kill switch, the rate limiter, JWT revocation, the AI spend cap, the
-agent's paused-approval session store, and the inbound-webhook replay guard
-— seven independent Redis-backed stores, each with its own stated fail
+agent's paused-approval session store, the inbound-webhook replay guard,
+the OAuth login flow's anti-CSRF state token, and the 2FA login-challenge
+store — nine independent Redis-backed stores, each with its own stated fail
 direction (most fail closed; the rate limiter deliberately fails open); the
 filesystem under `EVIDENCE_ROOT` for evidence bundles. Evidence is
 deliberately not in object storage by default and has no public URL — it is

@@ -87,6 +87,51 @@ touch) gets the exact same full, ordered response it always has; the
 pagination is opt-in, not a breaking change to an endpoint other clients
 already depend on.
 
+### Duplicate linking
+
+The findings list has an `include_duplicates` checkbox (off by default,
+same server-side query-string idiom as the severity/status filters above)
+and a "Duplicate" badge on any row currently linked. The finding detail
+page has a "Duplicate" card: a link form (the other finding's id plus an
+optional note) when unlinked, or the recorded note and an "Unlink" button
+when linked — `components/findings/finding-duplicate-form.tsx`, calling
+`POST`/`DELETE .../findings/{id}/duplicate`. A second card, "Duplicates of
+this finding", lists the reverse direction (`GET .../duplicates`) when
+non-empty. Nothing here infers a duplicate; the form only ever records a
+human's own explicit judgment — see `docs/authorization-and-scope.md` and
+`app/core/findings/service.py::link_duplicate` for the two-level-only
+invariant this UI does not itself enforce (the API's `409` on a violation
+surfaces as an ordinary form error).
+
+### Agent tool configuration
+
+The native agent workspace's "Available tools" card
+(`components/agent/agent-workspace.tsx`) shows each tool's `enabled` state
+(a "Disabled" badge when off) and its effective minimum role next to its
+code default when an organization has raised the bar above it. An inline
+form per tool (`components/agent/agent-tool-config-form.tsx`) — an enabled
+checkbox and a minimum-role `<select>` — calls
+`PUT .../agent/tools/{tool_name}/config` directly. See `docs/agent.md`.
+
+### Exploitation tier: authorization and fire/approve/reject
+
+Two new surfaces, since the exploitation tier had no dashboard presence at
+all before this (it predates the security-operations dashboard's own
+Phase 10). The target detail page gained an "Exploitation authorization"
+card (`components/targets/exploitation-authorization-grant-form.tsx`), a
+near-mirror of the existing Authorization card, making explicit in the UI
+that this is a second, distinct grant — not implied by ordinary
+Authorization. The run detail page gained an "Exploitation fires" section
+(`components/runs/exploitation-fires.tsx`, shown once a run is
+`completed`): a create-fire form, a self-polling list of fires that stops
+once every fire is terminal, and approve/reject actions on any fire still
+`awaiting_approval`. Nothing here enforces dual control client-side — the
+same person attempting to approve their own request gets the API's `403`
+back as an ordinary form error, consistent with this frontend having no
+role-gating convention anywhere (every form renders unconditionally; the
+backend's RBAC is the only enforcement). See
+`docs/authorization-and-scope.md`.
+
 ## The Jinja2+HTMX dashboard (`/app`, pentest module Phase 17)
 
 A server-rendered dashboard at `/app`, served by the same FastAPI application as

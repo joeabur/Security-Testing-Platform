@@ -48,6 +48,8 @@ being true. Most are both.
 | 32 | A password reset token is single-use, short-lived, and invalidates every existing session | Stored as a SHA-256 digest, never the plaintext; a successful reset sets `tokens_valid_after` and revokes every `UserSession` row, the same "log out everywhere" cutover `/auth/logout-all` uses — `app/models/password_reset.py` |
 | 33 | Only an existing owner can grant, change, or remove another owner | `invite_member`, `update_member_role`, and `remove_member` all check `Role.at_least(Role.OWNER)` before any operation that touches `Role.OWNER`, so an Admin — despite having every other membership-management permission — cannot mint a co-owner or demote one; an organization's last remaining owner additionally cannot be demoted or removed at all, refused with `409`, so an organization can never end up with no one able to perform an owner-only action — `app/api/v1/routers/organizations.py` |
 | 34 | A stolen password alone cannot sign in to a 2FA-enabled account | `login()` returns a short-lived, single-use `TotpChallenge` instead of a session when `User.totp_enabled` is true; the challenge token deliberately omits the `iat_us`/`jti` claims `decode_access_token` requires, so it can never be accepted as a Bearer token even if presented as one, and `POST /auth/login/2fa` redeems it exactly once through a fail-closed Redis store — a second redemption attempt, or one after Redis is unreachable, is refused, never silently accepted — `app/auth/security.py`, `app/core/twofactor/challenge_store.py` |
+| 35 | An organization cannot widen what the native agent may do below its code-defined floor | `AgentTool.minimum_role_override` can only *raise* a tool's required role, never lower it — `validate_role_override` refuses a write that would drop it below the code default, and `effective_minimum_role` takes `max(code default, org override)` even if a stored row somehow bypassed that guard; `AgentTool.enabled` and the effective minimum are both re-checked by `run_plan` on every step, including one resumed after an approval pause, not only when the plan was first built — `app/core/agent/tool_config.py`, `app/core/agent/runtime.py` |
+| 36 | Firing a real exploit requires two different people, not one role check twice | `ExploitationFire` starts `awaiting_approval` on `POST .../exploitation-fires`; `approve_fire` refuses with `409` if the approver is the same `user_id` as the requester, regardless of role — a lone Security Engineer (or Owner) cannot request and approve their own fire — `app/core/pentest/exploitation_service.py`, `app/models/exploitation.py` |
 
 ## The habit behind the tests
 
@@ -76,10 +78,13 @@ checked.
 - **Append-only is by construction, not by grant.** Revoking `UPDATE`/`DELETE`
   on `audit_logs` at the database level is recommended and not enforced.
 - **Evidence is unencrypted at rest.**
-- **Rate limiting covers `login`/`register` and, since social OAuth login and
-  password reset, `oauth_callback`/`forgot_password` too.** Authenticated
-  routes rely on RBAC instead — see `docs/rate-limiting.md` §"What is not
-  limited".
+- **Rate limiting covers `login`/`register` and, since 2FA, social OAuth
+  login and password reset shipped, `login/2fa`, `oauth_callback`, and
+  `forgot_password` too.** Authenticated routes rely on RBAC instead — see
+  `docs/rate-limiting.md` §"What is not limited". The native agent's own
+  `agent_tool_call`/`agent_sensitive_tool_call` rules exist in the same
+  policy table but are not yet wired to a route — don't read their presence
+  there as enforcement.
 
 `docs/security-review.md` carries the full self-review, including how each
 control was verified and what is not covered.

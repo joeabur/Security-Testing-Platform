@@ -171,6 +171,27 @@ Two independent checks, mirroring the assistant's own autonomy-ladder /
 Both are checked, in order, by `authorize_tool()`; a caller below the role
 bar learns that before learning it also needed approval.
 
+#### `AgentTool.enabled`/`minimum_role_override`, enforced
+
+Both columns existed since the agent's early phases with nothing anywhere
+reading or writing them — a whole-system review found the gap: an
+organization admin who believed they had disabled a tool, or raised its
+minimum role, was silently unprotected, because `authorize_role()` above
+checked only the tool's fixed code-registry `minimum_role`. `GET`/
+`PUT .../agent/tools/{tool_name}/config` (Analyst read, Admin write) now
+let an organization disable a tool outright or raise — never lower; a
+lowering attempt is `422` — its minimum role above the code default.
+`is_tool_enabled()`/`effective_minimum_role()` (`app/core/agent/
+tool_config.py`) are the single source of truth both `authorize_tool()`
+and `GET /tools`' own catalog read, so the two can never disagree about
+what a tool currently requires. Enforcement is not just at the top of a
+fresh `POST /investigate` call: `runtime.py` re-loads the organization's
+tool configuration fresh at *every* step, including the step immediately
+after a paused investigation is resumed via `POST .../approve` — a tool an
+admin disabled while an investigation sat `AWAITING_APPROVAL` is refused on
+resume, never grandfathered in against a configuration snapshot taken
+before the pause.
+
 ### Investigation lifecycle
 
 A natural-language request becomes a `Plan` (`planner.py`, via
@@ -241,10 +262,13 @@ persistent agent models (`Agent`, `AgentProvider`, `AgentTool`,
 - An import-boundary test, the same shape as the assistant's.
 
 **`InvestigationSessionStore`** (Redis, key prefix
-`kervy:agent:investigation:`, `TTL_SECONDS = 1800`) is the sixth
-independent Redis-backed store in this codebase (alongside the Celery
-broker, the run kill-switch, the rate limiter, JWT revocation, and the AI
-spend cap — `docs/security-model.md` guarantee #27, `docs/revocation.md`).
+`kervy:agent:investigation:`, `TTL_SECONDS = 1800`) is one of nine
+independent Redis-backed stores in this codebase (alongside the Celery
+broker, the run kill-switch, the rate limiter, JWT revocation, the AI
+spend cap, the inbound-webhook replay guard, the OAuth login flow's
+anti-CSRF state token, and the 2FA login-challenge store — `docs/
+security-model.md` guarantee #27, `docs/revocation.md`,
+`docs/architecture.md`).
 Unlike most of those, it **fails closed**: an unreadable or expired session
 means "not approvable," never "proceed as if approved" — the opposite
 choice from the rate limiter's fail-open default, made deliberately because
@@ -263,8 +287,10 @@ the safe default on either side of a lost approval.
 
 | Endpoint | Minimum role | Behavior |
 |---|---|---|
-| `GET /tools` | Viewer | Discovery only — name, description, risk tier, minimum role, and JSON Schema input shape for every enabled tool. No execution. |
-| `POST /tools/{tool_name}/call` | Viewer (tool's real minimum enforced internally) | Invoke exactly one tool directly, bypassing the planner — the surface `backend/mcp_server/` calls. A `SENSITIVE` tool refuses here outright (`409`): no shortcut around the approval flow. |
+| `GET /tools` | Viewer | Discovery only — name, description, risk tier, code-default minimum role, **effective** minimum role, and `enabled` state, plus the JSON Schema input shape, for every tool in the registry. No execution. |
+| `GET /tools/{tool_name}/config` | Analyst | This organization's current override for one tool (or the code default, if none is set). |
+| `PUT /tools/{tool_name}/config` | Admin | Replace this organization's configuration for one tool wholesale — `enabled` and `minimum_role_override` together, never a partial patch that could leave a stale field. `422` on an override that would lower the tool's bar below its code default. |
+| `POST /tools/{tool_name}/call` | Viewer (tool's real minimum *and* current enablement enforced internally) | Invoke exactly one tool directly, bypassing the planner — the surface `backend/mcp_server/` calls. A `SENSITIVE` tool refuses here outright (`409`): no shortcut around the approval flow. A disabled tool refuses with `403`, identically to a role that is too low. |
 | `POST /investigate` | Analyst | Plan and run a natural-language request against the caller's own permitted tool set, **synchronously**. A `READ_ONLY`/`STANDARD` plan returns its final result in this response; a plan reaching an unapproved `SENSITIVE` step returns `202` with the pending approval instead of running it. |
 | `GET /investigate/{id}/status` | Viewer | Read back a **paused** investigation. Nothing to read for one that already finished — its result was returned once, in the original response, and was never written anywhere. |
 | `POST /investigate/{id}/approve` | Security Engineer | Resume a paused investigation past its one pending `SENSITIVE` step. |
@@ -273,11 +299,12 @@ the safe default on either side of a lost approval.
 `call_tool` and `investigate`/`approve_investigation` all share one
 enforcement shape: the route dependency is a floor (`Viewer` for
 discovery/direct-call, `Analyst`/`Security Engineer` for the planner path),
-and the *tool's own* minimum role and risk tier are checked again inside,
-exactly as they are inside `run_plan` — a caller below a tool's real bar
-gets `403`, never a silent downgrade to whatever the route alone would
-have allowed. `tests/security/test_authorization_matrix.py`'s pinned
-route→role table covers all six routes.
+and the *tool's own* minimum role, current enablement, and risk tier are
+checked again inside, exactly as they are inside `run_plan` — a caller
+below a tool's real bar gets `403`, never a silent downgrade to whatever
+the route alone would have allowed. `tests/security/
+test_authorization_matrix.py`'s pinned route→role table covers all eight
+routes.
 
 Streaming (an SSE endpoint mirroring `runs.py`'s live progress stream) is a
 stated future enhancement, not built here: `investigate` already returns
@@ -297,6 +324,12 @@ pattern `run-detail.tsx` already established for runs (poll
 `GET .../status` while paused), and an approval prompt reuses
 `start-run-form.tsx`'s `z.literal(true, {errorMap})` confirmation-checkbox
 pattern rather than inventing a new one.
+
+The same page's "Available tools" card shows each tool's `enabled` state
+and effective-vs-code-default minimum role, with an inline
+`AgentToolConfigForm` (`components/agent/agent-tool-config-form.tsx`)
+calling `PUT .../agent/tools/{tool_name}/config` directly — see
+`docs/dashboard.md`'s "Agent tool configuration" section.
 
 ## Automation and notifications
 
@@ -371,7 +404,7 @@ The closed, five-table allowlist (`app/models/agent.py`):
 |---|---|
 | `Agent` | One row per organization — enabled, default provider, default autonomy mode |
 | `AgentProvider` | An org-configured provider (`anthropic`/`openai`/`gemini`/`openai_compatible`), never a secret value |
-| `AgentTool` | Per-org enable/disable and role-override for a tool the code registry defines — configuration only |
+| `AgentTool` | Per-org enable/disable and role-override for a tool the code registry defines — enforced on every call, including a resumed investigation |
 | `AgentConfiguration` | Fine-grained runtime policy — tool allowlist, rate-limit overrides — as schema-validated JSON |
 | `AgentUsageMetadata` | Append-only usage/cost/performance row per tool execution |
 
@@ -385,6 +418,6 @@ The closed, five-table allowlist (`app/models/agent.py`):
   itself governed, and how the platform's separate AI *security testing*
   engine (attacking someone else's LLM application) differs from both.
 - `docs/roadmap.md` — the phase-by-phase build history, including what was
-  deliberately deferred (SSE streaming, `AgentTool.minimum_role_override`
-  enforcement, per-tool rate limiting, Celery Beat-fired scheduled
-  workflows).
+  deliberately deferred (SSE streaming, per-tool rate limiting) and what a
+  later whole-system review found and fixed (`AgentTool.minimum_role_override`
+  enforcement — see the dedicated section above).

@@ -119,6 +119,16 @@ stale page" requirement to justify carrying the exemption).
   entry is lost; the token is valid again until its own `exp`, at most 12
   hours later by default. The durable `logout-all` cutoff is not affected by
   this, which is the whole reason it lives in Postgres.
-- **No password-change flow exists yet** to hang a "revoke everything on
-  password change" rule from. `logout-all` is the deliberate stand-in until
-  one is built.
+- **A self-service password *change* flow (already logged in, know the old
+  password) does not exist yet** to hang a "revoke everything on password
+  change" rule from — `logout-all` was, and remains, the deliberate stand-in
+  for that case specifically.
+
+  What now exists is the different case: `POST /auth/reset-password`
+  (`docs/authentication.md` §"Forgot / reset password"), reached only by
+  someone who has proven control of the account's email inbox, not the
+  browser making the request. It sets `tokens_valid_after` and bulk-revokes
+  every row in `user_sessions` — the exact same two writes `logout-all`
+  makes — because a password reset *is* the "I think this account was
+  compromised" case this mechanism exists for, whether or not the person
+  hitting "forgot password" is still signed in anywhere.

@@ -10,7 +10,9 @@ Cookie-authenticated, state-changing requests must carry a CSRF token
 | `POST` with a session cookie | **yes** | The browser attaches the session for whoever asks; this is the attack |
 | `POST` with `Authorization: Bearer` | no | A cross-site page cannot attach that header |
 | `GET`, `HEAD`, `OPTIONS` | no | Required to be side-effect-free |
-| `POST /auth/login`, `/auth/register`, `/auth/logout` | no | No session exists yet — see the residual below |
+| `POST /auth/login`, `/auth/register`, `/auth/login/2fa` | **yes** — a pre-session, anonymous token | No ordinary session exists yet to bind a token to; see "Login CSRF is closed" below |
+| `POST /auth/logout` | no | Forcing a logout is an annoyance, not a compromise — and a stale page must still be able to do it |
+| `POST /auth/forgot-password`, `/auth/reset-password` | no | Neither reads a session cookie; each takes its entire authority from its own body, so there is no victim session to ride |
 
 Getting the *scope* wrong ruins it in either direction. Too narrow and the
 attack is wide open. Too wide — demanding a token from Bearer callers — breaks
@@ -160,3 +162,22 @@ Both the frontend (`clientApiFetch` in `lib/api-client.ts`, via a new
 (`ApiClient.fetch_anon_csrf_token` in `kervy_cli/client.py`, called from
 `cmd_login`) go through this same front door now — closing the enforcement
 gap without it meant either would 403 on their next login.
+
+`POST /auth/login/2fa` sits in the same `ANONYMOUS_CSRF_PATHS` set and needs
+the identical pre-session token. Its `challenge` and `code` are both
+attacker-suppliable (from the attacker's own 2FA-protected account), so
+forging this request signs the victim's browser into the attacker's account
+exactly the way a forged `/auth/login` would — the second factor narrows who
+can *complete* a particular login, not who can attempt the CSRF, so it needs
+the same closed door `/auth/login` and `/auth/register` do.
+
+## `forgot-password` / `reset-password` are exempt, deliberately
+
+Both were added to `EXEMPT_PATHS` — no token at all, not even the anonymous
+one — rather than `ANONYMOUS_CSRF_PATHS`, because neither reads a session
+cookie in the first place. `forgot-password` takes its whole authority from
+an email address in the body; `reset-password` from a bearer token mailed to
+that address plus a new password. A forged request to either achieves
+nothing a direct call to the same endpoint would not already achieve, because
+there is no victim session for either one to ride. `logout-all`, by contrast,
+**is** cookie-authenticated and is not exempt — see `docs/revocation.md`.
