@@ -77,9 +77,10 @@ def deliver_notifications(limit: int = SWEEP_LIMIT) -> int:
 
 async def _notify_run(run_id: uuid.UUID) -> int:
     """Build the run's completion event, record intent, then deliver."""
-    from app.core.integrations.dispatch import event_for_finding, event_for_run
-    from app.models.assessment_run import AssessmentRun
+    from app.core.integrations.dispatch import event_for_finding, event_for_retest, event_for_run
+    from app.models.assessment_run import AssessmentRun, RunKind
     from app.models.finding import Finding
+    from app.models.retest import RetestResult, RetestVerdict
     from app.models.target import Target
 
     factory = get_session_factory()
@@ -112,6 +113,33 @@ async def _notify_run(run_id: uuid.UUID) -> int:
             counts=counts,
         )
         queued = list(await enqueue(db, event))
+
+        # A retest gets a second, more specific event alongside its own
+        # assessment.completed — the verdict counts are the whole reason a
+        # retest was requested, and a channel subscribed to retest.completed
+        # only should not have to infer them from a run summary's generic
+        # facts.
+        if run.kind is RunKind.RETEST:
+            verdict_counts: dict[str, int] = {}
+            verdict_rows = (
+                await db.execute(select(RetestResult.verdict).where(RetestResult.run_id == run_id))
+            ).all()
+            for (verdict,) in verdict_rows:
+                key = str(getattr(verdict, "value", verdict))
+                verdict_counts[key] = verdict_counts.get(key, 0) + 1
+            queued.extend(
+                await enqueue(
+                    db,
+                    event_for_retest(
+                        organization_id=run.organization_id,
+                        run_id=run_id,
+                        target_name=target_name,
+                        reproduced=verdict_counts.get(RetestVerdict.REPRODUCED.value, 0),
+                        not_reproduced=verdict_counts.get(RetestVerdict.NOT_REPRODUCED.value, 0),
+                        not_tested=verdict_counts.get(RetestVerdict.NOT_TESTED.value, 0),
+                    ),
+                )
+            )
 
         # Findings first seen in this run each get their own event, so a
         # channel subscribed to `finding.critical` pages on the finding rather
@@ -158,6 +186,62 @@ def notify_run_finished(run_id: str) -> int:
             return await _notify_run(uuid.UUID(run_id))
         except Exception:  # noqa: BLE001 - never let a notification fail a run
             logger.exception("notify_run_finished_failed", run_id=run_id)
+            return 0
+        finally:
+            await dispose_engine()
+
+    return asyncio.run(_run())
+
+
+async def _notify_workflow_gate_failed(workflow_run_id: uuid.UUID) -> int:
+    """Build the `gate.failed` event for one workflow run, then deliver.
+
+    Reads the run's own stored decision rather than taking counts/reasons as
+    arguments — by the time this task runs, `finish()`'s transaction has
+    already committed them, and reading them back is the same "never trust a
+    caller's snapshot of state that might have moved on" reasoning
+    `_notify_run` already follows for `target_name`.
+    """
+    from app.core.integrations.dispatch import event_for_workflow_gate
+    from app.models.workflow import Workflow, WorkflowRun
+
+    factory = get_session_factory()
+    async with factory() as db:
+        run = await db.get(WorkflowRun, workflow_run_id)
+        if run is None or run.gate_passed is not False:
+            # Gone, or the decision moved on since this task was scheduled
+            # (re-triggered, gate reconfigured) — nothing to report.
+            return 0
+        workflow = await db.get(Workflow, run.workflow_id)
+        if workflow is None:
+            return 0
+        event = event_for_workflow_gate(
+            organization_id=run.organization_id,
+            workflow_run_id=run.id,
+            workflow_name=workflow.name,
+            reasons=list(run.gate_reasons or []),
+            counts=dict(run.gate_counts or {}),
+        )
+        queued = list(await enqueue(db, event))
+        await db.commit()
+        if not queued:
+            return 0
+    return await _deliver_due(limit=max(len(queued), SWEEP_LIMIT))
+
+
+@celery_app.task(name="kervy.notify_workflow_gate_failed")
+def notify_workflow_gate_failed(workflow_run_id: str) -> int:
+    """Fan a failed workflow gate out to its organization's subscribed
+    channels. Scheduled from each of `finish()`'s three call sites, after
+    their own commit — same reasoning as `notify_run_finished`: a hanging
+    channel must never hold a workflow trigger's request open.
+    """
+
+    async def _run() -> int:
+        try:
+            return await _notify_workflow_gate_failed(uuid.UUID(workflow_run_id))
+        except Exception:  # noqa: BLE001 - never let a notification fail a workflow run
+            logger.exception("notify_workflow_gate_failed_failed", workflow_run_id=workflow_run_id)
             return 0
         finally:
             await dispose_engine()

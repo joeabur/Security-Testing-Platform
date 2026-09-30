@@ -646,6 +646,101 @@ async def test_a_finished_run_fans_out_to_subscribed_channels(
     assert (summary.event_json or {}).get("severity") == "CRITICAL"
 
 
+async def test_a_retest_run_also_fans_out_its_own_verdict_event(
+    client: AsyncClient, strong_password: str, db_session: AsyncSession
+) -> None:
+    """A retest run gets `retest.completed` alongside `assessment.completed`
+    — the verdict counts are the whole reason a retest was requested, and a
+    channel subscribed to `retest.completed` should not have to infer them
+    from the run summary's generic facts.
+    """
+    from app.models.assessment_run import AssessmentRun, RunKind, RunStatus
+    from app.models.finding import Finding, FindingStatus
+    from app.models.integration import NotificationDelivery
+    from app.models.retest import RetestResult, RetestVerdict
+    from app.workers.notifications import _notify_run
+
+    org_id, headers = await _owner(client, strong_password, "u")
+    await client.post(
+        f"/api/v1/organizations/{org_id}/notification-channels",
+        json=slack_payload(name="retests", events=["retest.completed"]),
+        headers=headers,
+    )
+    target_id = await _target(client, org_id, headers)
+    run = AssessmentRun(
+        organization_id=uuid.UUID(org_id),
+        target_id=uuid.UUID(target_id),
+        status=RunStatus.COMPLETED,
+        kind=RunKind.RETEST,
+    )
+    db_session.add(run)
+    await db_session.flush()
+    fixed = Finding(
+        organization_id=uuid.UUID(org_id),
+        fingerprint="sha256:" + "a" * 64,
+        title="Fixed finding",
+        status=FindingStatus.REMEDIATED,
+        first_run_id=run.id,
+        last_run_id=run.id,
+        **_finding_fields(),
+    )
+    still_open = Finding(
+        organization_id=uuid.UUID(org_id),
+        fingerprint="sha256:" + "b" * 64,
+        title="Still-open finding",
+        status=FindingStatus.CONFIRMED,
+        first_run_id=run.id,
+        last_run_id=run.id,
+        **_finding_fields(),
+    )
+    db_session.add_all([fixed, still_open])
+    await db_session.flush()
+    db_session.add_all(
+        [
+            RetestResult(
+                organization_id=uuid.UUID(org_id),
+                run_id=run.id,
+                finding_id=fixed.id,
+                fingerprint="sha256:" + "a" * 64,
+                verdict=RetestVerdict.NOT_REPRODUCED,
+                before_evidence_ref=None,
+                after_evidence_ref=None,
+                detail="probe ran, no longer reproduced",
+            ),
+            RetestResult(
+                organization_id=uuid.UUID(org_id),
+                run_id=run.id,
+                finding_id=still_open.id,
+                fingerprint="sha256:" + "b" * 64,
+                verdict=RetestVerdict.REPRODUCED,
+                before_evidence_ref=None,
+                after_evidence_ref=None,
+                detail="probe ran, still reproduced",
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    await _notify_run(run.id)
+
+    rows = (
+        (
+            await db_session.execute(
+                select(NotificationDelivery).where(
+                    NotificationDelivery.organization_id == uuid.UUID(org_id)
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    retest_row = next(row for row in rows if row.event_type == "retest.completed")
+    facts = (retest_row.event_json or {}).get("facts") or {}
+    assert facts.get("reproduced") == "1"
+    assert facts.get("not_reproduced") == "1"
+    assert facts.get("not_tested") == "0"
+
+
 async def test_a_run_with_no_subscribed_channel_writes_no_delivery_rows(
     client: AsyncClient, strong_password: str, db_session: AsyncSession
 ) -> None:

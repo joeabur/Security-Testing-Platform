@@ -123,6 +123,19 @@ All notable changes to this project are recorded here. The format follows
 
 ### Added
 
+- **`retest.completed` and `gate.failed` notification events, previously
+  defined in the event vocabulary but never emitted** (`docs/integrations.md`
+  said so plainly). A retest run now fires `retest.completed` alongside its
+  own `assessment.completed`, carrying reproduced/not-reproduced/not-tested
+  verdict counts (`app/workers/notifications.py::_notify_run`); a workflow
+  run whose gate decision refuses it fires `gate.failed`, carrying the
+  severity counts and reasons the gate itself recorded
+  (`_notify_workflow_gate_failed`, scheduled from each of `finish()`'s three
+  call sites once their own transaction commits — the same "never let a
+  hanging channel hold the caller's request open" discipline
+  `notify_run_finished` already follows). A passing gate stays silent by
+  design: `workflow.completed` in the audit log already covers it, and only
+  the failing outcome is worth paging on.
 - **CLI: `kervy-ai assist` and `kervy-ai workflow`.** Two domains with a
   real API and no CLI command group at all — Phase 16's own write-up
   named `kervy assist` as deferred, and Phase 17 explicitly refused to add
