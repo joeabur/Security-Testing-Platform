@@ -429,6 +429,218 @@ def test_broken_evidence_is_a_failure_not_information(profile: Profile) -> None:
     assert cli.main(["evidence", "verify", "--run", RUN]) == int(ExitCode.GATE_FAILED)
 
 
+# --- assistant drafts -------------------------------------------------------
+
+
+@respx.mock
+def test_assist_status_gets_the_status_endpoint(profile: Profile) -> None:
+    respx.get(f"{BASE_URL}/organizations/{ORG}/assistant/status").mock(
+        return_value=httpx.Response(200, json={"configured": True, "autonomy_mode": "RECOMMEND"})
+    )
+
+    assert cli.main(["assist", "status"]) == 0
+
+
+@respx.mock
+def test_assist_draft_posts_the_field_and_scan_result(profile: Profile) -> None:
+    scan_result = "55555555-5555-5555-5555-555555555555"
+    route = respx.post(f"{BASE_URL}/organizations/{ORG}/assistant/runs/{RUN}/drafts").mock(
+        return_value=httpx.Response(
+            201, json={"id": "d1", "field": "remediation", "content": "..."}
+        )
+    )
+
+    code = cli.main(
+        [
+            "assist",
+            "draft",
+            "--run",
+            RUN,
+            "--field",
+            "remediation",
+            "--scan-result",
+            scan_result,
+        ]
+    )
+
+    assert code == 0
+    assert json.loads(route.calls.last.request.content) == {
+        "field": "remediation",
+        "scan_result_id": scan_result,
+    }
+
+
+@respx.mock
+def test_assist_draft_run_summary_omits_scan_result(profile: Profile) -> None:
+    """`run_summary` is the one field that needs no `scan_result_id` — the
+    CLI must not send a null placeholder for it."""
+    route = respx.post(f"{BASE_URL}/organizations/{ORG}/assistant/runs/{RUN}/drafts").mock(
+        return_value=httpx.Response(201, json={"id": "d1", "field": "run_summary"})
+    )
+
+    code = cli.main(["assist", "draft", "--run", RUN, "--field", "run_summary"])
+
+    assert code == 0
+    assert json.loads(route.calls.last.request.content) == {"field": "run_summary"}
+
+
+@respx.mock
+def test_assist_accept_posts_to_the_draft(profile: Profile) -> None:
+    route = respx.post(f"{BASE_URL}/organizations/{ORG}/assistant/drafts/d1/accept").mock(
+        return_value=httpx.Response(200, json={"id": "d1", "accepted_at": "2026-01-01T00:00:00Z"})
+    )
+
+    code = cli.main(["assist", "accept", "d1"])
+
+    assert code == 0
+    assert route.calls.last.request.method == "POST"
+
+
+# --- workflows --------------------------------------------------------------
+
+
+@respx.mock
+def test_workflow_create_posts_the_gate_config_file_and_schedule(
+    profile: Profile, tmp_path: pathlib.Path
+) -> None:
+    target = "33333333-3333-3333-3333-333333333333"
+    gate_config = tmp_path / "gate.json"
+    gate_config.write_text(json.dumps({"fail_on": ["critical"]}))
+    route = respx.post(f"{BASE_URL}/organizations/{ORG}/workflows").mock(
+        return_value=httpx.Response(201, json={"id": "w1", "name": "main branch"})
+    )
+
+    code = cli.main(
+        [
+            "workflow",
+            "create",
+            "--name",
+            "main branch",
+            "--target",
+            target,
+            "--trigger-kind",
+            "schedule",
+            "--gate-config",
+            str(gate_config),
+            "--schedule-minutes",
+            "60",
+        ]
+    )
+
+    assert code == 0
+    assert json.loads(route.calls.last.request.content) == {
+        "name": "main branch",
+        "target_id": target,
+        "trigger_kind": "schedule",
+        "enabled": True,
+        "gate_config": {"fail_on": ["critical"]},
+        "schedule_interval_minutes": 60,
+    }
+
+
+def test_workflow_update_enable_and_disable_are_mutually_exclusive(profile: Profile) -> None:
+    """argparse itself refuses this combination before any request is
+    built — a usage error, exiting the same code a configuration error
+    does."""
+    with pytest.raises(SystemExit) as caught:
+        cli.main(["workflow", "update", "w1", "--enable", "--disable"])
+    assert caught.value.code == int(ExitCode.CONFIG_ERROR)
+
+
+@respx.mock
+def test_workflow_update_disable_patches_enabled_false(profile: Profile) -> None:
+    route = respx.patch(f"{BASE_URL}/organizations/{ORG}/workflows/w1").mock(
+        return_value=httpx.Response(200, json={"id": "w1", "enabled": False})
+    )
+
+    code = cli.main(["workflow", "update", "w1", "--disable"])
+
+    assert code == 0
+    assert json.loads(route.calls.last.request.content) == {"enabled": False}
+
+
+@respx.mock
+def test_workflow_delete_deletes(profile: Profile) -> None:
+    route = respx.delete(f"{BASE_URL}/organizations/{ORG}/workflows/w1").mock(
+        return_value=httpx.Response(204)
+    )
+
+    code = cli.main(["workflow", "delete", "w1"])
+
+    assert code == 0
+    assert route.calls.last.request.method == "DELETE"
+
+
+@respx.mock
+def test_workflow_trigger_posts_ref_commit_and_pull_number(profile: Profile) -> None:
+    route = respx.post(f"{BASE_URL}/organizations/{ORG}/workflows/w1/runs").mock(
+        return_value=httpx.Response(201, json={"id": "wr1", "status": "completed"})
+    )
+
+    code = cli.main(
+        [
+            "workflow",
+            "trigger",
+            "w1",
+            "--ref",
+            "refs/heads/main",
+            "--commit",
+            "deadbeef",
+            "--pull-number",
+            "7",
+        ]
+    )
+
+    assert code == 0
+    assert json.loads(route.calls.last.request.content) == {
+        "ref": "refs/heads/main",
+        "commit": "deadbeef",
+        "pull_number": 7,
+    }
+
+
+@respx.mock
+def test_workflow_webhook_secret_is_a_post_with_no_body(profile: Profile) -> None:
+    route = respx.post(f"{BASE_URL}/organizations/{ORG}/workflows/w1/webhook-secret").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "secret": "whsec_example",  # pragma: allowlist secret
+                "webhook_url": "https://x/webhooks/w1",
+            },
+        )
+    )
+
+    code = cli.main(["workflow", "webhook-secret", "w1"])
+
+    assert code == 0
+    assert route.calls.last.request.method == "POST"
+
+
+@respx.mock
+def test_workflow_approve_posts_to_the_paused_run(profile: Profile) -> None:
+    route = respx.post(f"{BASE_URL}/organizations/{ORG}/workflows/w1/runs/wr1/approve").mock(
+        return_value=httpx.Response(200, json={"id": "wr1", "status": "completed"})
+    )
+
+    code = cli.main(["workflow", "approve", "w1", "--run", "wr1"])
+
+    assert code == 0
+    assert json.loads(route.calls.last.request.content) == {}
+
+
+@respx.mock
+def test_workflow_reject_requires_a_reason_and_posts_it(profile: Profile) -> None:
+    route = respx.post(f"{BASE_URL}/organizations/{ORG}/workflows/w1/runs/wr1/reject").mock(
+        return_value=httpx.Response(200, json={"id": "wr1", "status": "rejected"})
+    )
+
+    code = cli.main(["workflow", "reject", "w1", "--run", "wr1", "--reason", "not this week"])
+
+    assert code == 0
+    assert json.loads(route.calls.last.request.content) == {"reason": "not this week"}
+
+
 # --- profile handling -----------------------------------------------------
 
 

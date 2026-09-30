@@ -168,6 +168,57 @@ someone else has to sign off on. `repo scan` does not yet support `--wait`
 or `--dry-run` the way `scan` does for a full target; poll `kervy-ai runs
 show "$RUN_ID"` for now.
 
+## AI-drafted text
+
+`kervy-ai assist` mirrors the assistant API exactly (`docs/ai-security-testing.md`):
+requesting a draft is `analyst`, accepting one into the record is
+`security_engineer` — reading a suggestion is cheap, and putting it into
+the record is not.
+
+```bash
+kervy-ai assist status                                                   # viewer
+kervy-ai assist draft --run "$RUN_ID" --field run_summary                # analyst
+kervy-ai assist draft --run "$RUN_ID" --field remediation \
+  --scan-result "$SCAN_RESULT_ID"                                        # analyst
+kervy-ai assist drafts --run "$RUN_ID"                                   # viewer
+kervy-ai assist accept "$DRAFT_ID"                                       # security engineer
+```
+
+`--field run_summary` needs no `--scan-result`; every other field does —
+the same requirement the API enforces with a `422`.
+
+## Workflows
+
+`kervy-ai workflow` covers the full lifecycle (`docs/workflows.md`):
+defining or changing one is `admin`, because the gate decides whether a
+release ships; triggering one, and resolving a run an unattended trigger
+paused, is `security_engineer` — the same role starting a scan directly
+requires, because a workflow must never be a way to start one with less
+authority.
+
+```bash
+kervy-ai workflow create --name "main branch" --target "$TARGET_ID" \
+  --gate-config security-gate.json                                      # admin
+kervy-ai workflow list                                                   # analyst
+kervy-ai workflow show "$WORKFLOW_ID"                                    # analyst
+kervy-ai workflow update "$WORKFLOW_ID" --disable                        # admin
+kervy-ai workflow trigger "$WORKFLOW_ID" --ref refs/heads/main \
+  --commit "$GITHUB_SHA"                                                 # security engineer
+kervy-ai workflow runs "$WORKFLOW_ID"                                    # analyst
+kervy-ai workflow webhook-secret "$WORKFLOW_ID"                          # admin; shown once
+kervy-ai workflow approve "$WORKFLOW_ID" --run "$WORKFLOW_RUN_ID"        # security engineer
+kervy-ai workflow reject "$WORKFLOW_ID" --run "$WORKFLOW_RUN_ID" \
+  --reason "not authorized this week"                                   # security engineer
+```
+
+`approve`/`reject` act on a run Celery Beat or the inbound webhook queued
+unattended and paused before it would touch a scan-touching action — see
+`docs/workflows.md`'s "approval gate for unattended triggers". `--gate-config`
+takes a path to a JSON file (the same shape the API's `gate_config` field
+validates through `load_config`), and `--schedule-minutes` only means
+anything with `--trigger-kind schedule` (a 60-minute floor, the same safety
+rail the API enforces).
+
 ## Typical pipeline shapes
 
 **Gate an existing run** (the scan runs on a schedule; the pipeline only

@@ -123,6 +123,19 @@ All notable changes to this project are recorded here. The format follows
 
 ### Added
 
+- **CLI: `kervy-ai assist` and `kervy-ai workflow`.** Two domains with a
+  real API and no CLI command group at all — Phase 16's own write-up
+  named `kervy assist` as deferred, and Phase 17 explicitly refused to add
+  CLI support for only its newer pieces (scheduling, webhooks) while base
+  workflow CRUD had none, calling that "inconsistent scope creep." Both
+  ship complete now: `assist status|draft|drafts|accept` mirrors
+  `app/api/v1/routers/assistant.py` exactly, including that
+  `--field run_summary` needs no `--scan-result`; `workflow
+  create|list|show|update|delete|trigger|runs|webhook-secret|approve|reject`
+  mirrors `app/api/v1/routers/workflows.py`. No new backend endpoints or
+  logic — every command calls what already existed. See `docs/roadmap.md`
+  and `docs/cicd.md`.
+
 - **Dashboard and CLI: tool config, exploitation approve/reject, and
   duplicate-linking are no longer API-only.** The three whole-system-review
   fixes above shipped as REST endpoints with nothing in the dashboard or
