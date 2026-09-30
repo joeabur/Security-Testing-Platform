@@ -17,8 +17,8 @@ than implied to already exist.
 
 ## When you need this page and when you don't
 
-Five processes, all stateless except the two datastores
-(`docs/architecture.md`, `docs/deployment.md`): API, worker, frontend,
+Six processes, all stateless except the two datastores
+(`docs/architecture.md`, `docs/deployment.md`): API, worker, beat, frontend,
 PostgreSQL, Redis. `docs/deployment.md`'s "run more replicas" is a complete
 answer up to real load — a handful of API replicas and a worker pool sized
 to your concurrent-assessment count, behind a load balancer, against a
@@ -126,6 +126,18 @@ covers it, and the cloud metadata endpoint blocked at the security-group or
 network-policy level as well as by the engine's own unconditional refusal
 (defense in depth costs nothing here — `docs/deployment.md`).
 
+### Beat (Celery Beat)
+
+The one component this design does **not** scale out. `beat` fires
+`dispatch_scheduled_workflows` on a timer and enqueues it for the worker
+pool to run — it never talks to a target and needs no scanner binaries or
+credential variables (`docs/deployment.md`). Celery Beat itself is not
+safe to run with more than one replica: two live instances both fire the
+same schedule, so pin this to exactly one — a Kubernetes `Deployment` with
+`replicas: 1` (not a `ScaledObject`), or its orchestrator's equivalent of a
+singleton. Losing it briefly during a roll delays a scheduled workflow; it
+does not corrupt anything.
+
 ### PostgreSQL
 
 One primary. A read replica helps report/finding-listing read load if your
@@ -213,10 +225,14 @@ an encrypted EBS-backed node, as the residual control either way).
 No Helm chart or Terraform ships with this repository
 (`docs/deployment.md`'s "what is not provided" already says so, and this
 page doesn't change that). The container images do exist and build from
-`Dockerfile.backend`, `Dockerfile.worker`, and `Dockerfile.frontend` — any
-orchestrator that runs OCI images works. A Kubernetes-shaped sketch of the
-same five components, illustrative only (unexercised against a real
-cluster):
+`Dockerfile.backend`, `Dockerfile.worker`, and `Dockerfile.frontend` — `beat`
+builds from `Dockerfile.worker` too, just with a different `command`
+(`docker-compose.yml`). Any orchestrator that runs OCI images works. A
+Kubernetes-shaped sketch of the same six components, illustrative only
+(unexercised against a real cluster) — showing `api` and `worker` in full and
+`beat` as the one-line addition each needs (a `replicas: 1` `Deployment`
+running `celery … beat` instead of `celery … worker`, no volume, no queue-depth
+scaler):
 
 ```yaml
 # api-deployment.yaml — illustrative, not shipped or tested
@@ -258,7 +274,7 @@ spec:
       containers:
         - name: worker
           image: <registry>/kervy-worker:v0.1.0
-          command: ["celery", "-A", "app.workers.celery_app", "worker", "--loglevel=info"]
+          command: ["celery", "-A", "app.workers.celery_app.celery_app", "worker", "--loglevel=info"]
           envFrom:
             - secretRef: { name: kervy-worker-secrets }  # includes target credential vars
           volumeMounts:
@@ -267,6 +283,27 @@ spec:
         - name: evidence
           persistentVolumeClaim: { claimName: kervy-evidence-nfs }
           # backed by EFS/Filestore/Azure Files — see "Evidence storage" above
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kervy-beat
+spec:
+  replicas: 1   # never more — two live Beats both fire the same schedule
+  selector:
+    matchLabels: { app: kervy-beat }
+  template:
+    metadata:
+      labels: { app: kervy-beat }
+    spec:
+      containers:
+        - name: beat
+          image: <registry>/kervy-worker:v0.1.0   # same image as the worker
+          command: ["celery", "-A", "app.workers.celery_app", "beat", "--loglevel=info"]
+          envFrom:
+            - secretRef: { name: kervy-worker-secrets }
+          # No volumeMounts, no lab network, no queue-depth ScaledObject: it
+          # never reaches a target and never writes evidence.
 ---
 # KEDA-style illustration: scale the worker pool on Celery queue depth,
 # not CPU. Any queue-depth-aware autoscaler (a custom HPA external metric,
@@ -288,8 +325,10 @@ spec:
 ```
 
 If you'd rather stay off Kubernetes: ECS Fargate (task definitions mapping
-1:1 to these same five containers, an autoscaling policy on the worker
-service driven by a custom CloudWatch metric fed from queue depth) or a
+1:1 to these same six containers — `beat` as its own service pinned to
+`desiredCount: 1`, never behind the worker's autoscaling policy — an
+autoscaling policy on the worker service driven by a custom CloudWatch metric
+fed from queue depth) or a
 plain autoscaling group of VMs running the containers under systemd both
 work with no architectural change — the components and their scaling
 signals are the same regardless of orchestrator.

@@ -78,7 +78,8 @@ route→role matrix test fails by name if any route's requirement changes.
 
 *Controls:* no credential is stored — only variable names. Evidence is redacted
 *before* it is written; a bundle refuses to be written if a secret survives.
-Passwords are Argon2id; API keys are SHA-256 digests. Evidence is
+Passwords are Argon2id; API keys, password reset tokens, and TOTP recovery
+codes are all SHA-256 digests, never a recoverable value. Evidence is
 content-addressed and hash-chained, and verification re-hashes the files, so
 replacing a bundle without updating the chain is detected.
 
@@ -90,6 +91,21 @@ host. The key is held by env-var reference. The assistant cannot execute a scan,
 grant authorization, or change a finding's real fields under any autonomy mode,
 and an import-linter rule confirms nothing in `core` outside `assistant/`
 depends on it.
+
+**8. Someone who has phished or reused a victim's password.** The most common
+real-world path in, and one this platform cannot prevent at the source — a
+person choosing a weak or reused password is outside this system's control.
+
+*Controls:* login is rate limited on both per-identity and per-IP dimensions
+(`docs/rate-limiting.md`), so a guessed or list-based attack costs time and
+shows up in the audit log long before it succeeds. Two-factor authentication
+is available per-user (off by default, on request): with it enabled, a
+correct password alone returns a short-lived challenge, not a session, and
+the second step has its own, tighter rate-limit budget
+(`docs/authentication.md`). If a password is suspected to have leaked,
+`/auth/logout-all` or a password reset both immediately invalidate every
+outstanding session, not merely the one the attacker or the victim happens
+to be holding (`docs/revocation.md`).
 
 ## Trust boundaries
 

@@ -77,12 +77,12 @@ enough.
 `AgentTool.enabled` and `AgentTool.minimum_role_override`
 (`app/models/agent.py`) let an organization disable one of the native agent's
 tools outright, or raise (never lower) the role required to use it, above the
-code-defined default. `GET`/`PUT
-.../agent/tools/{tool_name}/config` read and write this — reading is Analyst,
-writing is Admin, the same tier that configures a notification channel or a
-workflow gate. `PUT` rejects an override below the tool's own code minimum
-(`validate_role_override`); the effective minimum a caller must meet is always
-`max(code default, org override)`.
+code-defined default. `GET`/`PUT .../agent/tools/{tool_name}/config` read and
+write this — reading is Analyst, writing is Admin, the same tier that
+configures a notification channel or a workflow gate. `PUT` rejects an
+override below the tool's own code minimum (`validate_role_override`); the
+effective minimum a caller must meet is always `max(code default, org
+override)`.
 
 Both checks — enabled, and the effective minimum role — are re-evaluated by
 `run_plan` (`app/core/agent/runtime.py`) on **every** step, including a step

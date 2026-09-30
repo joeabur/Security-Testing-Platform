@@ -39,11 +39,14 @@ naming the tool, rather than returning nothing.
 | structlog | Apache-2.0 / MIT | Structured logging |
 | argon2-cffi | MIT | Password hashing |
 | PyJWT | MIT | Session tokens |
+| cryptography | Apache-2.0 OR BSD-3-Clause | AES-256-GCM: evidence at rest, TOTP secrets |
+| pyotp | MIT | RFC 6238 TOTP for two-factor login |
 | WeasyPrint | BSD-3-Clause | PDF rendering |
 | Jinja2 | BSD-3-Clause | HTML report templates |
 | Next.js | MIT | Frontend scaffold |
 | React | MIT | Frontend |
 | Tailwind CSS | MIT | Frontend styling |
+| qrcode (npm) | MIT | Renders the 2FA enrollment QR code client-side, from a `data:` URL — no network call |
 
 ## Development and CI
 
@@ -63,6 +66,7 @@ naming the tool, rather than returning nothing.
 |---|---|---|
 | SARIF 2.1.0 schema | OASIS | Vendored at `backend/tests/schemas/` so validation does not need the network |
 | End-of-life table | Vendor schedules | `app/core/appsec/supplychain/eol.py`, with `AS_OF` stated in every finding |
+| Malware advisory snapshot | GitHub Advisory Database, `type:malware` | `app/core/appsec/supplychain/malware.py`, 25 PyPI + 25 npm entries, compiled 2026-09-25. A curated confirmed-malicious name match, not the name-similarity signal `typosquat.py` reports — see `docs/security-review.md` |
 | Licence classifier map | SPDX + Trove classifiers | `app/core/appsec/supplychain/licenses.py` |
 | Framework editions | See `docs/frameworks.md` | Pinned with retrieval dates |
 

@@ -11,6 +11,7 @@ everything below rather than replacing it.
 |---|---|---|
 | API (uvicorn) | horizontal | Postgres, Redis |
 | Worker (Celery) | horizontal | Postgres, Redis, **outbound network to targets**, credential variables, scanner binaries, `EVIDENCE_ROOT` |
+| Beat (Celery Beat) | **exactly one** | Postgres, Redis |
 | Frontend (Next.js) | horizontal | the API |
 | PostgreSQL | one primary | |
 | Redis | one | broker and kill switch |
@@ -18,6 +19,13 @@ everything below rather than replacing it.
 The worker is the only component that talks to targets. It is also the only one
 that needs the credential variables and the scanner binaries, and the only one
 that writes evidence.
+
+`beat` only fires `dispatch_scheduled_workflows` on a timer (every 60s) and
+enqueues it for a worker to pick up — it never reaches a target or touches
+evidence itself, which is why it joins no lab network and mounts no evidence
+volume (`docker-compose.yml`). Celery Beat is not safe to run with more than
+one replica: two instances of the same schedule both fire, so scale everything
+else and leave this one alone.
 
 ## Network posture
 
@@ -60,10 +68,12 @@ redacted but real exchanges with a customer's system.
 - **The runtime database role must not be a superuser, and must not own the
   application's tables without `FORCE ROW LEVEL SECURITY`.** Migration
   `b2e6f4a91c7d` enables Postgres Row-Level Security (`docs/security-model.md`
-  guarantee #26) and sets `FORCE`, which closes the table-owner exemption; four
-  later migrations each added RLS to their own new tenant-scoped table the same
-  way, bringing the current total to 21 tables (confirmed live against
-  `pg_policies`, not hand-counted). Every one of them needs the same non-superuser
+  guarantee #26) and sets `FORCE`, which closes the table-owner exemption on its
+  original 14 tables; five later migrations each added RLS to their own new
+  tenant-scoped table or tables the same way, bringing the current total to 22
+  tables (summed from each migration's own table list in
+  `backend/alembic/versions/`, not hand-counted against a live database).
+  Every one of them needs the same non-superuser
   role below — but Postgres exempts a **superuser** from RLS
   unconditionally, with no override available from inside the database. If the
   role the application connects as is a superuser (true of the default
@@ -108,9 +118,12 @@ protection against your scan.
 1. `alembic upgrade head`.
 2. Roll the API.
 3. Roll the worker.
+4. Roll beat.
 
 In that order. The worker is what runs assessments; rolling it against an
-un-migrated database is the failure mode to avoid.
+un-migrated database is the failure mode to avoid. Beat is last because it is
+the least urgent — it only enqueues a task every 60s and losing it briefly
+during a roll means a scheduled workflow starts a little late, not incorrectly.
 
 ## What is not provided
 

@@ -25,6 +25,12 @@ It is deliberately not a checkbox. If you find yourself filling it in with
 placeholder values, you are recording that nobody authorized the test, and the
 report will say so to whoever reads it next.
 
+The pentest module's exploitation tier needs a third, separate grant
+(`ExploitationAuthorization`) beyond the two above — real exploit code is a
+different act of authorization than a scan, and reusing a scanning grant for
+it would silently broaden what its signer agreed to. See
+`docs/authorization-and-scope.md`.
+
 ## Do not
 
 - Test third-party services, SaaS products, or APIs you merely have an account
@@ -39,6 +45,10 @@ report will say so to whoever reads it next.
   grant is what makes that legitimate.
 - Disable, work around, or fork out the scope engine. If you need an exception,
   the answer is a narrower context, not a bypass.
+- Approve your own exploitation-fire request, or arrange for a second account
+  you also control to approve it. Firing a live exploit requires dual
+  control — a second, different security engineer or above — and a second
+  click by the same person is not a second person.
 
 ## Blackout windows and rate limits
 

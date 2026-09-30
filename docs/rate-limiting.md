@@ -35,11 +35,16 @@ anything; the budget instead bounds how many token-exchange calls this
 server will make to the provider on one IP's behalf, since even a doomed
 attempt with a forged `code` costs a real outbound request.
 
-Every other listed route consumes from **both** dimensions, because either
-alone is bypassable. Per-IP alone falls to a botnet — a thousand hosts making three
-attempts each against one account is a thousand times the budget. Per-identity
-alone falls to spraying — one host trying one common password against ten
-thousand accounts never exceeds any account's budget.
+`login` itself is the one route that consumes from **both** dimensions,
+because either alone is bypassable. Per-IP alone falls to a botnet — a
+thousand hosts making three attempts each against one account is a thousand
+times the budget. Per-identity alone falls to spraying — one host trying one
+common password against ten thousand accounts never exceeds any account's
+budget. Every other route above has only one dimension available to it in
+the first place — `register`, `forgot-password` and the OAuth callback have
+no pre-lookup identity to key a second bucket on (see above); `login/2fa`'s
+identity comes from an already-decoded challenge rather than anything an
+attacker chooses freely, so a per-IP bucket on top of it would add little.
 
 The numbers are chosen against what each attack needs. Ten failures per
 15 minutes makes a thousand-word list take about a day per account, by which

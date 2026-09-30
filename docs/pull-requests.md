@@ -92,6 +92,17 @@ fingerprint — never an evidence bundle, a response body, or a code span a
 secrets engine matched. Everything passes the same `scrub` the notification
 layer uses on the way out.
 
+**A duplicate-linked finding is still posted here.** `findings_for_run`
+(`app/core/vcs/service.py`) selects every finding with the run's own
+`last_run_id` and applies no filter on `duplicate_of_finding_id`. A run's own
+JSON/HTML report is stricter: its findings section and counts exclude a
+finding a human has explicitly linked as a duplicate of another
+(`app/core/reporting/build.py`, `docs/security-review.md`). So a check run can
+carry an annotation for a finding that has already dropped out of the
+report's own counts. This is a real gap between the two surfaces, not a
+deliberate design choice documented anywhere else — said here rather than
+left for a reviewer to notice the annotation count does not match the report.
+
 ## Usage
 
 ```bash

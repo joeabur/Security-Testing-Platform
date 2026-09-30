@@ -87,6 +87,15 @@ to skim past in a long report.
 
 - Findings are per organization, deduplicated by fingerprint. There is no
   cross-organization correlation, by design.
+- A SAST finding and a DAST finding describing the same underlying defect get
+  different `probe_id` prefixes and therefore different fingerprints, so they
+  remain two separate findings by default. A human can link one as a
+  duplicate of the other (`POST`/`DELETE .../findings/{id}/duplicate`,
+  analyst or above), which excludes it from the default listing and from a
+  report's own counts — but **there is no automatic cross-engine similarity
+  detection**. Nothing infers the link; a finding nobody reviewed stays
+  double-counted. `docs/security-review.md` has the detail on why an invented
+  heuristic here was rejected as worse than the honest gap.
 - No per-channel notification rate limiting: a run that promotes fifty new
   criticals sends fifty messages.
 - The web dashboard (`docs/dashboard.md`) is read-only — overview, findings,

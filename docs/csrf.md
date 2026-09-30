@@ -176,8 +176,9 @@ the same closed door `/auth/login` and `/auth/register` do.
 Both were added to `EXEMPT_PATHS` — no token at all, not even the anonymous
 one — rather than `ANONYMOUS_CSRF_PATHS`, because neither reads a session
 cookie in the first place. `forgot-password` takes its whole authority from
-an email address in the body; `reset-password` from a bearer token mailed to
-that address plus a new password. A forged request to either achieves
-nothing a direct call to the same endpoint would not already achieve, because
-there is no victim session for either one to ride. `logout-all`, by contrast,
-**is** cookie-authenticated and is not exempt — see `docs/revocation.md`.
+an email address in the body; `reset-password` from the one-time reset token
+mailed to that address plus a new password. A forged request to either
+achieves nothing a direct call to the same endpoint would not already
+achieve, because there is no victim session for either one to ride.
+`logout-all`, by contrast, **is** cookie-authenticated and is not exempt —
+see `docs/revocation.md`.
