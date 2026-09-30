@@ -603,7 +603,11 @@ def test_workflow_trigger_posts_ref_commit_and_pull_number(profile: Profile) -> 
 def test_workflow_webhook_secret_is_a_post_with_no_body(profile: Profile) -> None:
     route = respx.post(f"{BASE_URL}/organizations/{ORG}/workflows/w1/webhook-secret").mock(
         return_value=httpx.Response(
-            200, json={"secret": "whsec_example", "webhook_url": "https://x/webhooks/w1"}
+            200,
+            json={
+                "secret": "whsec_example",  # pragma: allowlist secret
+                "webhook_url": "https://x/webhooks/w1",
+            },
         )
     )
 
