@@ -1,4 +1,4 @@
-requests==2.33.0
+requests==2.32.3
 # SEEDED: AGPL-3.0. Network copyleft, which a hosted service most often does
 # not expect (KERVY-SUPPLY-020).
 kervy-fixture-agpl==1.0.0
