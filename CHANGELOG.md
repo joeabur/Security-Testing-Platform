@@ -87,6 +87,21 @@ All notable changes to this project are recorded here. The format follows
 
 ### Added
 
+- **Pentest module: the exploitation tier now requires dual control to
+  fire.** A whole-system review flagged Phase 12's own stated deferral —
+  "no two-person review... does not require a second, different human
+  than the one who fires" — as a real control gap: one
+  `Role.SECURITY_ENGINEER` could single-handedly decide and execute a live
+  exploit alone. `POST .../runs/{run_id}/exploitation-fires` now creates
+  the fire `awaiting_approval` and queues nothing; a new
+  `POST .../exploitation-fires/{fire_id}/approve` (`Role.SECURITY_
+  ENGINEER`) refuses with `409` if the approver is the same person who
+  requested it, re-validates the full three-allowlist gate, and only then
+  dispatches the worker. A new `.../reject` endpoint lets the requester (or
+  anyone else at that tier) stand a fire down instead. The worker task
+  itself re-checks the dual-control invariant at execution time rather
+  than trusting the API route. See `docs/roadmap.md`.
+
 - **Agent framework: `AgentTool.enabled`/`minimum_role_override` are now
   enforced**, closing a gap a whole-system review found: both columns had
   existed since the agent's Phase 2 with no code anywhere reading or

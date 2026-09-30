@@ -14,7 +14,12 @@ from app.api.v1.routers.targets import load_target
 from app.audit.service import record_event
 from app.auth.dependencies import DbSession, require_membership
 from app.core.orchestrator.context_builder import build_run_context
-from app.core.pentest.exploitation_service import ExploitationFireRefused, request_fire
+from app.core.pentest.exploitation_service import (
+    ExploitationFireRefused,
+    approve_fire,
+    reject_fire,
+    request_fire,
+)
 from app.core.probes.models import Severity
 from app.core.runs.service import queue_run
 from app.core.scope.errors import AuthorizationRequiredError, RoEValidationError
@@ -29,7 +34,12 @@ from app.models.assessment_run import (
 from app.models.exploitation import ExploitationFire
 from app.models.organization import Membership, Role
 from app.models.scan_result import ScanResultRecord
-from app.schemas.exploitation import ExploitationFireCreate, ExploitationFireRead
+from app.schemas.exploitation import (
+    ExploitationFireApprove,
+    ExploitationFireCreate,
+    ExploitationFireRead,
+    ExploitationFireReject,
+)
 from app.schemas.run import RunCreate, RunEventRead, RunRead, ScanResultRead
 from app.workers.cancellation import request_cancellation
 from app.workers.celery_app import celery_app
@@ -302,10 +312,12 @@ async def create_exploitation_fire(
     the simulate marker for this exact host:port (produced automatically
     when a scan runs with asset_scope.max_depth=exploitation); see
     `app.core.pentest.exploitation_service.request_fire` for the full
-    three-allowlist gate this enforces. Queues the real invocation on the
-    worker (`kervy.fire_exploitation_module`) rather than running it
-    inline — the same target-touching-work-belongs-on-the-worker rule
-    every other scan on this platform already follows.
+    three-allowlist gate this enforces. This does **not** queue the real
+    invocation — it creates the fire `awaiting_approval`. A second,
+    different `Role.SECURITY_ENGINEER`-or-above must call
+    `POST .../exploitation-fires/{fire_id}/approve` before the worker ever
+    runs it — the dual-control gate that closes "one person can both
+    decide and execute a live exploit alone."
     """
     run = await _load_run(organization_id, run_id, db)
     target = await load_target(organization_id, run.target_id, db)
@@ -326,7 +338,92 @@ async def create_exploitation_fire(
         raise HTTPException(status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     await db.commit()
 
+    return ExploitationFireRead.model_validate(fire)
+
+
+async def _load_fire_row(
+    organization_id: uuid.UUID, run_id: uuid.UUID, fire_id: uuid.UUID, db: DbSession
+) -> ExploitationFire:
+    result = await db.execute(
+        select(ExploitationFire).where(
+            ExploitationFire.id == fire_id,
+            ExploitationFire.run_id == run_id,
+            ExploitationFire.organization_id == organization_id,
+        )
+    )
+    fire = result.scalar_one_or_none()
+    if fire is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Exploitation fire not found")
+    return fire
+
+
+@router.post(
+    "/{run_id}/exploitation-fires/{fire_id}/approve",
+    response_model=ExploitationFireRead,
+)
+async def approve_exploitation_fire(
+    organization_id: uuid.UUID,
+    run_id: uuid.UUID,
+    fire_id: uuid.UUID,
+    payload: ExploitationFireApprove,
+    request: Request,
+    db: DbSession,
+    membership: Membership = Depends(require_membership(Role.SECURITY_ENGINEER)),  # noqa: B008
+) -> ExploitationFireRead:
+    """Dual control's second check: `approve_fire` refuses with `409` if
+    this caller is the same person who requested the fire, or if the fire
+    is not `awaiting_approval` (already approved, rejected, or run).
+    Enqueues `kervy.fire_exploitation_module` only after `approve_fire`
+    returns successfully.
+    """
+    run = await _load_run(organization_id, run_id, db)
+    target = await load_target(organization_id, run.target_id, db)
+    fire = await _load_fire_row(organization_id, run_id, fire_id, db)
+
+    try:
+        fire = await approve_fire(
+            db,
+            fire=fire,
+            target=target,
+            approved_by_user_id=membership.user_id,
+            ip_address=request.client.host if request.client else None,
+        )
+    except ExploitationFireRefused as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    await db.commit()
+
     celery_app.send_task("kervy.fire_exploitation_module", args=[str(fire.id)])
+
+    return ExploitationFireRead.model_validate(fire)
+
+
+@router.post(
+    "/{run_id}/exploitation-fires/{fire_id}/reject",
+    response_model=ExploitationFireRead,
+)
+async def reject_exploitation_fire(
+    organization_id: uuid.UUID,
+    run_id: uuid.UUID,
+    fire_id: uuid.UUID,
+    payload: ExploitationFireReject,
+    request: Request,
+    db: DbSession,
+    membership: Membership = Depends(require_membership(Role.SECURITY_ENGINEER)),  # noqa: B008
+) -> ExploitationFireRead:
+    await _load_run(organization_id, run_id, db)
+    fire = await _load_fire_row(organization_id, run_id, fire_id, db)
+
+    try:
+        fire = await reject_fire(
+            db,
+            fire=fire,
+            rejected_by_user_id=membership.user_id,
+            reason=payload.reason,
+            ip_address=request.client.host if request.client else None,
+        )
+    except ExploitationFireRefused as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    await db.commit()
 
     return ExploitationFireRead.model_validate(fire)
 
@@ -359,14 +456,5 @@ async def get_exploitation_fire(
     membership: Membership = Depends(require_membership(Role.VIEWER)),  # noqa: B008
 ) -> ExploitationFireRead:
     await _load_run(organization_id, run_id, db)
-    result = await db.execute(
-        select(ExploitationFire).where(
-            ExploitationFire.id == fire_id,
-            ExploitationFire.run_id == run_id,
-            ExploitationFire.organization_id == organization_id,
-        )
-    )
-    fire = result.scalar_one_or_none()
-    if fire is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Exploitation fire not found")
+    fire = await _load_fire_row(organization_id, run_id, fire_id, db)
     return ExploitationFireRead.model_validate(fire)

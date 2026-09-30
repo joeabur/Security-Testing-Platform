@@ -4080,9 +4080,6 @@ fire is requested, one when it actually executes.
   and a monkeypatched `run_named_scripts`, no real `nmap` or real
   vulnerable service needed. Standing up a real exploitable network
   service is a separate, later increment if ever wanted.
-- **No two-person review.** Simulate-then-fire is satisfied by requiring
-  a prior completed run's own simulate marker before fire is accepted; it
-  does not require a second, different human than the one who fires.
 - **No dashboard UI, no CLI.** API-only, matching every earlier pentest-
   module phase's own "dashboard/CLI is a later phase" precedent.
 - **Incident-response runbook, authorization-artifact legal format,
@@ -4189,3 +4186,83 @@ even the organization's `OWNER` on a direct call with `403`, and the
 disablement. `tests/security/test_authorization_matrix.py`'s pin test
 extended for both new routes. Full backend suite green (351 passed, 2
 pre-existing skips) alongside this work.
+
+## Pentest module, Phase 12 follow-up — the exploitation tier's dual-control gate
+
+### Context
+
+The same whole-system review that found `AgentTool.minimum_role_override`
+inert also re-read Phase 12's own stated deferrals and found one that was
+a genuine control gap, not a scope decision: "no two-person review... does
+not require a second, different human than the one who fires." One person
+holding `Role.SECURITY_ENGINEER` could single-handedly both decide a real
+exploit should run and be the one whose click ran it — a live exploit
+against a production-adjacent target with no second, different human ever
+in the loop, closer to a missing control than an accepted trade-off, given
+the blast radius `nmap -Pn --script <exploit>` carries.
+
+### Design
+
+`ExploitationFireStatus` gains two values: `AWAITING_APPROVAL` (the new
+default `request_fire` creates every fire in — never `QUEUED`, so
+`POST .../exploitation-fires` no longer dispatches
+`kervy.fire_exploitation_module` itself) and `REJECTED`. `ExploitationFire`
+gains `approved_by_user_id`/`approved_at` (migration `f4a9c1d3e7b2`, both
+nullable — null until a second approver acts).
+
+`app/core/pentest/exploitation_service.py` gains `approve_fire` and
+`reject_fire`, mirroring `app/core/workflow/service.py`'s own
+`approve`/`reject` pair for `WorkflowRun`. `approve_fire` is where dual
+control actually lives: it refuses with `ExploitationFireRefused` (→ `409`)
+if `approved_by_user_id == fire.requested_by_user_id` — the one check that
+makes "a second approver" mean a second *person*, not a second click by
+the same one — and re-runs the full three-allowlist `validate_fire_gate`
+again (an authorization can expire, or an operator can narrow the
+allowlist, in whatever time a fire sat awaiting approval). `reject_fire`
+carries no such restriction: calling off a live exploit is the safe
+direction dual control does not need to slow down, so the requester may
+reject their own request.
+
+New endpoints on `app/api/v1/routers/runs.py`:
+`POST .../exploitation-fires/{fire_id}/approve` and `.../reject`, both
+`Role.SECURITY_ENGINEER` — the same tier firing itself requires, since the
+second approver needs to be at least as senior as the first, not a lower
+bar. Only `approve_exploitation_fire` ever calls
+`celery_app.send_task("kervy.fire_exploitation_module", ...)` now;
+`create_exploitation_fire` persists and returns `202` with
+`status=awaiting_approval` and nothing queued.
+
+`fire_exploitation_module_async` (`app/workers/tasks.py`) re-checks the
+dual-control invariant itself at execution time — `status == QUEUED`, a
+real `approved_by_user_id` distinct from `requested_by_user_id` — before
+re-running `validate_fire_gate`, rather than trusting the API route only
+ever dispatches this task after `approve_fire` ran. This is the same
+"never trust an earlier check" reasoning the gate's three allowlists
+already applied to *what* can be fired, now applied to *who* is allowed to
+have queued it.
+
+### What this does not change
+
+- No configurable approver list or four-eyes-per-target policy — any
+  `SECURITY_ENGINEER`-or-above who did not request the fire may approve
+  it, the same flat role check every other sensitive action on this
+  platform uses, not a per-organization approver roster.
+- No UI, no CLI — API-only, matching every earlier phase's own precedent.
+- The three-allowlist gate itself (operator NSE-script allowlist,
+  `ExploitationAuthorization`, `asset_scope.approved_modules`) is
+  unchanged; dual control is a fourth, independent check layered on top of
+  it, not a replacement for any of the three.
+
+### Verified
+
+`ruff check`/`mypy app` clean. `tests/test_pentest_exploitation.py` gained
+a dual-control section: a created fire is `awaiting_approval` and never
+self-queued; the requester's own approve attempt is refused with `409`; a
+second, distinct `SECURITY_ENGINEER` approving moves it to `queued` and
+dispatches the worker task; approving an already-approved fire is refused;
+an analyst cannot approve; rejecting records the reason and moves it to
+`rejected`; rejecting an already-queued fire is refused. Two new routes
+added to `tests/security/test_authorization_matrix.py`'s `EXPECTED_ROLES`.
+Full targeted regression (`test_pentest_exploitation.py`,
+`test_pentest_engine.py`, `test_runs_api.py`,
+`test_authorization_matrix.py`) green alongside this work.

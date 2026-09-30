@@ -872,7 +872,12 @@ async def fire_exploitation_module_async(fire_id: str) -> None:
     execution time rather than trusting `request_fire`'s enqueue-time
     check is still true — the gate could have changed (an authorization
     expired, an operator narrowed the allowlist) in the time this task sat
-    in the queue.
+    in the queue. Also re-checks the dual-control invariant itself
+    (`status == QUEUED`, a real `approved_by_user_id` distinct from
+    `requested_by_user_id`) rather than trusting the API route only ever
+    dispatches this task after `approve_fire` ran — the same "never trust
+    an earlier check" reasoning applied to who is allowed to have queued
+    this in the first place, not just what they were allowed to queue.
     """
     session_factory = get_session_factory()
     async with session_factory() as db:
@@ -881,6 +886,18 @@ async def fire_exploitation_module_async(fire_id: str) -> None:
             logger.warning("exploitation_fire_not_found", fire_id=fire_id)
             return
         set_current_organization(fire.organization_id)
+
+        if (
+            fire.status != ExploitationFireStatus.QUEUED.value
+            or fire.approved_by_user_id is None
+            or fire.approved_by_user_id == fire.requested_by_user_id
+        ):
+            fire.status = ExploitationFireStatus.FAILED.value
+            fire.detail = "dual-control invariant failed at execution time"[:1000]
+            fire.finished_at = datetime.now(UTC)
+            await db.commit()
+            logger.error("exploitation_fire_dual_control_violation", fire_id=fire_id)
+            return
 
         try:
             validate_fire_gate(
