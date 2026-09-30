@@ -56,6 +56,18 @@ All notable changes to this project are recorded here. The format follows
   longer matches reality — tracked rather than blindly forced, the same
   reasoning `.github/dependabot.yml`'s own comment gives for not
   auto-bumping the lab fixtures' pins.
+- **Fixed: the `deps.yml` `pip-audit` job was failing on every run**,
+  including immediately after the ignore-flag cleanup above merged. That
+  commit removed the `asteval`/`ecdsa` ignores (correctly — neither
+  applies) but never added the ones the `click`/`mcp` deferral above has
+  needed all along; `pip-audit --skip-editable` with zero `--ignore-vuln`
+  flags fails whenever any advisory is present, and this deployment has
+  always resolved `click`/`mcp` versions carrying the four advisories
+  named in that same deferral note. Added
+  `--ignore-vuln PYSEC-2026-2132/3481/3482/3483` to the job, citing the
+  identical reachability analysis already on record rather than a new
+  one — verified locally (`pip-audit --skip-editable --progress-spinner
+  off` with those four flags exits `0`, "4 ignored").
 
 ### Changed
 
