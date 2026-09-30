@@ -43,13 +43,19 @@ All notable changes to this project are recorded here. The format follows
   that never imports the `mcp` package; and nothing here calls
   `PyJWKClient`/`PyJWKSet`. Swapping one unreachable-path CVE for three
   equally-unreachable ones is a lateral move, not a fix, so the existing
-  `pyjwt>=2.14` pin stays and `click`/`mcp` stay deferred. `ecdsa` (an
-  orphaned package nothing in this project's dependency tree still
-  requires, whose own advisory, the Minerva timing attack, has no fixed
-  release upstream at all) remains deferred for the reason already given —
-  tracked rather than blindly forced, the same reasoning
-  `.github/dependabot.yml`'s own comment gives for not auto-bumping the
-  lab fixtures' pins.
+  `pyjwt>=2.14` pin stays and `click`/`mcp` stay deferred.
+- **No longer applicable**: `.github/workflows/deps.yml` used to carry
+  `--ignore-vuln` entries for `ecdsa` (PYSEC-2026-1325, the Minerva timing
+  attack, transitively pulled in by an older `checkov` resolution) and for
+  the pre-override `asteval==1.0.6` pin. Neither applies any more —
+  `ecdsa` is absent from the resolved dependency tree entirely (confirmed
+  across two independent installs resolving to different `checkov` patch
+  versions, `3.2.10` and `3.2.414`), and `asteval` resolves to `1.0.10` in
+  both, satisfying the `asteval>=1.0.9` override above. Removed both
+  `--ignore-vuln` flags rather than carry a stale exemption that no
+  longer matches reality — tracked rather than blindly forced, the same
+  reasoning `.github/dependabot.yml`'s own comment gives for not
+  auto-bumping the lab fixtures' pins.
 
 ### Changed
 

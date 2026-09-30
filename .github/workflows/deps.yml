@@ -47,22 +47,20 @@ jobs:
         # two flags cannot be combined, and --strict cannot be satisfied at
         # all in this setup.
         #
-        # Two advisories are ignored, each for a documented, currently
-        # unfixable reason rather than left to fail the job silently on
-        # every run:
-        #   - PYSEC-2026-3807 / GHSA-9w56-46f6-3qhx (asteval 1.0.6): the
-        #     fix is 1.0.9, but checkov 3.3.19 (the latest release)
-        #     exact-pins asteval==1.0.6. Unpinnable from our side until
-        #     checkov ships a release that moves it.
-        #   - PYSEC-2026-1325 (ecdsa 0.19.2, pulled in by checkov): no fix
-        #     version has been published upstream at all.
-        # Revisit by re-running without these flags after a checkov bump.
+        # No --ignore-vuln flags: the asteval==1.0.6 pin (GHSA-9w56-46f6-3qhx)
+        # that used to require one is overridden directly in pyproject.toml's
+        # appsec extra (asteval>=1.0.9), and ecdsa — previously pulled in
+        # transitively by an older checkov resolution (PYSEC-2026-1325) — is
+        # no longer in the resolved dependency tree at all. Verified against
+        # two independent installs resolving to different checkov patch
+        # versions (3.2.10 and 3.2.414), neither of which pulls in a
+        # vulnerable asteval or any ecdsa. If a future resolution
+        # reintroduces either, this job should fail loudly rather than carry
+        # a silent, stale ignore — add a new --ignore-vuln only with a fresh,
+        # dated justification.
         run: |
           pip install -e ".[dev,appsec]"
-          pip-audit --skip-editable --progress-spinner off \
-            --ignore-vuln PYSEC-2026-3807 \
-            --ignore-vuln GHSA-9w56-46f6-3qhx \
-            --ignore-vuln PYSEC-2026-1325
+          pip-audit --skip-editable --progress-spinner off
 
   node:
     runs-on: ubuntu-latest
