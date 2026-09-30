@@ -490,6 +490,31 @@ All notable changes to this project are recorded here. The format follows
   issued an unanswered `GET /favicon.ico` that surfaced as a browser console
   error; an explicit no-op `<link rel="icon">` suppresses the request.
 
+### Documentation
+
+- **A full documentation pass to match everything shipped since the last
+  one.** Every one of the 43 files under `docs/`, plus `README.md`, was
+  read against the current source it describes and corrected where it had
+  drifted — not rewritten wholesale, and several files needed no change at
+  all once actually checked. Recurring gaps: social OAuth login and TOTP
+  2FA were undocumented in `docs/authentication.md`; owner-gating and the
+  exploitation tier's dual control were missing from `docs/rbac.md` and
+  `docs/guardrails.md`; `docs/csrf.md`'s own table contradicted a later
+  section of itself about which routes carry a token; `docs/agent.md` still
+  listed `AgentTool.minimum_role_override` enforcement as a stated future
+  deferral after it had already shipped; `docs/cicd.md` and
+  `docs/releasing.md` still described `container.yml`, `framework-drift.yml`,
+  `lab-e2e.yml`, and `release.yml` as "not yet present" after all four had
+  been built, and cited a wheel/repository name from before the Kervy
+  rebrand and a later GitHub repository rename; `docs/integrations.md` was
+  missing the two agent-investigation notification events; and the README's
+  own backend test count was stale by nearly 3x. `docs/architecture.md`,
+  `docs/configuration.md`, `docs/dashboard.md`, and
+  `docs/authorization-and-scope.md` gained new sections for the exploitation
+  tier's dual-control gate, human-verified duplicate linking, the two new
+  OAuth/2FA Redis-backed stores, and the dashboard/CLI surfaces for all
+  three. No application code changed as part of this pass.
+
 ## [0.1.0] — 2026-09-25
 
 First release. A working, authorized-testing AI and API security platform with
