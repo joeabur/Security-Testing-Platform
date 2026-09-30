@@ -58,8 +58,8 @@ FRAMEWORKS: Mapping[str, FrameworkVersion] = MappingProxyType(
             source="owasp.org/API-Security/editions/2023/en/0x00-header/",
         ),
         "owasp_asvs": FrameworkVersion(
-            version="4.0.3",
-            retrieved="2026-09-17",
+            version="5.0.0",
+            retrieved="2026-09-30",
             source="github.com/OWASP/ASVS",
         ),
         "mitre_atlas": FrameworkVersion(
