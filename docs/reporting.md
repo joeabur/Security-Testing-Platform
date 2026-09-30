@@ -35,6 +35,17 @@ Four templates, because the same findings answer different questions:
   template.
 - For probabilistic findings, the **attack success rate and its interval**.
 
+## Duplicates
+
+A finding a human has explicitly linked as a duplicate of another
+(`POST …/findings/{id}/duplicate`, see `docs/detection-methodology.md` for
+the mechanism and its two-level-only limit) is excluded from a report's
+counts and its findings-by-severity section by default — recording the link
+is what stops the same underlying defect from being counted twice just
+because two different engines found it. `GET
+…/organizations/{id}/findings?include_duplicates=true` is the escape hatch
+for an audience that needs to see everything, including what was folded in.
+
 ## The coverage section
 
 Every report names the framework categories that were **not** tested, and why —

@@ -26,11 +26,16 @@ presented as a vulnerability.
 |---|---|---|
 | Direct prompt injection | instruction override, role manipulation, delimiter confusion, hierarchy conflict, encoding, language switch | LLM01 |
 | Sensitive disclosure | credentials in context | LLM02 |
-| Indirect / hidden context | hidden instructions in retrieved content | LLM08 |
+| Hidden context exposure | system prompt or retrieved context read back on request | LLM08 |
 | Insecure output handling | unescaped structure in output | LLM10 |
-| Excessive agency | declared tool and permission surface | LLM03 |
+| Excessive agency | declared tool/permission surface, irreversible tools with no confirmation step, write access to an external system, no tool requiring confirmation at all | LLM03 |
 | Unbounded consumption | cost slope against input size | LLM06 |
 | Coverage marker | `KERVY-AI-000 — not tested` | — |
+
+The hidden-context probe (`ai.disclosure.hidden_context`) asks the model to
+recite its own instructions; it measures *disclosure*, not whether hidden
+instructions planted in retrieved content get *obeyed* — that is a different
+attack (indirect injection) and is not a probe this engine implements yet.
 
 ## Detection is marker-based, never harmful content
 

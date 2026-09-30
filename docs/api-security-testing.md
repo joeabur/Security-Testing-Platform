@@ -67,8 +67,10 @@ the run.
 
 ## What the engine does not do
 
-- **It does not crawl.** The surface comes from the OpenAPI document. A DAST
-  crawler is Phase 15.
+- **It does not crawl.** The surface comes from the OpenAPI document. DAST
+  (`docs/dast.md`) does that, but deliberately only for `kind: web_app`
+  targets — turning a crawler loose on an API target would widen the
+  assessment past what the OpenAPI document authorized.
 - **It does not test business logic.** Whether a workflow can be abused in a way
   the spec permits is not something a generic probe can decide.
 - **It does not attempt injection payloads against a live database.** Input

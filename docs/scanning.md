@@ -19,9 +19,13 @@ report's coverage section names what was not tested — silence would read as
 
 ## Profiles
 
-`profile` selects the check set: `connectivity` for a smoke test, `full` for
-everything the target's configuration supports. Anything the configuration does
-not support is reported as a `not tested` marker rather than silently skipped.
+`profile` (`connectivity` by default; `full` and `code_scan` are the other
+conventions in use) is a label recorded on the run and shown back in its
+history — nothing in the orchestrator branches on its value. What actually
+gets scanned is driven entirely by what the target's configuration supports
+(the table above): an adapter, an OpenAPI document, a code scope, an asset
+scope. Anything the configuration does not support is reported as a
+`not tested` marker rather than silently skipped.
 
 ## Lifecycle
 
@@ -51,6 +55,24 @@ Requests, concurrency, rate, tokens, estimated cost and wall-clock minutes.
 Exhausting one stops the run **cleanly with a reason**, not as a failure. A
 scope violation is a halt: the engine refused, and continuing would mean
 ignoring the refusal.
+
+## Exploitation tooling: simulate inside the run, fire outside it
+
+A VM-kind target's pentest tooling (`app/core/pentest/`) tiers into
+`discovery` → `vulnerability_scan` → `validation` → `exploitation` through
+the target's `asset_scope.max_depth`. The first three tiers run inline like
+every other engine. `exploitation` never does: a run that reaches it only
+emits an informational `KERVY-PENTEST-108` marker naming the module that is
+eligible and stating plainly that nothing was executed.
+
+Firing an exploitation-tier script for real is a separate action —
+`POST …/runs/{run_id}/exploitation-fires` — that references the completed
+run's own simulate marker and needs a live `ExploitationAuthorization` plus
+a second, different `SECURITY_ENGINEER`-or-above to approve it. See
+`docs/authorization-and-scope.md` for the three-allowlist gate and the
+dual-control approve/reject flow; the point for this page is narrower: a run
+reaching `max_depth=exploitation` is not the same claim as an exploit having
+executed.
 
 ## Retest
 
