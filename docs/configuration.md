@@ -15,8 +15,14 @@ that disables scope enforcement** — that is deliberate and permanent.
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | 720 | |
 | `CORS_ALLOWED_ORIGINS` | local frontend | |
 | `SESSION_COOKIE_SECURE` | `false` | Opt-in so local HTTP development works; set it in production |
+| `KERVY_RATE_LIMIT_ENABLED` | `true` | See `docs/rate-limiting.md` |
+| `KERVY_TRUSTED_PROXY_COUNT` | `0` | How many reverse proxies sit in front of this deployment. `0` means `X-Forwarded-For` is ignored entirely and the socket address is used — load-bearing: trusting the header with no proxy in front lets a client mint a fresh rate-limit bucket per forged value |
+| `KERVY_RATE_LIMIT_PEPPER` | falls back to `JWT_SECRET` | HMAC pepper for identity-based rate-limit bucket keys, so the counter store never holds a plaintext email |
+| `KERVY_CSRF_ENABLED` | `true` | See `docs/csrf.md` |
+| `KERVY_CSRF_SECRET` | falls back to `JWT_SECRET` | Signs the session-bound CSRF token |
 | `EVIDENCE_ROOT` | `var/evidence` | A path, not a URL. Evidence never leaves the deployment by default |
 | `KERVY_EVIDENCE_ENCRYPTION_KEY` | unset (plaintext) | Base64, 32 bytes (AES-256). One static key, no rotation — set before a deployment starts collecting evidence, not partway through |
+| `KERVY_TOTP_ENCRYPTION_KEY` | unset (2FA disabled platform-wide) | Base64, 32 bytes (AES-256). A TOTP shared secret is exactly as sensitive as a webhook secret — absent, `POST /auth/2fa/setup` refuses outright rather than storing one unencrypted; there is no per-organization opt-out once set |
 
 ## Credentials are held by reference
 
@@ -76,6 +82,21 @@ outbound destination is an operator decision.
 |---|---|
 | `KERVY_VCS_ALLOWED_HOSTS` | JSON list, for GitHub Enterprise only. `api.github.com` is pinned in code |
 
+## Exploitation tier (pentest module Phase 12)
+
+| Variable | Notes |
+|---|---|
+| `KERVY_EXPLOITATION_ALLOWED_NSE_SCRIPTS` | JSON list. Empty by default — nothing is fireable on a fresh deployment until an operator explicitly names scripts here. Never a category (`exploit`/`brute`/`dos`/`intrusive` stay excluded in code regardless) |
+
+This is one of three independent allowlists a fire request must clear —
+the target's own `asset_scope.approved_modules` and a live
+`ExploitationAuthorization.approved_script_names` are the other two, and
+all three must agree. Like the webhook/VCS host allowlists above, this is
+the operator's own reviewed list, not a database row an organization admin
+can add — deciding which NSE `exploit`-category scripts are safe enough to
+fire against a given deployment's targets is explicitly the operator's
+call, not this platform's.
+
 ## Social OAuth login (optional)
 
 Leave a provider's client id/secret unset and its button never appears —
@@ -126,6 +147,12 @@ still answers 202 (never disclosing whether an address is registered — see
 - `KERVY_EVIDENCE_ENCRYPTION_KEY` set before the first run, if evidence
   encryption at rest is required — there is no tool to encrypt bundles
   already written without it.
+- `KERVY_TOTP_ENCRYPTION_KEY` set before any organization enrolls in 2FA, if
+  it is to be offered at all — there is no way to turn it on retroactively
+  for accounts that enrolled before the key existed.
+- `KERVY_EXPLOITATION_ALLOWED_NSE_SCRIPTS` reviewed and set explicitly if
+  the exploitation tier's fire step is to be used at all; left empty, it is
+  simulate-only forever, which is the correct default for most deployments.
 - Separate database credentials for the app role; consider revoking `UPDATE` and
   `DELETE` on `audit_logs` at the database level. The application never issues
   them, but defence in depth here is cheap (tracked in `docs/roadmap.md`).

@@ -159,6 +159,69 @@ export const findingTransitionSchema = z.object({
 });
 export type FindingTransitionInput = z.infer<typeof findingTransitionSchema>;
 
+export const findingDuplicateLinkSchema = z.object({
+  duplicate_of_finding_id: z.string().min(1, "Choose the finding this duplicates"),
+  note: z.string().max(1000).optional(),
+});
+export type FindingDuplicateLinkInput = z.infer<typeof findingDuplicateLinkSchema>;
+
+export const agentToolConfigSchema = z.object({
+  enabled: z.boolean(),
+  // "" means "no override" (clears back to the code default) — kept as a
+  // plain string here so a <Select> can use it directly; the submit
+  // handler maps "" to null before sending it to the API.
+  minimum_role_override: z.enum([
+    "",
+    "owner",
+    "admin",
+    "security_engineer",
+    "analyst",
+    "viewer",
+  ]),
+});
+export type AgentToolConfigInput = z.infer<typeof agentToolConfigSchema>;
+
+export const exploitationAuthorizationGrantSchema = z
+  .object({
+    authorized_by_name: z.string().min(1, "Required").max(200),
+    authorized_by_role: z.string().min(1, "Required").max(100),
+    authorized_by_email: z
+      .string()
+      .min(1, "Required")
+      .email("Enter a valid email address"),
+    reference: z.string().min(1, "Required").max(500),
+    valid_from: z.string().min(1, "Required"),
+    valid_until: z.string().min(1, "Required"),
+    // Comma-separated NSE script names, e.g. "http-vuln-cve2021-41773" —
+    // split in the form's submit handler via splitCsv, same idiom the RoE
+    // form already uses for its own comma-separated fields.
+    approved_script_names: z.string().min(1, "At least one script name is required"),
+  })
+  .refine((value) => new Date(value.valid_until) > new Date(value.valid_from), {
+    message: "Valid until must be after valid from",
+    path: ["valid_until"],
+  });
+export type ExploitationAuthorizationGrantInput = z.infer<
+  typeof exploitationAuthorizationGrantSchema
+>;
+
+export const exploitationFireCreateSchema = z.object({
+  service_host: z.string().min(1, "Required").max(255),
+  service_port: z.coerce.number().int().min(1).max(65535),
+  script_names: z.string().min(1, "At least one script name is required"),
+  authorization_confirmed: z.literal(true, {
+    errorMap: () => ({
+      message: "You must confirm you are authorized to fire this exploit",
+    }),
+  }),
+});
+export type ExploitationFireCreateInput = z.infer<typeof exploitationFireCreateSchema>;
+
+export const exploitationFireRejectSchema = z.object({
+  reason: z.string().min(1, "A reason is required").max(1000),
+});
+export type ExploitationFireRejectInput = z.infer<typeof exploitationFireRejectSchema>;
+
 export const createWorkflowSchema = z.object({
   name: z.string().min(1, "Name is required").max(120),
   target_id: z.string().min(1, "Choose a target"),

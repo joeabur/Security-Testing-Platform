@@ -225,7 +225,62 @@ export interface AgentToolCatalogEntry {
   name: string;
   description: string;
   risk_level: AgentToolRiskLevel;
+  // The code default. `effective_minimum_role` is what this organization's
+  // own AgentTool override (if any) actually enforces — the two differ
+  // exactly when an admin has raised this tool's bar above the code default.
   minimum_role: string;
+  effective_minimum_role: string;
+  enabled: boolean;
+}
+
+export interface AgentToolConfig {
+  tool_name: string;
+  enabled: boolean;
+  minimum_role: string;
+  minimum_role_override: string | null;
+  effective_minimum_role: string;
+}
+
+// --- Exploitation tier (pentest module Phase 12) ---------------------------
+
+export interface ExploitationAuthorization {
+  id: string;
+  target_id: string;
+  authorized_by_name: string;
+  authorized_by_role: string;
+  authorized_by_email: string;
+  reference: string;
+  valid_from: string;
+  valid_until: string;
+  approved_script_names: string[];
+  accepted_by_user_id: string;
+  accepted_at: string;
+}
+
+export type ExploitationFireStatus =
+  | "awaiting_approval"
+  | "queued"
+  | "running"
+  | "completed"
+  | "failed"
+  | "rejected";
+
+export interface ExploitationFire {
+  id: string;
+  target_id: string;
+  run_id: string;
+  service_host: string;
+  service_port: number;
+  script_names: string[];
+  requested_by_user_id: string;
+  requested_at: string;
+  approved_by_user_id: string | null;
+  approved_at: string | null;
+  status: ExploitationFireStatus;
+  detail: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  produced_scan_result_codes: string[];
 }
 
 export type InvestigationStatus =
@@ -366,6 +421,11 @@ export interface Finding {
   first_seen: string;
   last_seen: string;
   times_seen: number;
+
+  // Null unless a human has explicitly linked this finding as the same
+  // underlying defect as another — never inferred, only recorded.
+  duplicate_of_finding_id: string | null;
+  duplicate_note: string | null;
 }
 
 /** Mirrors `ALLOWED_TRANSITIONS` in `app/models/finding.py` — kept as data

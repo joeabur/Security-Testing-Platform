@@ -91,7 +91,7 @@ every probe declares its `payload_source` and licence.
 `app/core/agent/` (`docs/agent.md`) is the one place in this codebase the
 AI can act rather than only draft or explain — search assets, investigate
 findings, start an authorized scan, run a workflow, generate a report. It
-is bound by four controls, layered on top of everything §1.1 already
+is bound by five controls, layered on top of everything §1.1 already
 requires of a provider call (evidence fencing, the gated egress, no AI-side
 memory):
 
@@ -99,6 +99,7 @@ memory):
 |---|---|---|
 | **Closed tool registry** | A tool exists because `app/core/agent/tools/registry.py` lists it, never because a module happened to define one; the AI has no database session, shell, or HTTP client of its own — only what a registered tool's typed input/output schema exposes. | `tools/contract.py`, `tools/registry.py` |
 | **Three-tier risk classification, checked independently of role** | `READ_ONLY` / `STANDARD` / `SENSITIVE`. `authorize_role()` checks the caller's role ceiling against the tool's minimum; `authorize_sensitive()` separately requires an explicit approval for `SENSITIVE` tools that no role, autonomy setting, or configuration can substitute for — the same "checked independently" shape as `TARGET_TOUCHING` in §1.1. | `app/core/agent/permissions.py` |
+| **Per-organization floor, never a ceiling an org can lower** | `AgentTool.enabled` can disable a tool per org; `AgentTool.minimum_role_override` can only *raise* a tool's minimum role above its code default — `validate_role_override` refuses a write that would lower it, and the read side takes `max(code default, org override)` even if a stored row bypassed that guard. Both are re-checked by `run_plan` on **every** step, including one resumed after an approval pause, not only when the plan was first built. `minimum_role_override` in particular existed on the model with no code that ever read it until a later review added this enforcement. | `app/core/agent/tool_config.py`, `app/core/agent/runtime.py`, `GET`/`PUT .../agent/tools/{tool_name}/config` |
 | **A `SENSITIVE` tool pauses rather than executes** | `run_plan()` stops at the first unapproved `SENSITIVE` step (`AWAITING_APPROVAL`); a Security Engineer or above must call a separate approve endpoint naming that exact tool call before it runs. An investigation nobody approves simply expires after 30 minutes and the action never happens. | `app/core/agent/runtime.py`, `docs/agent.md` |
 | **No AI-side memory, extended to tool execution** | Guarantee #28's "single-shot, nothing cached for a later call" now also covers plans and tool results: an `AgentContext` and everything it touches are discarded when the request returns; the only exception is a paused `SENSITIVE` approval, held in Redis for 30 minutes and nowhere else, fail-**closed** (unlike this codebase's other five Redis stores, most of which fail open) — an unreadable or expired session means "not approved," never "proceed." | `app/core/agent/session_store.py`, `docs/security-model.md` guarantees #29–#30 |
 
@@ -124,6 +125,7 @@ rather than inferring consent or correctness from configuration.
 | **Retest evidence review** | Whoever owns the remediation | Before/after evidence pair, not an automatic status flip | A retest produces evidence; closing the finding is still a decision the assignee makes |
 | **Rules of engagement per target** | Admin, alongside the authorization grant | `RoE` record checked by the scope engine at run time | Scope is not just "in/out of bounds" — RoE encodes what kind of testing was actually agreed to |
 | **Approving a `SENSITIVE` native-agent tool call** (`start_scan`, `run_workflow`) | Security Engineer or above | `POST .../agent/investigate/{id}/approve`, checked independently of the role that requested the investigation | The agent can *plan* a sensitive action at Analyst tier; a different, higher-tier act — naming that exact paused call — is what lets it run. `docs/agent.md` |
+| **Firing a real exploit** (pentest module, `TestDepth.EXPLOITATION`) | Two *different* Security Engineers or above — one requests, a different one approves or rejects | `POST .../exploitation-fires` then `.../{fire_id}/approve`; `approve_fire` refuses `409` if the approver's `user_id` matches the requester's | A role requirement alone is not enough here: the requester's own role already clears the bar, so the second check has to be a second *person*, the only dual-control checkpoint on this platform. `docs/rbac.md` §"Dual control on firing a real exploit" |
 
 The common shape: the platform will happily *compute, draft, propose, or
 measure* — the AI assistant above is one instance of this, not the only
@@ -148,22 +150,26 @@ never auto-follows a redirect out of scope. `docs/authorization-and-scope.md`,
 session cookies signed as JWTs (the frontend never reads the token itself);
 structured errors that never leak stack traces. `docs/authentication.md`.
 
-**Rate limiting on authentication endpoints.** Login and register are
-budgeted on two independent dimensions (per-identity and per-IP) so neither
-alone is bypassable; identity keys are HMAC'd so the store never holds a
-plaintext email; it throttles (429 + `Retry-After`) rather than locking
-accounts out, because a lockout is itself a denial-of-service primitive; and
-it fails **open** on a Redis outage (logged at error level) since Argon2id
-still stands behind it. `docs/rate-limiting.md`.
+**Rate limiting on authentication endpoints.** Login is budgeted on two
+independent dimensions (per-identity and per-IP) so neither alone is
+bypassable; register, the second-factor step (`login/2fa`), the OAuth
+callback, and `forgot-password` each carry their own budget too; identity
+keys are HMAC'd so the store never holds a plaintext email; it throttles
+(429 + `Retry-After`) rather than locking accounts out, because a lockout is
+itself a denial-of-service primitive; and it fails **open** on a Redis
+outage (logged at error level) since Argon2id still stands behind it.
+`docs/rate-limiting.md`.
 
 **CSRF protection on cookie-authenticated writes.** The token is an HMAC over
 the session cookie's own value, not a plain double-submit — so an attacker
 who can merely *set* a cookie (a sibling-subdomain quirk, a plain-HTTP MITM)
 still cannot forge one. Enforced as middleware over every route rather than a
 per-route decorator, so a route nobody remembered to annotate is still
-covered. Login/register CSRF is closed too, via a pre-session, `__Host__`-
-prefixed token. Bearer-token callers are exempt, because a cross-site page
-cannot attach that header. `docs/csrf.md`.
+covered. Login/register/`login/2fa` CSRF is closed too, via a pre-session,
+`__Host-`-prefixed token. `forgot-password`/`reset-password` are exempt
+outright — neither reads a session cookie, so there is no victim session to
+ride. Bearer-token callers are exempt, because a cross-site page cannot
+attach that header. `docs/csrf.md`.
 
 **Server-side JWT revocation.** Per-token revocation on logout (Redis
 deny-list keyed by `jti`) and a durable per-user cutoff on "log out
@@ -177,8 +183,11 @@ represents. `docs/revocation.md`.
 Analyst > Viewer, pinned by a route→role matrix test so a route silently
 downgraded from Analyst to Viewer fails the suite, not just a manual review.
 Cross-tenant access returns 404, never 403, so a non-member cannot even
-confirm an organization exists. `docs/rbac.md`, `docs/security-model.md`
-guarantee #12.
+confirm an organization exists. Owner is additionally self-gating: only an
+existing Owner can grant, change, or remove another Owner, and an
+organization's last Owner can never be demoted or removed at all — an Admin
+holds every other membership permission but not that one. `docs/rbac.md`,
+`docs/security-model.md` guarantees #12, #33.
 
 **Evidence integrity.** Redaction runs *before* anything is written — the
 store refuses to persist a bundle containing an unredacted secret — and
@@ -239,8 +248,12 @@ honesty rule:
 - Evidence is unredacted-secret-free but **not encrypted at rest**.
 - Revoking `UPDATE`/`DELETE` on `audit_logs` at the database level is
   recommended, not enforced by this platform.
-- Rate limiting covers only `login`/`register`; authenticated routes rely on
-  RBAC instead (extending the policy is a table entry, not new machinery).
+- Rate limiting covers only the unauthenticated, identity-adjacent routes
+  (`login`, `register`, `login/2fa`, `forgot-password`, the OAuth callback);
+  every authenticated route relies on RBAC instead (extending the policy is
+  a table entry, not new machinery). The agent's own `agent_tool_call`/
+  `agent_sensitive_tool_call` policy entries are registered but not yet
+  wired to a route — `docs/rate-limiting.md`.
 - The optional AI judge, if an operator turns it on, is only as good as its
   published precision/recall — the platform does not validate that number
   for them.

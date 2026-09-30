@@ -12,7 +12,7 @@ are easy to miss and quietly produce a thin scan.
 | Python | 3.12 | `tomllib`, `StrEnum`, and the typing syntax the codebase uses |
 | PostgreSQL | 16 | JSONB, partial indexes, `Identity()` on the audit chain |
 | Redis | 7 | Celery broker and the cross-process kill switch |
-| Node | 20 | the Next.js scaffold (optional — the API is usable without it) |
+| Node | 22 | the Next.js scaffold (optional — the API is usable without it) |
 
 ## Docker Compose
 

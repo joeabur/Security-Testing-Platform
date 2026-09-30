@@ -13,6 +13,8 @@ them.
 | Findings and reports | An inventory of a customer's unfixed vulnerabilities |
 | Audit log | The record of who did what |
 | Code-host tokens, webhook URLs, SMTP passwords | **Not held** — names only |
+| An org's own native-agent provider credential (`AgentProvider`) | **Not held** — only the env-var name, the same shape every other credential on this platform gets |
+| OAuth identity, password reset tokens, TOTP recovery codes | Provider subject id + link-time email (not a secret); reset tokens and recovery codes are single-use, short-lived, and stored only as SHA-256 digests — see `docs/authentication.md` |
 
 The two worst outcomes are: *this platform is used to attack something it was
 not authorized to attack*, and *the inventory of a customer's vulnerabilities
@@ -29,7 +31,16 @@ SSRF proxy.
 DNS and refuses blocked address ranges. Cloud metadata addresses are refused
 unconditionally, not overridably. Notification and code-host destinations must
 be sanctioned by an **operator, in the environment** — the database alone cannot
-widen egress. Vendor kinds are pinned to vendor hosts in code.
+widen egress. Vendor kinds are pinned to vendor hosts in code. Within the
+organization itself, an Admin cannot grant, change, or remove another
+member's **Owner** role — only an existing Owner can — and an organization's
+last Owner can never be demoted or removed at all, so a single compromised
+Admin cannot quietly promote an accomplice above itself or strip the one role
+that could undo the damage (`docs/rbac.md`). And a single compromised
+Admin or Owner cannot, alone, fire a real exploit against a target: dual
+control requires a second, different Security-Engineer-or-above person to
+approve — the requester is refused with `409` if they try to approve their
+own request (`docs/rbac.md` §"Dual control on firing a real exploit").
 
 **2. A compromised CI credential.** An API key in a runner is the most exposed
 credential issued.
@@ -67,7 +78,8 @@ route→role matrix test fails by name if any route's requirement changes.
 
 *Controls:* no credential is stored — only variable names. Evidence is redacted
 *before* it is written; a bundle refuses to be written if a secret survives.
-Passwords are Argon2id; API keys are SHA-256 digests. Evidence is
+Passwords are Argon2id; API keys, password reset tokens, and TOTP recovery
+codes are all SHA-256 digests, never a recoverable value. Evidence is
 content-addressed and hash-chained, and verification re-hashes the files, so
 replacing a bundle without updating the chain is detected.
 
@@ -79,6 +91,21 @@ host. The key is held by env-var reference. The assistant cannot execute a scan,
 grant authorization, or change a finding's real fields under any autonomy mode,
 and an import-linter rule confirms nothing in `core` outside `assistant/`
 depends on it.
+
+**8. Someone who has phished or reused a victim's password.** The most common
+real-world path in, and one this platform cannot prevent at the source — a
+person choosing a weak or reused password is outside this system's control.
+
+*Controls:* login is rate limited on both per-identity and per-IP dimensions
+(`docs/rate-limiting.md`), so a guessed or list-based attack costs time and
+shows up in the audit log long before it succeeds. Two-factor authentication
+is available per-user (off by default, on request): with it enabled, a
+correct password alone returns a short-lived challenge, not a session, and
+the second step has its own, tighter rate-limit budget
+(`docs/authentication.md`). If a password is suspected to have leaked,
+`/auth/logout-all` or a password reset both immediately invalidate every
+outstanding session, not merely the one the attacker or the victim happens
+to be holding (`docs/revocation.md`).
 
 ## Trust boundaries
 

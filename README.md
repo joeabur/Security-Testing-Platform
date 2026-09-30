@@ -12,27 +12,39 @@ plan — lives in **[`docs/BUILD_SPEC.md`](docs/BUILD_SPEC.md)**. Read that
 first; this README is the practical "how do I run it" companion.
 
 **Current status: v0.1.0 — the original 18-phase AppSec/API/AI platform is
-complete**, and three later builds sit on top of it: a broader **pentest
+complete**, and several later builds sit on top of it: a broader **pentest
 module** (all 12 phases — containers, cloud, VMs, domains, a sequenced
 pentest-tool adapter layer, multi-vendor AI throughout, Celery Beat
 scheduling, an HMAC-signed inbound webhook, an organization-wide
-security-operations dashboard, and a simulate-then-fire exploitation tier —
-`docs/roadmap.md` records each phase), a **native AI
-agent** (all 7 phases — a closed, typed tool registry with risk tiers and an
-approval flow, adding zero new persistent storage beyond an explicit
-metrics allowlist, `docs/agent.md`), and a **frontend redesign** of the
-Next.js dashboard (`docs/roadmap.md`'s "Frontend UI redesign" entry). What
-works end to end today: the scope/authorization engine and its gated
-transport (the single outbound control point), target adapters and OpenAPI
-discovery, run orchestration with cancellation and live progress, 16 API
-probes, 11 AI probes measured with Wilson-interval attack success rates
-against their own controls, the SAST/SCA/secrets/IaC engines plus
-supply-chain analysis (end-of-life runtimes, licence obligations, dependency
-name confusion, container packages), the AI assistant layer (drafts
-only, never execution), risk-scored findings with stable fingerprints, and
-content-addressed evidence plus reports in Markdown, HTML, PDF, JSON, SARIF
-2.1.0 and CSV, and a remediation board with a retest workflow that reports
-reproduced / not reproduced / not tested with the evidence from either side.
+security-operations dashboard, and a simulate-then-fire exploitation tier,
+now itself requiring a second, different security engineer to approve
+before anything real fires — `docs/roadmap.md` records each phase), a
+**native AI agent** (all 7 phases plus a follow-up closing a dead-code gap
+in its own permission model — a closed, typed tool registry with risk
+tiers, an approval flow, and per-organization tool enable/disable and
+minimum-role overrides that are now actually enforced, adding zero new
+persistent storage beyond an explicit metrics allowlist, `docs/agent.md`),
+a **frontend redesign** of the Next.js dashboard, and account-management
+work (social OAuth login via Google/GitHub, TOTP two-factor authentication,
+and membership controls — removing a member or changing their role, with
+granting the Owner role itself restricted to existing Owners). A
+whole-system review also closed the platform's last honest gap in
+cross-engine finding correlation: an analyst can now explicitly record that
+two findings from different engines describe the same underlying defect,
+without any invented similarity heuristic. `docs/roadmap.md` records each
+of these as its own entry. What works end to end today: the
+scope/authorization engine and its gated transport (the single outbound
+control point), target adapters and OpenAPI discovery, run orchestration
+with cancellation and live progress, 16 API probes, 11 AI probes measured
+with Wilson-interval attack success rates against their own controls, the
+SAST/SCA/secrets/IaC engines plus supply-chain analysis (end-of-life
+runtimes, licence obligations, dependency name confusion, container
+packages), the AI assistant layer (drafts only, never execution),
+risk-scored findings with stable fingerprints and human-verified
+cross-engine duplicate linking, and content-addressed evidence plus reports
+in Markdown, HTML, PDF, JSON, SARIF 2.1.0 and CSV, and a remediation board
+with a retest workflow that reports reproduced / not reproduced / not
+tested with the evidence from either side.
 
 There is also an `kervy-ai` CLI and a CI security gate with documented exit
 codes — see [`docs/cicd.md`](docs/cicd.md).
@@ -65,14 +77,17 @@ an unattended trigger's plan queues a scan — see
 There are two dashboards, deliberately, for two audiences — see
 [`docs/dashboard.md`](docs/dashboard.md). The **Next.js app in `frontend/`**
 is the primary product UI: organizations, targets, runs, workflows,
-repositories, the native AI agent workspace, and an organization-wide
+repositories, the native AI agent workspace (including per-tool
+enable/disable and minimum-role configuration), an organization-wide
 security-operations overview (open findings by severity, coverage by
-pillar, remediation and retest health, recent activity). A second,
-**server-rendered dashboard at `/app`** is Jinja2 with optional HTMX,
-no build step, read-only because no write actions are built yet (not, any
-longer, for lack of a CSRF token — see `docs/csrf.md`), and every number on
-either dashboard is a real query against the same core query module, never
-two independently-computed answers to the same question.
+pillar, remediation and retest health, recent activity), finding
+duplicate-linking, and the exploitation tier's authorization grant and
+fire/approve/reject flow. A second, **server-rendered dashboard at `/app`**
+is Jinja2 with optional HTMX, no build step, read-only because no write
+actions are built yet (not, any longer, for lack of a CSRF token — see
+`docs/csrf.md`), and every number on either dashboard is a real query
+against the same core query module, never two independently-computed
+answers to the same question.
 
 Runtime protection is recorded as a *claim*, never a measurement, and no RASP
 agent ships — this platform does not run inside anybody's process. See
@@ -198,10 +213,15 @@ make lint            # ruff + eslint
 make typecheck       # mypy --strict + tsc --noEmit
 ```
 
-Backend: 19 tests covering registration, login/logout, session cookies vs.
-bearer tokens, RBAC (owner/admin/security_engineer/analyst/viewer), and
-cross-organization tenant isolation. 92% statement coverage, `ruff check`
-clean, `mypy --strict` clean.
+Backend: 571 test functions across 108 files (`backend/tests/` and
+`backend/tests/security/`), covering registration, login/logout, OAuth,
+2FA, session cookies vs. bearer tokens, RBAC (owner/admin/
+security_engineer/analyst/viewer) enforced via a pinned
+`test_authorization_matrix.py` that fails the moment a new route omits an
+explicit role, cross-organization tenant isolation, every engine, the
+pentest module (including the exploitation tier's dual-control gate), and
+the native agent (including tool enable/disable and role-override
+enforcement). `ruff check` clean, `mypy --strict` clean.
 
 Frontend: Vitest coverage of the Zod validation schemas and the login form's
 client-side validation/submission behavior, `eslint` clean, `tsc --noEmit`
@@ -209,11 +229,20 @@ clean, `next build` succeeds.
 
 ## Security model (what exists today)
 
-- Passwords are hashed with Argon2id; never stored or logged in plaintext.
+- Passwords are hashed with Argon2id; never stored or logged in plaintext —
+  and are optional entirely for an account created via OAuth (Google or
+  GitHub), whose `password_hash` stays null until it sets one.
 - Sessions are httpOnly, `SameSite=Lax` cookies signed as JWTs; the frontend
   never reads or stores the token itself.
+- Optional TOTP-based two-factor authentication: enabling it changes
+  `/auth/login`'s own response shape (a short-lived challenge instead of a
+  session) until `/auth/login/2fa` redeems it, with one-time recovery codes
+  for a lost authenticator.
 - RBAC (Owner/Admin/Security Engineer/Analyst/Viewer) is enforced
-  **server-side only** — the frontend's UI is not a security boundary.
+  **server-side only** — the frontend's UI is not a security boundary — and
+  pinned by a test that fails the build the moment a new route omits an
+  explicit role. Granting the Owner role itself is Owner-only; any member
+  can be removed, but never demoted or removed by someone below Admin.
 - A non-member accessing another organization's resources gets `404`, not
   `403`, so the organization's existence isn't confirmed to callers who have
   no legitimate reason to know it.
@@ -222,6 +251,16 @@ clean, `next build` succeeds.
   database rows and as a JSON-lines file.
 - Structured error responses never leak stack traces or internal exception
   details to the client.
+- The native AI agent's own permission model — which tools it may call, at
+  what minimum role, and whether a tool is disabled for an organization —
+  is enforced on every call, including a resumed investigation, where the
+  configuration is re-loaded fresh rather than trusted from before an
+  approval pause.
+- The pentest module's exploitation tier never runs a real exploit from an
+  ordinary scan — it only emits a "this would be eligible" marker. Actually
+  firing one requires a second, different Security Engineer or above to
+  approve a first person's request; the same person can never both request
+  and approve.
 
 - The scope engine is the single outbound control point: exclusions are
   checked before allowlists, DNS is re-resolved per request, private and

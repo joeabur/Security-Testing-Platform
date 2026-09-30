@@ -1,6 +1,7 @@
 # Authentication
 
-Three ways to authenticate, with different lifetimes and different ceilings.
+Three ways to authenticate, with different lifetimes and different ceilings —
+plus social login and password reset as alternate ways into the same session.
 
 ## Passwords
 
@@ -10,6 +11,11 @@ what raises the cost of an offline attack against a stolen hash.
 Registration returns an access token immediately, so the quickstart is one call
 rather than two. Passwords are never logged, never returned, and never
 recoverable — there is no "show password" path because there is nothing to show.
+
+`User.password_hash` is nullable: an account created through social login (below)
+has none, and `login()` treats a null hash the same generic way it treats a wrong
+password — a null-hash account cannot be signed into with a password at all, but
+the 401 it gets looks identical to any other failed login.
 
 ## Session tokens
 
@@ -43,6 +49,63 @@ key's own secret) both complete the second step.
 Disabling requires a current code or recovery code too — an attacker who
 merely hijacks an already-open session cannot turn 2FA off to make a
 password alone sufficient again.
+
+`POST /auth/login/2fa` has its own rate-limit budget (`login_2fa`, per
+identity — `docs/rate-limiting.md`), separate from `login`'s own: a correct
+password does not entitle an attacker to unlimited guesses at a six-digit
+code.
+
+## Social login (Google, GitHub)
+
+`GET /auth/oauth/{provider}/authorize` redirects to the provider;
+`GET /auth/oauth/{provider}/callback` completes it. Both are 404 — not merely
+disabled — when the provider has no client id/secret configured
+(`GOOGLE_OAUTH_CLIENT_ID`/`GOOGLE_OAUTH_CLIENT_SECRET_ENV_VAR`,
+`GITHUB_OAUTH_CLIENT_ID`/`GITHUB_OAUTH_CLIENT_SECRET_ENV_VAR`, plus
+`KERVY_OAUTH_CALLBACK_BASE_URL`) or the deployment has no `public_base_url` —
+the same "not configured and half-configured both mean unavailable" shape
+`/2fa/setup` uses for a missing encryption key. `GET /auth/oauth/providers`
+tells the frontend which buttons to render.
+
+An `OAuthIdentity` row is keyed on `(provider, provider_user_id)` — the
+provider's own stable subject id, **never** email. A callback whose reported
+email matches an existing password account refuses with `409`
+(`app/models/oauth.py`) rather than linking silently: a provider that does not
+itself verify email ownership would otherwise let anyone claiming that address
+attach themselves to someone else's account. A first-time login for a new
+address creates the `User` (with `password_hash=None`) and the identity row
+together, and redirects to `/organizations/new`; a returning identity redirects
+to `/dashboard`. Either way the browser gets the same session and CSRF cookies
+`_set_session_cookie` sets after a password login — social login is a second
+front door onto the identical session, not a separate credential type.
+
+The callback is rate limited per IP (`oauth_callback`, `docs/rate-limiting.md`)
+because every attempt — even a doomed one with a bad `code` — costs this
+server a real outbound token-exchange call to the provider.
+
+## Forgot / reset password
+
+`POST /auth/forgot-password` always returns `202`, whether or not the address
+is registered, has a password at all, or `KERVY_PLATFORM_SMTP_HOST`/
+`KERVY_PLATFORM_SMTP_FROM_ADDRESS` are even configured — the same
+non-enumerating shape `/auth/login` uses, extended to a route that by design
+tells an anonymous caller nothing. Rate limited per IP only
+(`forgot_password`, `docs/rate-limiting.md`): the budget is consumed before
+any lookup, so there is no identity to key a second dimension on without
+itself leaking whether the address exists.
+
+A reset link carries a 256-bit token (`KERVY_PASSWORD_RESET_TOKEN_TTL_MINUTES`,
+default 30); only its SHA-256 digest is stored (`app/models/password_reset.py`),
+the same "shown once, digest kept" shape an API key's secret or a TOTP
+recovery code already uses. At most one live link per user — requesting a new
+one invalidates any unused older one. `POST /auth/reset-password` consumes the
+token, sets the new password, and — deliberately — does **not** start a
+session: the caller has proven control of an inbox, not a browser worth
+trusting with a cookie yet, so they are sent back to `/login`. It also sets
+`tokens_valid_after` and revokes every row in `user_sessions`, the identical
+"log out everywhere" cutover `/auth/logout-all` uses — a password reset is
+exactly the "I think this account was compromised" case that mechanism exists
+for (`docs/revocation.md`).
 
 ## API keys
 

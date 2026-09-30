@@ -56,7 +56,7 @@ Use the dry run to see the decision without sending anything:
 
 ```
 POST /organizations/{org}/targets/{id}/scope/explain
-kervy-ai scope explain --target <id> --url https://...
+kervy-ai scope explain <id> --url https://...
 ```
 
 It names the rule that refused. Common causes: the hostname is not in

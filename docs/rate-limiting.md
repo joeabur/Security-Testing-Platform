@@ -11,8 +11,17 @@ most likely to matter first in a real deployment.
 | `POST /auth/login` | per identity | 10 failures / 15 min |
 | `POST /auth/login` | per IP | 60 failures / 15 min |
 | `POST /auth/register` | per IP | 10 / hour |
+| `POST /auth/login/2fa` | per identity | 10 / 15 min |
 | `GET /auth/oauth/{provider}/callback` | per IP | 30 / hour |
 | `POST /auth/forgot-password` | per IP | 10 / hour |
+
+`login/2fa` is keyed on the *user id* the already-verified challenge names
+(`app/auth/security.py`'s `TotpChallenge`, decoded before this budget is
+charged), not on anything attacker-supplied — a six-digit TOTP code is only
+10^6 possibilities per account, tighter than `login`'s own password budget on
+purpose, because a correct password should not buy unlimited guesses at the
+second factor. It clears on a correct code the same way `login`'s own
+identity bucket clears on a correct password.
 
 `forgot-password` and the OAuth callback are IP-only, for a reason distinct
 from "the per-IP budget is enough": neither has an identity to key a second
@@ -22,13 +31,20 @@ already charged — same ordering as `login`, for the same reason — so there i
 nothing to key an identity dimension on that would not itself leak whether
 the address exists. The callback's "identity" is a one-time authorization
 code, never reused, so an identity bucket on it would never accumulate
-anything.
+anything; the budget instead bounds how many token-exchange calls this
+server will make to the provider on one IP's behalf, since even a doomed
+attempt with a forged `code` costs a real outbound request.
 
-Every other listed route consumes from **both** dimensions, because either
-alone is bypassable. Per-IP alone falls to a botnet — a thousand hosts making three
-attempts each against one account is a thousand times the budget. Per-identity
-alone falls to spraying — one host trying one common password against ten
-thousand accounts never exceeds any account's budget.
+`login` itself is the one route that consumes from **both** dimensions,
+because either alone is bypassable. Per-IP alone falls to a botnet — a
+thousand hosts making three attempts each against one account is a thousand
+times the budget. Per-identity alone falls to spraying — one host trying one
+common password against ten thousand accounts never exceeds any account's
+budget. Every other route above has only one dimension available to it in
+the first place — `register`, `forgot-password` and the OAuth callback have
+no pre-lookup identity to key a second bucket on (see above); `login/2fa`'s
+identity comes from an already-decoded challenge rather than anything an
+attacker chooses freely, so a per-IP bucket on top of it would add little.
 
 The numbers are chosen against what each attack needs. Ten failures per
 15 minutes makes a thousand-word list take about a day per account, by which
@@ -136,10 +152,22 @@ Alert on that event.
 
 Stated rather than implied:
 
-- **Only `login` and `register`.** §22 asks for per-route rate limiting across
-  the API; the authenticated routes are not limited, because they already
-  require a credential and are bounded by RBAC. Extending the policy is a table
-  entry in `app/core/ratelimit/policy.py` — the machinery is general.
+- **Only the unauthenticated, identity-adjacent routes: `login`, `register`,
+  `login/2fa`, `forgot-password`, and the OAuth callback.** §22 asks for
+  per-route rate limiting across the API; every *authenticated* route is not
+  limited here, because it already requires a credential and is bounded by
+  RBAC instead. Extending the policy is a table entry in
+  `app/core/ratelimit/policy.py` — the machinery is general.
+- **Two more rules are registered but not yet wired to a route:**
+  `agent_tool_call` (60/5 min per identity) and `agent_sensitive_tool_call`
+  (10/10 min per identity), added to `policy.py` alongside the native agent's
+  tool registry ahead of the phase that calls them, the same way a policy
+  entry is meant to be added — not because a route already needs it today.
+  `docs/agent.md`'s own roadmap section lists per-tool rate limiting as still
+  deferred; nothing in `app/core/agent/runtime.py` calls `RateLimiter.check`
+  yet, so a tool's `rate_limit_rule` field is presently a declared intent, not
+  an enforced one. Do not cite this as "agent tool calls are rate limited"
+  until a route actually consumes it.
 - **Fixed window, not sliding.** An attacker can land up to `2 × limit`
   attempts across a window boundary. A sliding log would close that, at the
   cost of a sorted set per key and a read of every entry — which, under exactly

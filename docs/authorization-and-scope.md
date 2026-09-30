@@ -50,6 +50,25 @@ Firing is a two-step, and each step is its own concrete artifact:
    modules`. See `docs/roadmap.md`'s Phase 12 write-up for the full design
    and why none of the three alone is sufficient.
 
+### Dual control: the fire step needs two different people
+
+A follow-up whole-system review found that the three-allowlist gate above
+still let one person single-handedly both decide a real exploit should run
+and be the one whose click ran it. `POST .../exploitation-fires` no longer
+queues anything — it creates the fire `awaiting_approval` and stops there.
+A second, distinct action, `POST .../exploitation-fires/{fire_id}/approve`
+(`Role.SECURITY_ENGINEER`-or-above), refuses with `409` if the approver is
+the same person who requested it, or if the fire is not still
+`awaiting_approval`; only after it succeeds does the worker task actually
+run. `POST .../exploitation-fires/{fire_id}/reject` lets the requester, or
+anyone else at that tier, stand a fire down instead, recording a reason.
+The worker re-checks the same three-allowlist gate again at execution
+time — never trusting that a check made at request time is still true
+seconds or minutes later, the same reasoning `GatedTransport` re-resolves
+DNS per request rather than trusting an earlier resolution. See
+`docs/dashboard.md`'s "Exploitation tier" section for how this surfaces
+in the Next.js run detail page.
+
 ## The gate
 
 `app/core/scope/engine.py` decides, and `app/core/scope/transport.py` is the
@@ -124,16 +143,18 @@ it does not merely cancel the next request.
 
 ## The same gate for everything else
 
-Three subsystems reach hosts that are not targets: the AI provider, notification
-channels, and code-host connections. None of them opens its own client. Each
-builds a `RunContext` whose allowlist is **derived from configuration** and holds
-exactly one host, with empty `allowed_ip_ranges`:
+Four subsystems reach hosts that are not targets: the AI provider,
+notification channels, code-host connections, and the social-login OAuth
+flow. None of them opens its own client. Each builds a `RunContext` whose
+allowlist is **derived from configuration** and holds exactly one host,
+with empty `allowed_ip_ranges`:
 
 | Subsystem | Allowed host | Methods |
 |---|---|---|
 | AI provider (`assistant/egress.py`) | the configured provider host | POST |
 | Notifications (`integrations/egress.py`) | the resolved channel host | POST |
 | Code host (`vcs/egress.py`) | `api.github.com` or a sanctioned Enterprise host | GET, POST |
+| OAuth login (`oauth/egress.py`) | the one provider host (`accounts.google.com`/`github.com`) for this login round trip | GET, POST |
 
 There is no parameter on any of them through which a caller could pass a target
 hostname, which is what stops them becoming an authorization bypass. And because

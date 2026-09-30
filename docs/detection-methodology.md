@@ -66,6 +66,43 @@ installed, the engine emits `KERVY-APPSEC-000 — not tested` naming the tool,
 rather than returning nothing. An empty result set reads as "clean", which is a
 very different claim from "not checked".
 
+## Pentest tooling (nmap NSE)
+
+`app/core/pentest/engine.py` runs nmap NSE scripts in the same tiered shape
+as everything else in this platform, and assigns confidence by how the
+observation was made, not by how bad it would be:
+
+| Tier | Result | Confidence | Why |
+|---|---|---|---|
+| `vulnerability_scan` | `KERVY-PENTEST-101` | `MEDIUM` | a text match against nmap's own `VULNERABLE` convention, not a database-verified advisory id |
+| `validation` | `KERVY-PENTEST-102` | `HIGH` | the script printed output only because an anonymous/default-credential check itself succeeded — directly observed |
+| `exploitation`, simulate marker | `KERVY-PENTEST-108` | `DESIGN_REVIEW` | nothing was executed; the marker only names what would be eligible to fire |
+| `exploitation`, fired for real | `KERVY-PENTEST-103` | `HIGH` | a live-observed result of a script that actually ran, under a live `ExploitationAuthorization` |
+
+Reaching `max_depth=exploitation` inside an ordinary run never produces
+anything above `DESIGN_REVIEW` confidence — the `HIGH`-confidence
+exploitation finding only exists after the separate, dual-control fire
+described in `docs/scanning.md` and `docs/authorization-and-scope.md`.
+
+## Cross-engine duplicate linking is a human judgment, not a heuristic
+
+Fingerprinting (below) deduplicates one probe's own findings run over run.
+It does not, and is not meant to, notice that a SAST hit and a DAST hit
+describe the same underlying defect — that comparison would need a
+similarity heuristic across engines with different surfaces and evidence
+shapes, and inventing one would be exactly the kind of confident-and-wrong
+finding this platform refuses elsewhere.
+
+So the link is explicit and human: `POST …/findings/{id}/duplicate`
+(`app/core/findings/service.py::link_duplicate`) records that one finding
+is a duplicate of another, with a note and who linked it. It is **two-level
+only** — a finding that is itself a duplicate cannot become a primary, and a
+primary that already has duplicates pointing at it cannot become one — so
+there is never a chain to walk, only ever one level of indirection.
+`GET …/findings/{id}/duplicates` lists what currently points at a given
+finding, `DELETE …/findings/{id}/duplicate` undoes the link, and a report's
+own counts exclude linked duplicates by default (`docs/reporting.md`).
+
 ## Fingerprints
 
 A finding's identity is computed from the probe id, the normalized surface, and
@@ -118,3 +155,9 @@ could contain customer data.
   verification, and purge.
 - `backend/tests/test_appsec_engines.py` — every seeded flaw found in a
   vulnerable fixture, **nothing** reported against a hardened control.
+- `backend/tests/test_pentest_engine.py` — tier/confidence gating, including
+  the simulate-only split for `exploitation`.
+- `backend/tests/test_pentest_exploitation.py` — the three-allowlist fire
+  gate and the dual-control approve/reject flow.
+- `backend/tests/test_findings_api.py` — the duplicate-link endpoints,
+  including the two-level-only rejection cases.

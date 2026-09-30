@@ -79,13 +79,18 @@ evidence, and want basic AppSec coverage alongside it.
 
 ## ZAP / Burp Suite
 
-**Better than this at:** web application testing. Crawling, session handling,
-active scanning, an interception proxy, and two decades of refinement. This
-platform has no crawler at all (Phase 15) and no browser.
+**Better than this at:** web application testing. Session handling, an
+interception proxy, and two decades of refinement in active scanning. This
+platform has a crawler (Phase 15, `docs/dast.md`), but it is scope-gated and
+narrow — it runs only for `kind: web_app`, and it hands the crawled URLs to
+Nuclei and ZAP rather than doing its own active scanning. No browser: nothing
+here executes JavaScript or renders a page.
 
 **This is different at:** working from an OpenAPI document against APIs and
 LLM applications, with a scope engine that refuses out-of-scope requests rather
-than trusting the operator's configuration.
+than trusting the operator's configuration — including checking a discovered
+URL against that scope engine *before* it is queued for the crawler, not only
+before it is fetched.
 
 ## Where this platform is genuinely distinctive
 
@@ -103,11 +108,16 @@ than trusting the operator's configuration.
 
 ## Where it is genuinely behind
 
-- No crawler, no browser, no DAST (Phase 15).
+- No browser, and the DAST adapters (Phase 15) are not scope-gated at the
+  socket — Nuclei and ZAP open their own connections once handed a target
+  URL (`docs/security-review.md`).
 - Fewer AI probes than garak.
 - No maintained vulnerability database of its own.
 - No reachability analysis.
-- The web UI covers authentication only (Phase 17).
+- The read-only ops dashboard (`/app`, Phase 17) has no write actions —
+  starting a run, changing a finding's status, everything else that writes
+  is API or CLI only there (`docs/dashboard.md`). The Next.js frontend is
+  the full product UI and does write through the API.
 - `docker compose up --build` is unverified.
 - Pre-1.0, with no support contract behind it.
 
