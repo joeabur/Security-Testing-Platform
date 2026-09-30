@@ -14,6 +14,7 @@ real session/token management; this closes it.
 | Per-token revocation | `POST /auth/logout` | one token | Redis, TTL = token's own remaining lifetime | No — bounded loss, see below |
 | Per-user cutoff | `POST /auth/logout-all` | every token ever issued to that user | Postgres (`users.tokens_valid_after`) | Yes |
 | Per-token revocation, by name | `DELETE /auth/sessions/{id}` | one token, chosen from a list rather than only "this one" | Same deny-list as `/auth/logout` | No — same bounded loss |
+| Per-token revocation, by an org admin | `DELETE /organizations/{organization_id}/members/{member_id}/sessions/{id}` | one token belonging to a fellow organization member, not the caller | Same deny-list as `/auth/logout` | No — same bounded loss |
 
 **Per-token** is a deny-list keyed by the token's own `jti` claim, so logging
 out kills exactly the session that called it and nothing else. Losing an
@@ -88,10 +89,23 @@ happened, not because the cutoff needs them. Losing this table entirely —
 a botched restore, for instance — makes past sessions invisible but revokes
 nothing that was already revoked and un-revokes nothing that was not.
 
-Both new endpoints are scoped to the caller's own account: there is no
-admin view of another user's sessions, and revoking someone else's returns
-404, the same non-disclosure `require_membership` already uses elsewhere on
-this API.
+Both new endpoints are scoped to the caller's own account by default, and
+revoking someone else's through them returns 404, the same non-disclosure
+`require_membership` already uses elsewhere on this API. An organization
+admin's equivalent view of a fellow member's sessions is a separate,
+org-scoped pair of endpoints —
+`GET/DELETE /organizations/{organization_id}/members/{member_id}/sessions`
+(`app/api/v1/routers/organizations.py`) — not a wider version of `GET
+/auth/sessions`. `member_id` is the target's `Membership` row, so the
+same non-disclosure applies to a member id from another organization, and
+the same owner carve-out `update_member_role`/`remove_member` already
+enforce applies to revoking: an Admin may revoke another Admin's,
+Security Engineer's, Analyst's, or Viewer's session, but only an Owner may
+revoke an Owner's — the same reasoning that already stops an Admin from
+demoting or removing an Owner outright applies to forcing one out of every
+active session. Listing carries no such carve-out; visibility into a
+fellow member's sessions is not itself the privileged action revocation
+is.
 
 ## Using it
 

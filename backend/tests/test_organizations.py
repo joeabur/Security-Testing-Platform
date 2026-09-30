@@ -354,6 +354,111 @@ async def test_admin_can_remove_a_non_owner_member(
     assert member["user"]["email"] not in {m["email"] for m in members.json()}
 
 
+async def test_admin_can_list_and_revoke_a_members_session(
+    client: AsyncClient, strong_password: str
+) -> None:
+    owner = await _register(client, "sessionsowner@example.test", strong_password)
+    admin = await _register(client, "sessionsadmin@example.test", strong_password)
+    member = await _register(client, "sessionsmember@example.test", strong_password)
+
+    org_id, _ = await _create_org_and_invite(
+        client, owner["access_token"], admin["user"]["email"], "admin"
+    )
+    invite_member = await client.post(
+        f"/api/v1/organizations/{org_id}/members",
+        json={"email": member["user"]["email"], "role": "viewer"},
+        headers=_auth_headers(owner["access_token"]),
+    )
+    member_id = invite_member.json()["id"]
+
+    # Registering already created one session for the member; the admin can
+    # see it without the member's own token.
+    listing = await client.get(
+        f"/api/v1/organizations/{org_id}/members/{member_id}/sessions",
+        headers=_auth_headers(admin["access_token"]),
+    )
+    assert listing.status_code == 200
+    sessions = listing.json()
+    assert len(sessions) == 1
+    assert sessions[0]["is_current"] is False  # never the admin's own session
+    session_id = sessions[0]["id"]
+
+    revoke = await client.delete(
+        f"/api/v1/organizations/{org_id}/members/{member_id}/sessions/{session_id}",
+        headers=_auth_headers(admin["access_token"]),
+    )
+    assert revoke.status_code == 204
+
+    # The member's own token no longer authenticates anywhere on the API.
+    member_check = await client.get(
+        "/api/v1/auth/me", headers=_auth_headers(member["access_token"])
+    )
+    assert member_check.status_code == 401
+
+    listing_after = await client.get(
+        f"/api/v1/organizations/{org_id}/members/{member_id}/sessions",
+        headers=_auth_headers(admin["access_token"]),
+    )
+    assert listing_after.json() == []
+
+
+async def test_admin_cannot_revoke_an_owners_session(
+    client: AsyncClient, strong_password: str
+) -> None:
+    owner = await _register(client, "sessionsescalowner@example.test", strong_password)
+    admin = await _register(client, "sessionsescaladmin@example.test", strong_password)
+
+    org_id, _ = await _create_org_and_invite(
+        client, owner["access_token"], admin["user"]["email"], "admin"
+    )
+    members = await client.get(
+        f"/api/v1/organizations/{org_id}/members", headers=_auth_headers(owner["access_token"])
+    )
+    owner_member_id = next(m["id"] for m in members.json() if m["role"] == "owner")
+
+    listing = await client.get(
+        f"/api/v1/organizations/{org_id}/members/{owner_member_id}/sessions",
+        headers=_auth_headers(admin["access_token"]),
+    )
+    assert listing.status_code == 200  # visibility is not the owner carve-out
+    session_id = listing.json()[0]["id"]
+
+    forbidden = await client.delete(
+        f"/api/v1/organizations/{org_id}/members/{owner_member_id}/sessions/{session_id}",
+        headers=_auth_headers(admin["access_token"]),
+    )
+    assert forbidden.status_code == 403
+
+    # The owner's session survived the attempt.
+    owner_check = await client.get("/api/v1/auth/me", headers=_auth_headers(owner["access_token"]))
+    assert owner_check.status_code == 200
+
+
+async def test_listing_sessions_for_a_member_in_another_organization_is_404(
+    client: AsyncClient, strong_password: str
+) -> None:
+    owner_a = await _register(client, "sessionscrossorga@example.test", strong_password)
+    owner_b = await _register(client, "sessionscrossorgb@example.test", strong_password)
+    member = await _register(client, "sessionscrossorgmember@example.test", strong_password)
+
+    org_a_id, member_id = await _create_org_and_invite(
+        client, owner_a["access_token"], member["user"]["email"], "viewer"
+    )
+    org_b = await client.post(
+        "/api/v1/organizations",
+        json={"name": "Org B"},
+        headers=_auth_headers(owner_b["access_token"]),
+    )
+    org_b_id = org_b.json()["id"]
+
+    listing = await client.get(
+        f"/api/v1/organizations/{org_b_id}/members/{member_id}/sessions",
+        headers=_auth_headers(owner_b["access_token"]),
+    )
+    assert listing.status_code == 404
+    assert org_a_id  # the member really is in org A, just not org B
+
+
 async def test_removing_a_member_from_another_organization_is_404(
     client: AsyncClient, strong_password: str
 ) -> None:

@@ -1,5 +1,6 @@
 import re
 import uuid
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import func, select
@@ -8,8 +9,11 @@ from sqlalchemy.orm import selectinload
 
 from app.audit.service import record_event
 from app.auth.dependencies import CurrentUser, DbSession, require_membership
+from app.core.revocation import dependency as revocation
 from app.models.organization import Membership, Organization, Role
 from app.models.user import User
+from app.models.user_session import UserSession
+from app.schemas.auth import SessionRead
 from app.schemas.organization import (
     MembershipInvite,
     MembershipRead,
@@ -300,3 +304,103 @@ async def remove_member(
         metadata={"target_user_id": str(target.user_id), "role": target.role.value},
     )
     await db.commit()
+
+
+@router.get(
+    "/{organization_id}/members/{member_id}/sessions", response_model=list[SessionRead]
+)
+async def list_member_sessions(
+    organization_id: uuid.UUID,
+    member_id: uuid.UUID,
+    request: Request,
+    db: DbSession,
+    membership: Membership = Depends(require_membership(Role.ADMIN)),  # noqa: B008
+) -> list[SessionRead]:
+    """An admin's view of a fellow member's active sessions.
+
+    `GET /auth/sessions` is deliberately scoped to the caller's own account
+    (see its own docstring) — there was no way for an admin to answer "is
+    this person's account still logged in somewhere I don't expect" for
+    anyone but themselves. This closes that gap the same way every other
+    admin action here does: `member_id` is a `Membership` row, not a bare
+    user id, so `_load_target_member`'s 404-not-403 non-disclosure applies
+    identically, and the admin never needs to already know a user id outside
+    their own organization to ask the question.
+    """
+    target = await _load_target_member(db, organization_id, member_id)
+
+    now = datetime.now(UTC)
+    result = await db.execute(
+        select(UserSession)
+        .where(
+            UserSession.user_id == target.user_id,
+            UserSession.revoked_at.is_(None),
+            UserSession.expires_at > now,
+        )
+        .order_by(UserSession.created_at.desc())
+    )
+    current_jti = getattr(request.state, "token_jti", None)
+    return [
+        SessionRead(
+            id=session.id,
+            created_at=session.created_at,
+            expires_at=session.expires_at,
+            ip_address=session.ip_address,
+            user_agent=session.user_agent,
+            is_current=(session.jti == current_jti),
+        )
+        for session in result.scalars().all()
+    ]
+
+
+@router.delete(
+    "/{organization_id}/members/{member_id}/sessions/{session_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def revoke_member_session(
+    organization_id: uuid.UUID,
+    member_id: uuid.UUID,
+    session_id: uuid.UUID,
+    request: Request,
+    db: DbSession,
+    membership: Membership = Depends(require_membership(Role.ADMIN)),  # noqa: B008
+) -> None:
+    """Force-revoke one of a fellow member's sessions.
+
+    Same carve-out `update_member_role`/`remove_member` already enforce for
+    an Owner: an Admin may revoke another Admin's, Security Engineer's,
+    Analyst's, or Viewer's session, but not an Owner's — an Admin who could
+    unilaterally force an Owner out of every active session could disrupt
+    the one role that could undo whatever damage the Admin is doing, the
+    same reasoning that already stops an Admin from demoting or removing an
+    Owner outright.
+
+    404, not 403, for a session that exists but does not belong to this
+    member — the same non-disclosure `revoke_session` itself already
+    applies to a caller revoking a session that is not theirs.
+    """
+    target = await _load_target_member(db, organization_id, member_id)
+    if target.role == Role.OWNER and not membership.role.at_least(Role.OWNER):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail=_OWNER_DETAIL)
+
+    session = await db.get(UserSession, session_id)
+    if session is None or session.user_id != target.user_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Session not found")
+
+    if session.revoked_at is None:
+        ttl = int((session.expires_at - datetime.now(UTC)).total_seconds())
+        if ttl > 0:
+            await revocation.revoke(session.jti, ttl)
+        session.revoked_at = datetime.now(UTC)
+        await record_event(
+            db,
+            action="auth.session_revoke",
+            resource_type="user_session",
+            resource_id=str(session.id),
+            result="allow",
+            organization_id=organization_id,
+            user_id=membership.user_id,
+            ip_address=request.client.host if request.client else None,
+            metadata={"target_user_id": str(target.user_id)},
+        )
+        await db.commit()
