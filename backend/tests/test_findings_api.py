@@ -347,6 +347,219 @@ async def test_findings_are_not_visible_across_organizations(
     assert response.status_code == 404
 
 
+# --- cross-engine duplicate linking (docs/roadmap.md: "cross-engine
+# deduplication") -------------------------------------------------------
+
+
+async def test_linking_a_duplicate_removes_it_from_the_default_list_and_count(
+    client: AsyncClient, strong_password: str
+) -> None:
+    """The whole point: a human's explicit "these are the same defect"
+    judgment drops the duplicate out of the default listing, the same way
+    it drops out of a report's counts — without deleting or hiding it
+    from anyone who asks for it."""
+    org_id, target_id, headers = await _setup(client, strong_password, "k")
+    await _run(client, org_id, target_id, headers)
+    findings = (
+        await client.get(f"/api/v1/organizations/{org_id}/findings", headers=headers)
+    ).json()
+    assert len(findings) >= 2, "the vulnerable lab run must produce more than one finding"
+    primary, duplicate = findings[0], findings[1]
+
+    link = await client.post(
+        f"/api/v1/organizations/{org_id}/findings/{duplicate['id']}/duplicate",
+        json={"duplicate_of_finding_id": primary["id"], "note": "same underlying defect"},
+        headers=headers,
+    )
+    assert link.status_code == 200, link.text
+    assert link.json()["duplicate_of_finding_id"] == primary["id"]
+    assert link.json()["duplicate_note"] == "same underlying defect"
+
+    default_listing = (
+        await client.get(f"/api/v1/organizations/{org_id}/findings", headers=headers)
+    ).json()
+    assert duplicate["id"] not in {f["id"] for f in default_listing}
+    assert primary["id"] in {f["id"] for f in default_listing}
+    assert len(default_listing) == len(findings) - 1
+
+    everything = (
+        await client.get(
+            f"/api/v1/organizations/{org_id}/findings",
+            params={"include_duplicates": True},
+            headers=headers,
+        )
+    ).json()
+    assert len(everything) == len(findings)
+
+    duplicates_of_primary = (
+        await client.get(
+            f"/api/v1/organizations/{org_id}/findings/{primary['id']}/duplicates",
+            headers=headers,
+        )
+    ).json()
+    assert [f["id"] for f in duplicates_of_primary] == [duplicate["id"]]
+
+
+async def test_unlinking_a_duplicate_restores_it_to_the_default_list(
+    client: AsyncClient, strong_password: str
+) -> None:
+    org_id, target_id, headers = await _setup(client, strong_password, "l")
+    await _run(client, org_id, target_id, headers)
+    findings = (
+        await client.get(f"/api/v1/organizations/{org_id}/findings", headers=headers)
+    ).json()
+    primary, duplicate = findings[0], findings[1]
+    await client.post(
+        f"/api/v1/organizations/{org_id}/findings/{duplicate['id']}/duplicate",
+        json={"duplicate_of_finding_id": primary["id"]},
+        headers=headers,
+    )
+
+    unlink = await client.delete(
+        f"/api/v1/organizations/{org_id}/findings/{duplicate['id']}/duplicate",
+        headers=headers,
+    )
+    assert unlink.status_code == 200, unlink.text
+    assert unlink.json()["duplicate_of_finding_id"] is None
+
+    default_listing = (
+        await client.get(f"/api/v1/organizations/{org_id}/findings", headers=headers)
+    ).json()
+    assert duplicate["id"] in {f["id"] for f in default_listing}
+
+
+async def test_a_finding_cannot_be_linked_as_a_duplicate_of_itself(
+    client: AsyncClient, strong_password: str
+) -> None:
+    org_id, target_id, headers = await _setup(client, strong_password, "m")
+    await _run(client, org_id, target_id, headers)
+    finding = (
+        await client.get(f"/api/v1/organizations/{org_id}/findings", headers=headers)
+    ).json()[0]
+
+    response = await client.post(
+        f"/api/v1/organizations/{org_id}/findings/{finding['id']}/duplicate",
+        json={"duplicate_of_finding_id": finding["id"]},
+        headers=headers,
+    )
+
+    assert response.status_code == 409
+    assert "duplicate of itself" in response.text
+
+
+async def test_linking_is_two_level_only_no_chains(
+    client: AsyncClient, strong_password: str
+) -> None:
+    """A finding that is already a duplicate cannot become a primary, and
+    a finding that already has duplicates pointing at it cannot itself
+    become one — so there is never a chain to walk."""
+    org_id, target_id, headers = await _setup(client, strong_password, "n")
+    await _run(client, org_id, target_id, headers)
+    findings = (
+        await client.get(f"/api/v1/organizations/{org_id}/findings", headers=headers)
+    ).json()
+    assert len(findings) >= 2
+    a, b = findings[0], findings[1]
+    base = f"/api/v1/organizations/{org_id}/findings"
+
+    linked = await client.post(
+        f"{base}/{b['id']}/duplicate", json={"duplicate_of_finding_id": a["id"]}, headers=headers
+    )
+    assert linked.status_code == 200, linked.text
+
+    # b is already a duplicate of a — b cannot now become a's primary.
+    b_as_primary = await client.post(
+        f"{base}/{a['id']}/duplicate", json={"duplicate_of_finding_id": b["id"]}, headers=headers
+    )
+    assert b_as_primary.status_code == 409
+    assert "itself already a duplicate" in b_as_primary.text
+
+    if len(findings) >= 3:
+        c = findings[2]
+        # a already has b pointing at it as a duplicate — a cannot itself
+        # become a duplicate of some third finding.
+        a_as_duplicate = await client.post(
+            f"{base}/{a['id']}/duplicate",
+            json={"duplicate_of_finding_id": c["id"]},
+            headers=headers,
+        )
+        assert a_as_duplicate.status_code == 409
+        assert "already has other findings marked as duplicates" in a_as_duplicate.text
+
+
+async def test_an_analyst_can_link_a_duplicate_but_a_viewer_cannot(
+    client: AsyncClient, strong_password: str
+) -> None:
+    org_id, target_id, owner_headers = await _setup(client, strong_password, "o")
+    await _run(client, org_id, target_id, owner_headers)
+    findings = (
+        await client.get(f"/api/v1/organizations/{org_id}/findings", headers=owner_headers)
+    ).json()
+    primary, duplicate = findings[0], findings[1]
+
+    viewer_anon_token = (await client.get("/api/v1/auth/csrf")).cookies[
+        csrf_anon.cookie_name(secure=get_settings().session_cookie_secure)
+    ]
+    viewer = await client.post(
+        "/api/v1/auth/register",
+        json={
+            "email": "find-dedup-viewer-o@example.test",
+            "full_name": "Find Viewer",
+            "password": strong_password,
+        },
+        headers={HEADER_NAME: viewer_anon_token},
+    )
+    await client.post(
+        f"/api/v1/organizations/{org_id}/members",
+        json={"email": "find-dedup-viewer-o@example.test", "role": "viewer"},
+        headers=owner_headers,
+    )
+    viewer_headers = {"Authorization": f"Bearer {viewer.json()['access_token']}"}
+
+    refused = await client.post(
+        f"/api/v1/organizations/{org_id}/findings/{duplicate['id']}/duplicate",
+        json={"duplicate_of_finding_id": primary["id"]},
+        headers=viewer_headers,
+    )
+    assert refused.status_code == 403
+
+
+async def test_a_duplicate_is_excluded_from_the_report(
+    client: AsyncClient, strong_password: str
+) -> None:
+    org_id, target_id, headers = await _setup(client, strong_password, "p")
+    run_id = await _run(client, org_id, target_id, headers)
+    findings = (
+        await client.get(f"/api/v1/organizations/{org_id}/findings", headers=headers)
+    ).json()
+    primary, duplicate = findings[0], findings[1]
+
+    report_before = (
+        await client.get(
+            f"/api/v1/organizations/{org_id}/runs/{run_id}/report",
+            params={"report_format": "json"},
+            headers=headers,
+        )
+    ).json()
+    assert duplicate["fingerprint"] in {f["fingerprint"] for f in report_before["findings"]}
+
+    await client.post(
+        f"/api/v1/organizations/{org_id}/findings/{duplicate['id']}/duplicate",
+        json={"duplicate_of_finding_id": primary["id"]},
+        headers=headers,
+    )
+
+    report_after = (
+        await client.get(
+            f"/api/v1/organizations/{org_id}/runs/{run_id}/report",
+            params={"report_format": "json"},
+            headers=headers,
+        )
+    ).json()
+    assert duplicate["fingerprint"] not in {f["fingerprint"] for f in report_after["findings"]}
+    assert len(report_after["findings"]) == len(report_before["findings"]) - 1
+
+
 async def test_a_probabilistic_finding_carries_its_measurement(
     client: AsyncClient, strong_password: str
 ) -> None:

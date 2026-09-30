@@ -177,6 +177,30 @@ class Finding(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         UUID(as_uuid=True), ForeignKey("assessment_runs.id", ondelete="SET NULL"), nullable=True
     )
 
+    # A human-verified statement that this finding and another describe the
+    # same underlying defect — the same weakness a SAST scan of a repo and a
+    # DAST scan of the deployed app can both surface with different
+    # `probe_id` prefixes and therefore different fingerprints. Deliberately
+    # not an automatic heuristic: `docs/roadmap.md`'s own Phase 14 note is
+    # explicit that "faking a correlation heuristic would be worse than the
+    # honest gap," so this is only ever set by `link_duplicate`
+    # (`app/core/findings/service.py`) at a human's explicit say-so, the
+    # same way `AIService.correlate_findings()`'s own output is a read-only
+    # recommendation, never a write to this column. Two-level only, by
+    # construction: a finding that is itself a duplicate cannot become a
+    # primary, and a primary with existing duplicates cannot become one —
+    # `link_duplicate` enforces both, so there is never a chain to walk.
+    duplicate_of_finding_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("findings.id", ondelete="SET NULL"), nullable=True
+    )
+    duplicate_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    duplicate_linked_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    duplicate_linked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     organization: Mapped["Organization"] = relationship()
     # §11's `remediation_task_id`, as a relationship rather than a duplicated
     # column: the task already carries a unique `finding_id`, and a second

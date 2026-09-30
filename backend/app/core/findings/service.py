@@ -153,3 +153,59 @@ async def promote_run_results(
 
     await db.flush()
     return promoted
+
+
+class FindingLinkError(ValueError):
+    """A duplicate-link request failed one of the two-level-only checks.
+    The message names exactly which one — the same "state what's missing"
+    convention `ExploitationFireRefused`/`AssetScopeValidationError`
+    already use elsewhere in this codebase."""
+
+
+async def link_duplicate(
+    db: AsyncSession,
+    *,
+    finding: Finding,
+    duplicate_of: Finding,
+    linked_by_user_id: uuid.UUID,
+    note: str | None,
+) -> Finding:
+    """Record a human's explicit judgment that `finding` and `duplicate_of`
+    describe the same underlying defect — never inferred automatically
+    (see the column's own docstring on `Finding`). Kept two-level only: a
+    finding that is already a duplicate cannot become a primary, and a
+    finding that already has duplicates pointing at it cannot become one
+    itself, so there is never a chain of links to walk or a cycle to
+    detect.
+    """
+    if finding.id == duplicate_of.id:
+        raise FindingLinkError("a finding cannot be marked as a duplicate of itself")
+    if duplicate_of.duplicate_of_finding_id is not None:
+        raise FindingLinkError(
+            f"{duplicate_of.id} is itself already a duplicate of "
+            f"{duplicate_of.duplicate_of_finding_id} — link to that finding instead"
+        )
+    has_duplicates = (
+        await db.execute(select(Finding.id).where(Finding.duplicate_of_finding_id == finding.id))
+    ).first()
+    if has_duplicates is not None:
+        raise FindingLinkError(
+            f"{finding.id} already has other findings marked as duplicates of it and "
+            "cannot itself become a duplicate"
+        )
+
+    finding.duplicate_of_finding_id = duplicate_of.id
+    finding.duplicate_note = note
+    finding.duplicate_linked_by_user_id = linked_by_user_id
+    finding.duplicate_linked_at = datetime.now(UTC)
+    await db.flush()
+    return finding
+
+
+async def unlink_duplicate(db: AsyncSession, *, finding: Finding) -> Finding:
+    finding.duplicate_of_finding_id = None
+    finding.duplicate_note = None
+    finding.duplicate_linked_by_user_id = None
+    finding.duplicate_linked_at = None
+    await db.flush()
+    return finding

@@ -530,11 +530,6 @@ Still deferred:
   path, which is the same missing piece as the checkout above.
 - **CodeQL is not integrated** — §15 requires verifying its licence before
   integrating, and that verification has not been done.
-- **No cross-engine deduplication.** A SAST finding and a DAST finding
-  describing the same underlying defect are two findings. The addendum
-  explicitly puts this out of scope for v1; faking a correlation heuristic
-  would be worse than the honest gap. Correlation belongs with the findings
-  service in Phase 7 and the AI layer in Phase 16.
 - **`nist_ssdf` mappings are not yet emitted.** The key exists in the finding
   schema, but §3.4's discipline requires verifying each practice against a
   pinned source first, and that ingestion has not been done. Emitting
@@ -685,10 +680,6 @@ Deferred out of Phase 7, with reasons:
   so the field stays empty and a test asserts it.
 - **No evidence_ref yet.** The column exists; sealing evidence into a
   content-addressed bundle is Phase 8.
-- **No cross-engine correlation.** Still the honest gap from Phase 14 and
-  Phase 16: a SAST finding and a DAST finding describing the same defect
-  remain two findings. The fingerprint now gives correlation something stable
-  to work from, which is the prerequisite it was missing.
 - **Exposure and impact are derived, not declared.** An operator cannot yet
   override the exposure reading for a target that is, say, behind a VPN the
   platform cannot see. The inputs are recorded on every finding so the
@@ -4265,4 +4256,86 @@ an analyst cannot approve; rejecting records the reason and moves it to
 added to `tests/security/test_authorization_matrix.py`'s `EXPECTED_ROLES`.
 Full targeted regression (`test_pentest_exploitation.py`,
 `test_pentest_engine.py`, `test_runs_api.py`,
+`test_authorization_matrix.py`) green alongside this work.
+
+## Findings service: human-verified cross-engine duplicate linking
+
+### Context
+
+The last of the three items the same whole-system review picked out:
+"no cross-engine deduplication" has been a stated, honest gap since the
+AppSec engine's own Phase 14 write-up — a SAST finding and a DAST finding
+describing the same underlying defect get different `probe_id` prefixes
+and therefore different `fingerprint`s (`app/core/findings/fingerprint.py`
+hashes `probe_id + surface + evidence signature`), so they have always
+been two separate `Finding` rows, inflating counts. Phase 14 and Phase 16
+were both explicit that "faking a correlation heuristic would be worse
+than the honest gap," and `AIService.correlate_findings()` (Pentest module
+Phase 7) already offers an AI-drafted correlation *suggestion* — but its
+own docstring says it is "a recommendation to weigh, not a change to any
+finding's own fields or relationships." Nothing ever closed the loop from
+that suggestion to an actual, structural link.
+
+### Design
+
+`Finding` gains four columns rather than a separate join table, the same
+"denormalize the current relationship directly onto Finding" shape
+`retest_result`/`last_retest_run_id` already use: `duplicate_of_finding_id`
+(nullable, self-referential FK, `ondelete="SET NULL"`), `duplicate_note`,
+`duplicate_linked_by_user_id`, `duplicate_linked_at` (migration
+`c2e8b6f19a4d`). The column is only ever written by a human's explicit
+say-so through `app/core/findings/service.py::link_duplicate` — never
+inferred, matching the "no invented heuristic" reasoning Phase 14/16
+already established, and matching how `correlate_findings`'s own output
+stays read-only.
+
+`link_duplicate` enforces the relationship stays two levels deep, by
+construction rather than by walking a graph: it refuses
+(`FindingLinkError` → `409`) a self-link, refuses linking to a finding
+that is itself already a duplicate of something else (no chains), and
+refuses making a finding a duplicate of anything once other findings
+already point at it as their primary (no finding is ever both). `unlink_
+duplicate` carries no such restriction — undoing a link is never the
+privileged direction. New `POST`/`DELETE .../findings/{finding_id}
+/duplicate` (`Role.ANALYST`, the same tier that already changes a
+finding's lifecycle status) and `GET .../findings/{finding_id}/duplicates`
+(`Role.VIEWER`) on the existing findings router.
+
+The count-inflation fix itself: `GET .../findings` gained `include_
+duplicates: bool = Query(default=False)` — a finding linked as a duplicate
+drops out of the default listing the same way it drops out of a report's
+own counts. `app/core/reporting/build.py::build_report`'s findings query
+now excludes `duplicate_of_finding_id IS NOT NULL` rows outright, so a
+report's `severity_counts()`/findings-by-severity section reflects
+distinct underlying defects, not raw engine hits. Both defaults are
+backward compatible: no existing finding has ever had this column set,
+so every caller that predates this feature sees the identical response
+it always has until an analyst starts linking duplicates.
+
+### What this does not change
+
+- No automatic similarity detection of any kind — this is explicitly the
+  gap Phase 14/16 said an invented heuristic would make worse, not better.
+  `correlate_findings`'s AI-drafted suggestion is unchanged and still
+  never writes to this column itself.
+- No UI, no CLI — API-only, matching every earlier phase's own precedent.
+- Dashboard and CLI finding counts that read `GET .../findings` inherit
+  the fix automatically (the default excludes duplicates); nothing else
+  needed to change to get the corrected count everywhere that endpoint is
+  already the source of truth.
+
+### Verified
+
+`ruff check`/`mypy app` clean. New tests appended to
+`tests/test_findings_api.py`, run against real findings promoted from a
+real vulnerable-lab scan (not fabricated rows): linking a duplicate
+removes it from the default list and total count, `include_duplicates=
+true` still shows it, `GET .../duplicates` lists it; unlinking restores
+it; self-linking is refused; both two-level-only directions are refused
+(a duplicate cannot become a primary, a primary with duplicates cannot
+become one); a viewer is refused, an analyst is not; a linked duplicate
+is excluded from a run's own JSON report and its finding count drops by
+one. Two new routes added to `tests/security/test_authorization_matrix
+.py`'s `EXPECTED_ROLES`. Full targeted regression (`test_findings_api.py`,
+`test_findings_and_risk.py`, `test_reporting.py`, `test_reports_api.py`,
 `test_authorization_matrix.py`) green alongside this work.

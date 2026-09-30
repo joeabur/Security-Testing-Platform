@@ -87,6 +87,23 @@ All notable changes to this project are recorded here. The format follows
 
 ### Added
 
+- **Findings: human-verified cross-engine duplicate linking.** "No
+  cross-engine deduplication" has been an honest, stated gap since the
+  AppSec engine's own Phase 14 — a SAST finding and a DAST finding
+  describing the same underlying defect get different `probe_id` prefixes
+  and therefore different fingerprints, so they've always inflated finding
+  counts as two findings instead of one. Rather than an invented
+  similarity heuristic (explicitly rejected back then as "worse than the
+  honest gap"), a new `POST/DELETE .../findings/{finding_id}/duplicate`
+  (`Role.ANALYST`) lets an analyst explicitly link one finding as a
+  duplicate of another, and `GET .../findings/{finding_id}/duplicates`
+  lists them. `GET .../findings` now excludes a linked duplicate by
+  default (`include_duplicates=true` to see everything), and a run's own
+  report excludes it from its findings section and severity counts too.
+  The link is two-level only by construction — a duplicate cannot become
+  a primary, a primary with duplicates cannot become one — so there's
+  never a chain to walk. See `docs/roadmap.md`.
+
 - **Pentest module: the exploitation tier now requires dual control to
   fire.** A whole-system review flagged Phase 12's own stated deferral —
   "no two-person review... does not require a second, different human

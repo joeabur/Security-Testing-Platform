@@ -66,7 +66,20 @@ class FindingRead(BaseModel):
     last_seen: datetime
     times_seen: int
 
+    # Null unless a human has explicitly linked this finding as the same
+    # underlying defect as another (see `app.core.findings.service.
+    # link_duplicate`) — never inferred, only recorded.
+    duplicate_of_finding_id: uuid.UUID | None
+    duplicate_note: str | None
+
 
 class FindingTransition(BaseModel):
     status: FindingStatus
     note: str | None = Field(default=None, max_length=2000)
+
+
+class FindingDuplicateLink(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    duplicate_of_finding_id: uuid.UUID
+    note: str | None = Field(default=None, max_length=1000)
