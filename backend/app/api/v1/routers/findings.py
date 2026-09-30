@@ -14,10 +14,11 @@ from sqlalchemy import select
 
 from app.audit.service import record_event
 from app.auth.dependencies import DbSession, require_membership
+from app.core.findings.service import FindingLinkError, link_duplicate, unlink_duplicate
 from app.core.probes.models import Severity
 from app.models.finding import ALLOWED_TRANSITIONS, Finding, FindingStatus
 from app.models.organization import Membership, Role
-from app.schemas.finding import FindingRead, FindingTransition
+from app.schemas.finding import FindingDuplicateLink, FindingRead, FindingTransition
 
 router = APIRouter(prefix="/organizations/{organization_id}/findings", tags=["findings"])
 
@@ -37,9 +38,17 @@ async def list_findings(
     # exist (pentest module Phase 11).
     limit: int | None = Query(default=None, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
+    # False by default: a finding a human has explicitly linked as a
+    # duplicate of another (see `POST .../duplicate`) describes the same
+    # underlying defect, so it drops out of "how many findings does this
+    # organization have" the same way it drops out of a report's counts —
+    # opt in to see everything, including what was folded in.
+    include_duplicates: bool = Query(default=False),
     membership: Membership = Depends(require_membership(Role.VIEWER)),  # noqa: B008
 ) -> list[FindingRead]:
     query = select(Finding).where(Finding.organization_id == organization_id)
+    if not include_duplicates:
+        query = query.where(Finding.duplicate_of_finding_id.is_(None))
     if severity is not None:
         query = query.where(Finding.severity == severity)
     if finding_status is not None:
@@ -114,6 +123,96 @@ async def transition_finding(
     await db.commit()
 
     return FindingRead.model_validate(finding)
+
+
+@router.post("/{finding_id}/duplicate", response_model=FindingRead)
+async def link_finding_duplicate(
+    organization_id: uuid.UUID,
+    finding_id: uuid.UUID,
+    payload: FindingDuplicateLink,
+    request: Request,
+    db: DbSession,
+    membership: Membership = Depends(require_membership(Role.ANALYST)),  # noqa: B008
+) -> FindingRead:
+    """Record a human's explicit judgment that this finding and another
+    describe the same underlying defect — the cross-engine dedup gap this
+    codebase's own roadmap named rather than papering over with an
+    invented similarity heuristic. Both findings must belong to this
+    organization; `link_duplicate` enforces the rest (no self-link, no
+    chains — see its own docstring).
+    """
+    finding = await _load(organization_id, finding_id, db)
+    duplicate_of = await _load(organization_id, payload.duplicate_of_finding_id, db)
+
+    try:
+        finding = await link_duplicate(
+            db,
+            finding=finding,
+            duplicate_of=duplicate_of,
+            linked_by_user_id=membership.user_id,
+            note=payload.note,
+        )
+    except FindingLinkError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+    await record_event(
+        db,
+        action="finding.duplicate.linked",
+        resource_type="finding",
+        resource_id=str(finding.id),
+        result="allow",
+        organization_id=organization_id,
+        user_id=membership.user_id,
+        ip_address=request.client.host if request.client else None,
+        metadata={"duplicate_of_finding_id": str(duplicate_of.id)},
+    )
+    await db.commit()
+
+    return FindingRead.model_validate(finding)
+
+
+@router.delete("/{finding_id}/duplicate", response_model=FindingRead)
+async def unlink_finding_duplicate(
+    organization_id: uuid.UUID,
+    finding_id: uuid.UUID,
+    request: Request,
+    db: DbSession,
+    membership: Membership = Depends(require_membership(Role.ANALYST)),  # noqa: B008
+) -> FindingRead:
+    finding = await _load(organization_id, finding_id, db)
+    finding = await unlink_duplicate(db, finding=finding)
+
+    await record_event(
+        db,
+        action="finding.duplicate.unlinked",
+        resource_type="finding",
+        resource_id=str(finding.id),
+        result="allow",
+        organization_id=organization_id,
+        user_id=membership.user_id,
+        ip_address=request.client.host if request.client else None,
+    )
+    await db.commit()
+
+    return FindingRead.model_validate(finding)
+
+
+@router.get("/{finding_id}/duplicates", response_model=list[FindingRead])
+async def list_finding_duplicates(
+    organization_id: uuid.UUID,
+    finding_id: uuid.UUID,
+    db: DbSession,
+    membership: Membership = Depends(require_membership(Role.VIEWER)),  # noqa: B008
+) -> list[FindingRead]:
+    """Every finding currently linked as a duplicate of this one."""
+    await _load(organization_id, finding_id, db)
+    rows = await db.execute(
+        select(Finding).where(
+            Finding.organization_id == organization_id,
+            Finding.duplicate_of_finding_id == finding_id,
+        )
+    )
+    return [FindingRead.model_validate(row) for row in rows.scalars().all()]
 
 
 async def _load(organization_id: uuid.UUID, finding_id: uuid.UUID, db: DbSession) -> Finding:

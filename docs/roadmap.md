@@ -530,11 +530,6 @@ Still deferred:
   path, which is the same missing piece as the checkout above.
 - **CodeQL is not integrated** — §15 requires verifying its licence before
   integrating, and that verification has not been done.
-- **No cross-engine deduplication.** A SAST finding and a DAST finding
-  describing the same underlying defect are two findings. The addendum
-  explicitly puts this out of scope for v1; faking a correlation heuristic
-  would be worse than the honest gap. Correlation belongs with the findings
-  service in Phase 7 and the AI layer in Phase 16.
 - **`nist_ssdf` mappings are not yet emitted.** The key exists in the finding
   schema, but §3.4's discipline requires verifying each practice against a
   pinned source first, and that ingestion has not been done. Emitting
@@ -685,10 +680,6 @@ Deferred out of Phase 7, with reasons:
   so the field stays empty and a test asserts it.
 - **No evidence_ref yet.** The column exists; sealing evidence into a
   content-addressed bundle is Phase 8.
-- **No cross-engine correlation.** Still the honest gap from Phase 14 and
-  Phase 16: a SAST finding and a DAST finding describing the same defect
-  remain two findings. The fingerprint now gives correlation something stable
-  to work from, which is the prerequisite it was missing.
 - **Exposure and impact are derived, not declared.** An operator cannot yet
   override the exposure reading for a target that is, say, behind a VPN the
   platform cannot see. The inputs are recorded on every finding so the
@@ -3603,13 +3594,9 @@ cluster re-run standalone as well as inside the full suite.
   configuring them today is direct-database/migration-seeded only,
   faithful to the literal endpoint list in the approved plan rather than
   expanding scope to a settings UI this phase did not ask for.
-- **`AgentTool.minimum_role_override` is inert.** The column and table
-  exist; the permission check that would read it to raise (never lower) a
-  tool's effective minimum role lands in a later phase.
 - **No per-tool rate-limit policy entries yet.** `Tool.rate_limit_rule`
   exists on the contract; wiring specific policy names into
-  `app.core.ratelimit.policy.POLICY` per tool is deferred alongside the
-  `AgentTool` override work above.
+  `app.core.ratelimit.policy.POLICY` per tool is deferred.
 - **Scheduled automation is still blocked on Celery Beat**, unchanged from
   the pentest-module Phase 1 note: `create_workflow` can store a
   `TriggerKind.SCHEDULE` workflow correctly, but nothing fires it on a
@@ -4084,9 +4071,6 @@ fire is requested, one when it actually executes.
   and a monkeypatched `run_named_scripts`, no real `nmap` or real
   vulnerable service needed. Standing up a real exploitable network
   service is a separate, later increment if ever wanted.
-- **No two-person review.** Simulate-then-fire is satisfied by requiring
-  a prior completed run's own simulate marker before fire is accepted; it
-  does not require a second, different human than the one who fires.
 - **No dashboard UI, no CLI.** API-only, matching every earlier pentest-
   module phase's own "dashboard/CLI is a later phase" precedent.
 - **Incident-response runbook, authorization-artifact legal format,
@@ -4113,3 +4097,245 @@ matrix.py`'s pin test covers all four new routes, including its own
 `exploitation-authorization` route ends in "authorization" and is picked
 up by that test automatically). Full backend suite green alongside this
 work.
+
+## Agent framework: enforce `AgentTool.minimum_role_override`
+
+### Context
+
+A whole-system review, benchmarking this platform against garak/PyRIT/
+promptfoo/DeepTeam/Giskard/Snyk/Aikido and its own stated deferrals, found
+that `AgentTool.enabled` and `AgentTool.minimum_role_override` had been
+present in the schema since the agent's Phase 2 with zero code anywhere
+that ever read or wrote either column (`grep -rn "AgentTool(" --include
+"*.py" .` returned only test-fixture instantiations). An organization
+admin who believed they had disabled a tool, or raised its minimum role,
+was silently unprotected — the exact "looks enforced but isn't" gap the
+review was looking for.
+
+### Design
+
+New `app/core/agent/tool_config.py`: `load_tool_config` (one query per
+request/plan, batched — not per tool call), `effective_minimum_role` and
+`is_tool_enabled` (pure functions an `AgentTool` row's config maps onto a
+`Tool`), `permitted_tools`, and `validate_role_override` — the write-time
+half of the model's own "may only ever raise a tool's effective minimum
+role, never lower it" invariant. `effective_minimum_role` also enforces
+this defensively at *read* time (a stored value that would lower the bar
+is ignored, not trusted), matching this codebase's established "defence
+in depth, never trust a single check" reasoning
+(`exploitation_service.py`'s three-independent-allowlist gate).
+
+`app/core/agent/permissions.py` gains a third independent check alongside
+the existing role-ceiling and `SENSITIVE`-approval gates: `authorize_
+enabled` raises the new `ToolDisabledError(ToolPermissionError)` — a
+subclass, not a sibling, so every existing caller that already catches
+`ToolPermissionError` (`run_plan`, `call_tool`) handles a disabled tool
+with no new branch. `authorize_role` gained an optional `minimum_role`
+parameter (defaults to the tool's own code default) so a caller can pass
+an organization's resolved override in without a second, parallel check
+path.
+
+`app/api/v1/routers/agent.py`: `GET`/`PUT .../agent/tools/{tool_name}
+/config` (analyst read, admin write — the same tier split every other
+agent-configuration endpoint uses), upserting the whole `AgentTool` row
+per call rather than a PATCH that could leave a stale field, matching
+`RulesOfEngagement`'s own shape. `GET .../agent/tools` now reports each
+tool's `enabled` and `effective_minimum_role` alongside its code default.
+`call_tool` (the direct single-tool surface `backend/mcp_server/` uses)
+and `run_plan` (via a new `tool_config` parameter) both now check
+`is_tool_enabled`/`effective_minimum_role` before permitting a call.
+`run_plan`'s config is loaded fresh on every invocation — including a
+*resumed*, post-approval-pause investigation — so a tool disabled or
+raised during the pause window is caught at resume time rather than
+trusted from a stale enqueue-time decision, mirroring the pentest
+exploitation-fire task's own re-validation-at-execution-time pattern.
+
+### What this does not change
+
+- No bulk/organization-wide tool policy — configuration is still one
+  `PUT` per tool, matching every other per-resource config endpoint in
+  this codebase; a bulk endpoint is a later increment if ever wanted.
+- No UI for tool configuration — API-only, the same "dashboard/CLI is a
+  later phase" precedent every earlier phase states.
+- `AgentTool.minimum_role_override` still cannot lower a tool's bar below
+  its code default — enforced identically at write time (`422`) and read
+  time (silently ignored), unchanged from the model's own original intent.
+
+### Verified
+
+`ruff check`/`mypy app` clean. New `tests/test_agent_tool_config.py`
+(pure-function coverage of `effective_minimum_role`/`is_tool_enabled`/
+`permitted_tools`/`validate_role_override`, plus a DB-backed test proving
+`load_tool_config` is scoped per organization) and additions to
+`tests/test_agent_permissions.py` (`ToolDisabledError` is a
+`ToolPermissionError`; `authorize_tool` checks enabled before role or
+approval; an organization's raised minimum role is applied). New
+integration tests in `tests/test_agent_api.py`: a `PUT`/`GET` round trip,
+`PUT` rejecting a lowering override with `422`, disabling a tool refusing
+even the organization's `OWNER` on a direct call with `403`, and the
+`GET .../agent/tools` catalog reflecting a configured override and
+disablement. `tests/security/test_authorization_matrix.py`'s pin test
+extended for both new routes. Full backend suite green (351 passed, 2
+pre-existing skips) alongside this work.
+
+## Pentest module, Phase 12 follow-up — the exploitation tier's dual-control gate
+
+### Context
+
+The same whole-system review that found `AgentTool.minimum_role_override`
+inert also re-read Phase 12's own stated deferrals and found one that was
+a genuine control gap, not a scope decision: "no two-person review... does
+not require a second, different human than the one who fires." One person
+holding `Role.SECURITY_ENGINEER` could single-handedly both decide a real
+exploit should run and be the one whose click ran it — a live exploit
+against a production-adjacent target with no second, different human ever
+in the loop, closer to a missing control than an accepted trade-off, given
+the blast radius `nmap -Pn --script <exploit>` carries.
+
+### Design
+
+`ExploitationFireStatus` gains two values: `AWAITING_APPROVAL` (the new
+default `request_fire` creates every fire in — never `QUEUED`, so
+`POST .../exploitation-fires` no longer dispatches
+`kervy.fire_exploitation_module` itself) and `REJECTED`. `ExploitationFire`
+gains `approved_by_user_id`/`approved_at` (migration `f4a9c1d3e7b2`, both
+nullable — null until a second approver acts).
+
+`app/core/pentest/exploitation_service.py` gains `approve_fire` and
+`reject_fire`, mirroring `app/core/workflow/service.py`'s own
+`approve`/`reject` pair for `WorkflowRun`. `approve_fire` is where dual
+control actually lives: it refuses with `ExploitationFireRefused` (→ `409`)
+if `approved_by_user_id == fire.requested_by_user_id` — the one check that
+makes "a second approver" mean a second *person*, not a second click by
+the same one — and re-runs the full three-allowlist `validate_fire_gate`
+again (an authorization can expire, or an operator can narrow the
+allowlist, in whatever time a fire sat awaiting approval). `reject_fire`
+carries no such restriction: calling off a live exploit is the safe
+direction dual control does not need to slow down, so the requester may
+reject their own request.
+
+New endpoints on `app/api/v1/routers/runs.py`:
+`POST .../exploitation-fires/{fire_id}/approve` and `.../reject`, both
+`Role.SECURITY_ENGINEER` — the same tier firing itself requires, since the
+second approver needs to be at least as senior as the first, not a lower
+bar. Only `approve_exploitation_fire` ever calls
+`celery_app.send_task("kervy.fire_exploitation_module", ...)` now;
+`create_exploitation_fire` persists and returns `202` with
+`status=awaiting_approval` and nothing queued.
+
+`fire_exploitation_module_async` (`app/workers/tasks.py`) re-checks the
+dual-control invariant itself at execution time — `status == QUEUED`, a
+real `approved_by_user_id` distinct from `requested_by_user_id` — before
+re-running `validate_fire_gate`, rather than trusting the API route only
+ever dispatches this task after `approve_fire` ran. This is the same
+"never trust an earlier check" reasoning the gate's three allowlists
+already applied to *what* can be fired, now applied to *who* is allowed to
+have queued it.
+
+### What this does not change
+
+- No configurable approver list or four-eyes-per-target policy — any
+  `SECURITY_ENGINEER`-or-above who did not request the fire may approve
+  it, the same flat role check every other sensitive action on this
+  platform uses, not a per-organization approver roster.
+- No UI, no CLI — API-only, matching every earlier phase's own precedent.
+- The three-allowlist gate itself (operator NSE-script allowlist,
+  `ExploitationAuthorization`, `asset_scope.approved_modules`) is
+  unchanged; dual control is a fourth, independent check layered on top of
+  it, not a replacement for any of the three.
+
+### Verified
+
+`ruff check`/`mypy app` clean. `tests/test_pentest_exploitation.py` gained
+a dual-control section: a created fire is `awaiting_approval` and never
+self-queued; the requester's own approve attempt is refused with `409`; a
+second, distinct `SECURITY_ENGINEER` approving moves it to `queued` and
+dispatches the worker task; approving an already-approved fire is refused;
+an analyst cannot approve; rejecting records the reason and moves it to
+`rejected`; rejecting an already-queued fire is refused. Two new routes
+added to `tests/security/test_authorization_matrix.py`'s `EXPECTED_ROLES`.
+Full targeted regression (`test_pentest_exploitation.py`,
+`test_pentest_engine.py`, `test_runs_api.py`,
+`test_authorization_matrix.py`) green alongside this work.
+
+## Findings service: human-verified cross-engine duplicate linking
+
+### Context
+
+The last of the three items the same whole-system review picked out:
+"no cross-engine deduplication" has been a stated, honest gap since the
+AppSec engine's own Phase 14 write-up — a SAST finding and a DAST finding
+describing the same underlying defect get different `probe_id` prefixes
+and therefore different `fingerprint`s (`app/core/findings/fingerprint.py`
+hashes `probe_id + surface + evidence signature`), so they have always
+been two separate `Finding` rows, inflating counts. Phase 14 and Phase 16
+were both explicit that "faking a correlation heuristic would be worse
+than the honest gap," and `AIService.correlate_findings()` (Pentest module
+Phase 7) already offers an AI-drafted correlation *suggestion* — but its
+own docstring says it is "a recommendation to weigh, not a change to any
+finding's own fields or relationships." Nothing ever closed the loop from
+that suggestion to an actual, structural link.
+
+### Design
+
+`Finding` gains four columns rather than a separate join table, the same
+"denormalize the current relationship directly onto Finding" shape
+`retest_result`/`last_retest_run_id` already use: `duplicate_of_finding_id`
+(nullable, self-referential FK, `ondelete="SET NULL"`), `duplicate_note`,
+`duplicate_linked_by_user_id`, `duplicate_linked_at` (migration
+`c2e8b6f19a4d`). The column is only ever written by a human's explicit
+say-so through `app/core/findings/service.py::link_duplicate` — never
+inferred, matching the "no invented heuristic" reasoning Phase 14/16
+already established, and matching how `correlate_findings`'s own output
+stays read-only.
+
+`link_duplicate` enforces the relationship stays two levels deep, by
+construction rather than by walking a graph: it refuses
+(`FindingLinkError` → `409`) a self-link, refuses linking to a finding
+that is itself already a duplicate of something else (no chains), and
+refuses making a finding a duplicate of anything once other findings
+already point at it as their primary (no finding is ever both). `unlink_
+duplicate` carries no such restriction — undoing a link is never the
+privileged direction. New `POST`/`DELETE .../findings/{finding_id}
+/duplicate` (`Role.ANALYST`, the same tier that already changes a
+finding's lifecycle status) and `GET .../findings/{finding_id}/duplicates`
+(`Role.VIEWER`) on the existing findings router.
+
+The count-inflation fix itself: `GET .../findings` gained `include_
+duplicates: bool = Query(default=False)` — a finding linked as a duplicate
+drops out of the default listing the same way it drops out of a report's
+own counts. `app/core/reporting/build.py::build_report`'s findings query
+now excludes `duplicate_of_finding_id IS NOT NULL` rows outright, so a
+report's `severity_counts()`/findings-by-severity section reflects
+distinct underlying defects, not raw engine hits. Both defaults are
+backward compatible: no existing finding has ever had this column set,
+so every caller that predates this feature sees the identical response
+it always has until an analyst starts linking duplicates.
+
+### What this does not change
+
+- No automatic similarity detection of any kind — this is explicitly the
+  gap Phase 14/16 said an invented heuristic would make worse, not better.
+  `correlate_findings`'s AI-drafted suggestion is unchanged and still
+  never writes to this column itself.
+- No UI, no CLI — API-only, matching every earlier phase's own precedent.
+- Dashboard and CLI finding counts that read `GET .../findings` inherit
+  the fix automatically (the default excludes duplicates); nothing else
+  needed to change to get the corrected count everywhere that endpoint is
+  already the source of truth.
+
+### Verified
+
+`ruff check`/`mypy app` clean. New tests appended to
+`tests/test_findings_api.py`, run against real findings promoted from a
+real vulnerable-lab scan (not fabricated rows): linking a duplicate
+removes it from the default list and total count, `include_duplicates=
+true` still shows it, `GET .../duplicates` lists it; unlinking restores
+it; self-linking is refused; both two-level-only directions are refused
+(a duplicate cannot become a primary, a primary with duplicates cannot
+become one); a viewer is refused, an analyst is not; a linked duplicate
+is excluded from a run's own JSON report and its finding count drops by
+one. Two new routes added to `tests/security/test_authorization_matrix
+.py`'s `EXPECTED_ROLES`. Full targeted regression (`test_findings_api.py`,
+`test_findings_and_risk.py`, `test_reporting.py`, `test_reports_api.py`,
+`test_authorization_matrix.py`) green alongside this work.

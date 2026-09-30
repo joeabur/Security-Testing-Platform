@@ -164,6 +164,7 @@ EXPECTED_ROLES: dict[tuple[str, str], Role] = {
     # can revoke access other people may be relying on, not by anyone who
     # can start a scan.
     ("DELETE", "/organizations/{organization_id}/repositories/{repository_id}"): Role.ADMIN,
+    ("DELETE", "/organizations/{organization_id}/findings/{finding_id}/duplicate"): Role.ANALYST,
     ("GET", "/organizations/{organization_id}"): Role.VIEWER,
     ("GET", "/organizations/{organization_id}/api-keys"): Role.ADMIN,
     ("GET", "/organizations/{organization_id}/assistant/runs/{run_id}/drafts"): Role.VIEWER,
@@ -171,6 +172,10 @@ EXPECTED_ROLES: dict[tuple[str, str], Role] = {
     ("GET", "/organizations/{organization_id}/dashboard/summary"): Role.VIEWER,
     ("GET", "/organizations/{organization_id}/findings"): Role.VIEWER,
     ("GET", "/organizations/{organization_id}/findings/{finding_id}"): Role.VIEWER,
+    (
+        "GET",
+        "/organizations/{organization_id}/findings/{finding_id}/duplicates",
+    ): Role.VIEWER,
     ("GET", "/organizations/{organization_id}/members"): Role.VIEWER,
     ("GET", "/organizations/{organization_id}/remediation"): Role.VIEWER,
     ("GET", "/organizations/{organization_id}/repositories"): Role.VIEWER,
@@ -218,6 +223,7 @@ EXPECTED_ROLES: dict[tuple[str, str], Role] = {
         "/organizations/{organization_id}/assistant/drafts/{draft_id}/accept",
     ): Role.SECURITY_ENGINEER,
     ("POST", "/organizations/{organization_id}/assistant/runs/{run_id}/drafts"): Role.ANALYST,
+    ("POST", "/organizations/{organization_id}/findings/{finding_id}/duplicate"): Role.ANALYST,
     ("POST", "/organizations/{organization_id}/findings/{finding_id}/status"): Role.ANALYST,
     ("POST", "/organizations/{organization_id}/members"): Role.ADMIN,
     ("PATCH", "/organizations/{organization_id}/members/{member_id}"): Role.ADMIN,
@@ -236,6 +242,14 @@ EXPECTED_ROLES: dict[tuple[str, str], Role] = {
     (
         "POST",
         "/organizations/{organization_id}/runs/{run_id}/exploitation-fires",
+    ): Role.SECURITY_ENGINEER,
+    (
+        "POST",
+        "/organizations/{organization_id}/runs/{run_id}/exploitation-fires/{fire_id}/approve",
+    ): Role.SECURITY_ENGINEER,
+    (
+        "POST",
+        "/organizations/{organization_id}/runs/{run_id}/exploitation-fires/{fire_id}/reject",
     ): Role.SECURITY_ENGINEER,
     ("POST", "/organizations/{organization_id}/targets"): Role.ADMIN,
     ("POST", "/organizations/{organization_id}/targets/{target_id}/authorization"): Role.ADMIN,
@@ -294,6 +308,13 @@ EXPECTED_ROLES: dict[tuple[str, str], Role] = {
     # same two-layer pattern POST .../investigate already uses for its
     # per-step tool authorization.
     ("POST", "/organizations/{organization_id}/agent/tools/{tool_name}/call"): Role.VIEWER,
+    # Per-tool enable/disable and minimum-role-override configuration is the
+    # same admin-to-write/analyst-to-read tier as the agent-provider config
+    # directly above and below — a change here decides which tools the
+    # agent may even offer, not something a lower tier should be able to
+    # widen or narrow on its own.
+    ("GET", "/organizations/{organization_id}/agent/tools/{tool_name}/config"): Role.ANALYST,
+    ("PUT", "/organizations/{organization_id}/agent/tools/{tool_name}/config"): Role.ADMIN,
     ("POST", "/organizations/{organization_id}/agent/investigate"): Role.ANALYST,
     (
         "GET",

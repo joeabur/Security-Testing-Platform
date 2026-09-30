@@ -519,6 +519,111 @@ async def test_a_completed_investigation_notifies_a_subscribed_channel(
     assert "kervy.deliver_notifications" in _stub_broker
 
 
+# --- per-organization tool configuration (enable/disable, role override) ---
+
+
+async def test_put_tool_config_round_trips_through_get(
+    client: AsyncClient, strong_password: str
+) -> None:
+    org_id, _target_id, headers = await _org_and_target(client, strong_password, "q")
+
+    put_response = await client.put(
+        f"/api/v1/organizations/{org_id}/agent/tools/get_workflow_status/config",
+        json={"enabled": True, "minimum_role_override": "owner"},
+        headers=headers,
+    )
+    assert put_response.status_code == 200, put_response.text
+    assert put_response.json() == {
+        "tool_name": "get_workflow_status",
+        "enabled": True,
+        "minimum_role": "analyst",
+        "minimum_role_override": "owner",
+        "effective_minimum_role": "owner",
+    }
+
+    get_response = await client.get(
+        f"/api/v1/organizations/{org_id}/agent/tools/get_workflow_status/config",
+        headers=headers,
+    )
+    assert get_response.status_code == 200
+    assert get_response.json() == put_response.json()
+
+
+async def test_put_tool_config_rejects_an_override_below_the_tools_code_default(
+    client: AsyncClient, strong_password: str
+) -> None:
+    org_id, _target_id, headers = await _org_and_target(client, strong_password, "r")
+
+    response = await client.put(
+        f"/api/v1/organizations/{org_id}/agent/tools/get_workflow_status/config",
+        json={"enabled": True, "minimum_role_override": "viewer"},
+        headers=headers,
+    )
+
+    assert response.status_code == 422
+    assert "cannot be set below its code default" in response.text
+
+
+async def test_put_tool_config_404s_for_an_unknown_tool(
+    client: AsyncClient, strong_password: str
+) -> None:
+    org_id, _target_id, headers = await _org_and_target(client, strong_password, "s")
+
+    response = await client.put(
+        f"/api/v1/organizations/{org_id}/agent/tools/does_not_exist/config",
+        json={"enabled": True},
+        headers=headers,
+    )
+
+    assert response.status_code == 404
+
+
+async def test_disabling_a_tool_refuses_even_the_owner_on_a_direct_call(
+    client: AsyncClient, strong_password: str
+) -> None:
+    org_id, target_id, headers = await _org_and_target(client, strong_password, "t")
+
+    disable = await client.put(
+        f"/api/v1/organizations/{org_id}/agent/tools/get_asset/config",
+        json={"enabled": False},
+        headers=headers,
+    )
+    assert disable.status_code == 200, disable.text
+    assert disable.json()["enabled"] is False
+
+    response = await client.post(
+        f"/api/v1/organizations/{org_id}/agent/tools/get_asset/call",
+        json={"params": {"target_id": str(target_id)}},
+        headers=headers,
+    )
+
+    assert response.status_code == 403
+
+
+async def test_the_tool_catalog_reflects_a_configured_override_and_disablement(
+    client: AsyncClient, strong_password: str
+) -> None:
+    org_id, _target_id, headers = await _org_and_target(client, strong_password, "u")
+
+    await client.put(
+        f"/api/v1/organizations/{org_id}/agent/tools/get_workflow_status/config",
+        json={"enabled": True, "minimum_role_override": "owner"},
+        headers=headers,
+    )
+    await client.put(
+        f"/api/v1/organizations/{org_id}/agent/tools/get_asset/config",
+        json={"enabled": False},
+        headers=headers,
+    )
+
+    catalog = await client.get(f"/api/v1/organizations/{org_id}/agent/tools", headers=headers)
+    entries = {entry["name"]: entry for entry in catalog.json()}
+
+    assert entries["get_workflow_status"]["effective_minimum_role"] == "owner"
+    assert entries["get_workflow_status"]["minimum_role"] == "analyst"
+    assert entries["get_asset"]["enabled"] is False
+
+
 async def test_a_paused_investigation_does_not_notify_yet(
     client: AsyncClient,
     strong_password: str,

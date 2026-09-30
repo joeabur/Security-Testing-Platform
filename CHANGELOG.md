@@ -99,6 +99,53 @@ All notable changes to this project are recorded here. The format follows
 
 ### Added
 
+- **Findings: human-verified cross-engine duplicate linking.** "No
+  cross-engine deduplication" has been an honest, stated gap since the
+  AppSec engine's own Phase 14 — a SAST finding and a DAST finding
+  describing the same underlying defect get different `probe_id` prefixes
+  and therefore different fingerprints, so they've always inflated finding
+  counts as two findings instead of one. Rather than an invented
+  similarity heuristic (explicitly rejected back then as "worse than the
+  honest gap"), a new `POST/DELETE .../findings/{finding_id}/duplicate`
+  (`Role.ANALYST`) lets an analyst explicitly link one finding as a
+  duplicate of another, and `GET .../findings/{finding_id}/duplicates`
+  lists them. `GET .../findings` now excludes a linked duplicate by
+  default (`include_duplicates=true` to see everything), and a run's own
+  report excludes it from its findings section and severity counts too.
+  The link is two-level only by construction — a duplicate cannot become
+  a primary, a primary with duplicates cannot become one — so there's
+  never a chain to walk. See `docs/roadmap.md`.
+
+- **Pentest module: the exploitation tier now requires dual control to
+  fire.** A whole-system review flagged Phase 12's own stated deferral —
+  "no two-person review... does not require a second, different human
+  than the one who fires" — as a real control gap: one
+  `Role.SECURITY_ENGINEER` could single-handedly decide and execute a live
+  exploit alone. `POST .../runs/{run_id}/exploitation-fires` now creates
+  the fire `awaiting_approval` and queues nothing; a new
+  `POST .../exploitation-fires/{fire_id}/approve` (`Role.SECURITY_
+  ENGINEER`) refuses with `409` if the approver is the same person who
+  requested it, re-validates the full three-allowlist gate, and only then
+  dispatches the worker. A new `.../reject` endpoint lets the requester (or
+  anyone else at that tier) stand a fire down instead. The worker task
+  itself re-checks the dual-control invariant at execution time rather
+  than trusting the API route. See `docs/roadmap.md`.
+
+- **Agent framework: `AgentTool.enabled`/`minimum_role_override` are now
+  enforced**, closing a gap a whole-system review found: both columns had
+  existed since the agent's Phase 2 with no code anywhere reading or
+  writing them, so an org admin who believed they had disabled a tool or
+  raised its minimum role was silently unprotected. New `GET`/
+  `PUT .../agent/tools/{tool_name}/config` endpoints (analyst read, admin
+  write) let an organization disable a tool or raise (never lower — `422`
+  on a lowering attempt) its minimum role above the code default; both
+  `POST .../agent/tools/{tool_name}/call` and every step of
+  `POST .../agent/investigate`/`.../approve` now enforce it, including on
+  a *resumed* investigation, where the configuration is re-loaded fresh
+  rather than trusted from before the approval pause. `GET .../agent/tools`
+  now reports each tool's `enabled` state and `effective_minimum_role`
+  alongside its code default. See `docs/roadmap.md`.
+
 - **Pentest module, Phase 12: the exploitation tier's simulate-then-fire
   two-step.** Real exploit execution — deferred since the Phase 1
   foundation "behind its own `ExploitationAuthorization` tier" — is now

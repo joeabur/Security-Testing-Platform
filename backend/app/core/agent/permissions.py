@@ -1,11 +1,14 @@
-"""Whether a tool call is allowed to run — two independent checks.
+"""Whether a tool call is allowed to run — three independent checks.
 
 Mirrors `app/core/assistant/autonomy.py`'s own separation: a role ceiling
-(raised or lowered by configuration) and a SENSITIVE-tier approval gate
-(never bypassed by configuration, the same way `TARGET_TOUCHING` is checked
-independently of autonomy mode there). Raising a caller's role can never
-substitute for an explicit approval, and no approval can substitute for the
-role check — both must pass.
+(raised, never lowered, by an organization's `AgentTool` configuration — see
+`app.core.agent.tool_config`), a per-organization enable/disable switch, and
+a SENSITIVE-tier approval gate (never bypassed by configuration, the same
+way `TARGET_TOUCHING` is checked independently of autonomy mode there).
+None of the three can substitute for another — a disabled tool is refused
+even for an OWNER, a role-insufficient caller is refused even for an
+enabled tool, and no approval can substitute for either — all three must
+pass.
 """
 
 from __future__ import annotations
@@ -16,6 +19,16 @@ from app.models.organization import Role
 
 class ToolPermissionError(PermissionError):
     """The caller's effective role does not meet this tool's minimum."""
+
+
+class ToolDisabledError(ToolPermissionError):
+    """This organization has disabled this tool (`AgentTool.enabled`).
+
+    A subclass of `ToolPermissionError`, not a sibling — every existing
+    caller that already catches `ToolPermissionError` (`run_plan`,
+    `call_tool`) handles this the same way, as a permission denial, with
+    no separate branch required.
+    """
 
 
 class ApprovalRequiredError(Exception):
@@ -32,17 +45,34 @@ class ApprovalRequiredError(Exception):
         self.description = tool.description
 
 
-def authorize_role(effective_role: Role, tool: Tool) -> None:
+def authorize_role(effective_role: Role, tool: Tool, *, minimum_role: Role | None = None) -> None:
     """Raise unless the caller's role meets this tool's minimum.
 
     Takes the role directly rather than the whole `AgentContext` so a
     permission decision never needs a database session to answer — the same
-    reason `Role.at_least` itself takes no session.
+    reason `Role.at_least` itself takes no session. `minimum_role`, when
+    given, is the org's own (possibly raised) effective minimum
+    (`app.core.agent.tool_config.effective_minimum_role`) — the caller
+    already resolved any per-organization override, so this function does
+    not need the tool-config rows itself; it defaults to the tool's own
+    code-level minimum when omitted, unchanged from before this parameter
+    existed.
     """
-    if not effective_role.at_least(tool.minimum_role):
-        raise ToolPermissionError(
-            f"{tool.name} requires role {tool.minimum_role.value!r} or higher"
-        )
+    required = minimum_role if minimum_role is not None else tool.minimum_role
+    if not effective_role.at_least(required):
+        raise ToolPermissionError(f"{tool.name} requires role {required.value!r} or higher")
+
+
+def authorize_enabled(tool: Tool, *, enabled: bool) -> None:
+    """Raise unless this organization has this tool enabled.
+
+    `enabled` is the caller's already-resolved
+    `app.core.agent.tool_config.is_tool_enabled` result, for the same
+    reason `authorize_role` takes an already-resolved minimum role rather
+    than the tool-config rows themselves.
+    """
+    if not enabled:
+        raise ToolDisabledError(f"{tool.name} is disabled for this organization")
 
 
 def authorize_sensitive(tool: Tool, *, approved: bool) -> None:
@@ -56,8 +86,17 @@ def authorize_sensitive(tool: Tool, *, approved: bool) -> None:
         raise ApprovalRequiredError(tool)
 
 
-def authorize_tool(effective_role: Role, tool: Tool, *, approved: bool = False) -> None:
-    """Both checks, in order: a caller who cannot use the tool at all learns
-    that before learning it also needed approval."""
-    authorize_role(effective_role, tool)
+def authorize_tool(
+    effective_role: Role,
+    tool: Tool,
+    *,
+    approved: bool = False,
+    minimum_role: Role | None = None,
+    enabled: bool = True,
+) -> None:
+    """All three checks, in order: a caller who cannot use the tool at all
+    (disabled, then role) learns that before learning it also needed
+    approval."""
+    authorize_enabled(tool, enabled=enabled)
+    authorize_role(effective_role, tool, minimum_role=minimum_role)
     authorize_sensitive(tool, approved=approved)

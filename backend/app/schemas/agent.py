@@ -15,6 +15,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.models.agent import AgentProviderKind
+from app.models.organization import Role
 
 
 def _validated_cidrs(value: list[str]) -> list[str]:
@@ -54,8 +55,36 @@ class ToolCatalogEntry(BaseModel):
     name: str
     description: str
     risk_level: Literal["read_only", "standard", "sensitive"]
+    # The code default. `effective_minimum_role` is what this organization's
+    # own `AgentTool` override (if any) actually enforces — see
+    # `app.core.agent.tool_config`; the two differ exactly when an admin has
+    # raised this tool's bar above the code default.
     minimum_role: str
+    effective_minimum_role: str
+    enabled: bool
     input_schema: dict[str, Any] = Field(default_factory=dict)
+
+
+class AgentToolConfigUpdate(BaseModel):
+    """The body for `PUT .../agent/tools/{tool_name}/config`.
+
+    `minimum_role_override=None` clears any existing override, returning
+    this tool to its code default — the same "absence means default"
+    convention `AgentProvider`'s own optional fields use.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = True
+    minimum_role_override: Role | None = None
+
+
+class AgentToolConfigRead(BaseModel):
+    tool_name: str
+    enabled: bool
+    minimum_role: str
+    minimum_role_override: str | None
+    effective_minimum_role: str
 
 
 class PendingApprovalRead(BaseModel):

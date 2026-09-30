@@ -243,6 +243,12 @@ async def build_report(db: AsyncSession, *, run: AssessmentRun, target: Target) 
                 .where(
                     Finding.organization_id == run.organization_id,
                     Finding.last_run_id == run.id,
+                    # A finding a human has explicitly linked as the same
+                    # underlying defect as another (app/core/findings/
+                    # service.py::link_duplicate) is excluded from the
+                    # report's own counts and findings-by-severity
+                    # section — the whole point of recording the link.
+                    Finding.duplicate_of_finding_id.is_(None),
                 )
                 .order_by(Finding.risk_score.desc())
             )
