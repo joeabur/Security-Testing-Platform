@@ -84,12 +84,10 @@ export const createRepositorySchema = z.object({
   name: z.string().min(1, "Name is required").max(200),
   url: z.string().min(1, "Repository URL is required").max(2048),
   branch: z.string().max(200).optional(),
-  authorized: z.literal(true, {
-    errorMap: () => ({
-      message:
-        "You must affirm you have the right to have this repository scanned",
-    }),
-  }),
+  authorized: z.literal(
+    true,
+    "You must affirm you have the right to have this repository scanned",
+  ),
 });
 export type CreateRepositoryInput = z.infer<typeof createRepositorySchema>;
 
@@ -136,11 +134,10 @@ export type AuthorizationGrantInput = z.infer<typeof authorizationGrantSchema>;
 export const startRunSchema = z.object({
   profile: z.enum(["connectivity", "quick", "full"]),
   safe_mode: z.boolean(),
-  authorization_confirmed: z.literal(true, {
-    errorMap: () => ({
-      message: "You must confirm you are authorized to run this assessment",
-    }),
-  }),
+  authorization_confirmed: z.literal(
+    true,
+    "You must confirm you are authorized to run this assessment",
+  ),
 });
 export type StartRunInput = z.infer<typeof startRunSchema>;
 
@@ -209,13 +206,16 @@ export const exploitationFireCreateSchema = z.object({
   service_host: z.string().min(1, "Required").max(255),
   service_port: z.coerce.number().int().min(1).max(65535),
   script_names: z.string().min(1, "At least one script name is required"),
-  authorization_confirmed: z.literal(true, {
-    errorMap: () => ({
-      message: "You must confirm you are authorized to fire this exploit",
-    }),
-  }),
+  authorization_confirmed: z.literal(
+    true,
+    "You must confirm you are authorized to fire this exploit",
+  ),
 });
 export type ExploitationFireCreateInput = z.infer<typeof exploitationFireCreateSchema>;
+// react-hook-form's register() sees the pre-coerce shape (service_port as
+// unknown/string from the <input>), while onSubmit receives the post-coerce
+// ExploitationFireCreateInput above — z.coerce.number() makes those differ.
+export type ExploitationFireCreateFormInput = z.input<typeof exploitationFireCreateSchema>;
 
 export const exploitationFireRejectSchema = z.object({
   reason: z.string().min(1, "A reason is required").max(1000),
