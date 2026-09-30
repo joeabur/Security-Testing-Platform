@@ -97,6 +97,15 @@ appsec = [
     # rather than carrying a known-critical CVE in the dependency tree
     # while waiting on an upstream checkov release.
     "asteval>=1.0.9",
+    # Some checkov patch releases (e.g. 3.2.10) exact-cap
+    # cyclonedx-python-lib<7.0.0, which resolves to a library version whose
+    # SchemaVersion enum tops out at 1.5 — one below the 1.6 this project's
+    # own ML-BOM (scripts/mlbom.py, tests/test_mlbom.py) claims and requires
+    # the installed library to be able to validate. Pinned directly here,
+    # the same override pattern as asteval above, so this project's own
+    # schema-version requirement is never at the mercy of whichever checkov
+    # patch release pip's resolver happens to land on.
+    "cyclonedx-python-lib>=7.0",
 ]
 # Pentest module cloud engine providers (Phase 4). Optional for the same
 # reason as `appsec`: the AWS provider reports "not tested" rather than
