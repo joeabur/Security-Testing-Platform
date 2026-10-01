@@ -145,5 +145,9 @@ Stated rather than hidden; the full list with verification notes is in
   opt-in, with one static key and no rotation, not a default or a general
   key-management solution.
 - **`docker compose up --build` is unverified** in this environment.
-- **No rate limiting on the platform's own API**, so a valid credential can
-  issue requests as fast as it likes.
+- **The rest of the API sits behind one coarse ceiling, not a tight
+  per-route budget.** `api_default` (`docs/rate-limiting.md`) bounds a
+  scripted loop across every route beyond login/register/2FA/
+  forgot-password/the OAuth callback, generously enough that it is not
+  tuned to any one endpoint's own risk — a valid credential performing
+  ordinary, human-paced use is never close to it.

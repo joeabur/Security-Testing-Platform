@@ -47,6 +47,35 @@ def request_client_ip(request: Request) -> str:
     )
 
 
+def best_effort_identity(request: Request) -> str | None:
+    """A user id for the `api_default` identity budget, read for free.
+
+    Used only by `app.main`'s `api_rate_limit_middleware`, which runs before
+    a route's own dependencies and therefore before the DB-backed lookup
+    every other identity in this codebase goes through
+    (`app.auth.dependencies.get_current_user`). A bearer JWT's subject is the
+    one identity decodable without that round trip — `decode_access_token`
+    checks only the signing secret. An API key, a session cookie holding
+    something that is not a valid access token, or no credential at all all
+    fall back to `None` here: the caller then keys on IP alone, same as an
+    anonymous request. This is deliberately not authentication — a forged or
+    expired token decodes to nothing and the request still proceeds to the
+    route's own, real auth check; the only consequence of getting this wrong
+    is which bucket a request's *budget* is counted against.
+    """
+    from app.auth.security import InvalidTokenError, decode_access_token
+
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.lower().startswith("bearer "):
+        return None
+    try:
+        payload = decode_access_token(auth_header[7:])
+    except InvalidTokenError:
+        return None
+    subject = payload.get("sub")
+    return subject if isinstance(subject, str) else None
+
+
 def limiter(store: RedisStore | MemoryStore | None = None) -> RateLimiter:
     settings = get_settings()
     return RateLimiter(store or get_store(), pepper=settings.effective_rate_limit_pepper)

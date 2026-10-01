@@ -139,6 +139,38 @@ Failing open silently would be the real failure. An operator who never learns
 their rate limiting stopped counting has a control that exists only on paper.
 Alert on that event.
 
+## The general ceiling over the rest of the API
+
+Everything above this line is a tight, attack-specific budget for one
+unauthenticated route. The rest of `/api/v1` — every authenticated route,
+which used to have no throttle at all beyond RBAC — now sits behind one
+coarse ceiling, `api_default`, applied by `app/main.py`'s
+`api_rate_limit_middleware` rather than a per-route `enforce()` call: the
+same "covers every route, including any added later, narrowed by the
+request rather than by a list somebody has to remember" reasoning the CSRF
+middleware right above it in that file already gives for being middleware.
+
+| Dimension | Budget |
+|---|---|
+| per IP | 1200 requests / 5 min |
+| per identity (when free to read) | 600 requests / 5 min |
+
+Per-IP always applies. Per-identity applies only when the request carries a
+bearer JWT whose subject decodes without a database round trip
+(`app.auth.security.decode_access_token` checks only the signing secret) —
+middleware runs before a route's own DB-backed identity resolution
+(`app.auth.dependencies.get_current_user`), so a JWT's own subject claim is
+the one identity available this cheaply. An API-key-authenticated request,
+or one with no credential at all, falls back to the IP rule alone. This is
+deliberately not authentication: a forged or expired token simply fails to
+decode, the request proceeds to the route's own real auth check exactly as
+before, and the only consequence is which bucket the request's *budget* is
+counted against.
+
+`GET /health` is exempt — an orchestrator's liveness probe is not the
+traffic this exists to bound, and throttling it would turn a rate limit
+into a self-inflicted outage detector.
+
 ## Configuration
 
 | Variable | Default | Meaning |
@@ -152,12 +184,15 @@ Alert on that event.
 
 Stated rather than implied:
 
-- **Only the unauthenticated, identity-adjacent routes: `login`, `register`,
-  `login/2fa`, `forgot-password`, and the OAuth callback.** §22 asks for
-  per-route rate limiting across the API; every *authenticated* route is not
-  limited here, because it already requires a credential and is bounded by
-  RBAC instead. Extending the policy is a table entry in
-  `app/core/ratelimit/policy.py` — the machinery is general.
+- **The attack-specific per-route budgets above are still only the
+  unauthenticated, identity-adjacent routes: `login`, `register`,
+  `login/2fa`, `forgot-password`, and the OAuth callback.** Every other
+  route sits behind the coarser `api_default` ceiling instead (see above) —
+  generous enough not to bound ordinary use, not a tight budget tuned to one
+  attack's shape the way `login`'s is. Giving a specific route its own
+  tighter rule beyond that ceiling is a table entry in
+  `app/core/ratelimit/policy.py` plus an `enforce()` call in its handler —
+  the machinery is general.
 - **Two more rules are registered but not yet wired to a route:**
   `agent_tool_call` (60/5 min per identity) and `agent_sensitive_tool_call`
   (10/10 min per identity), added to `policy.py` alongside the native agent's
