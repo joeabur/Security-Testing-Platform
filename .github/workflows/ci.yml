@@ -66,7 +66,12 @@ jobs:
         # against the lab fixtures rather than skipping them. Each adapter
         # still degrades gracefully when its tool is absent (§15), which the
         # test suite covers separately.
-        run: pip install -e ".[dev,appsec,pdf]"
+        #
+        # -c constraints.lock.txt pins every transitive dependency to
+        # uv.lock's resolved version (regenerate both via
+        # `python -m scripts.relock`) instead of whatever `>=` in
+        # pyproject.toml happens to resolve to on the day CI runs.
+        run: pip install -c constraints.lock.txt -e ".[dev,appsec,pdf]"
 
       - name: Ruff
         working-directory: backend

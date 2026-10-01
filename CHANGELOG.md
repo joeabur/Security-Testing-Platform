@@ -123,6 +123,24 @@ All notable changes to this project are recorded here. The format follows
 
 ### Changed
 
+- **The backend's dependencies are now locked, not just range-pinned.**
+  `backend/pyproject.toml`'s `>=` ranges let every fresh install — a CI
+  run, a Docker build, a contributor's own machine — resolve to a
+  different concrete version depending on what PyPI happened to have
+  published that day; this repo has hit that exact drift more than once
+  (several historical commits exist solely to re-pin something after an
+  upstream release moved). `backend/uv.lock` now resolves the whole tree
+  once; `backend/constraints.lock.txt` is a flat, plain-`pip`-readable
+  projection of the same lock (`python -m scripts.relock` regenerates
+  both together), and every `pip install` in `.github/workflows/`
+  (except `deps.yml`'s Python job, whose entire purpose is a weekly
+  *fresh* resolution to catch a new CVE the lock hasn't caught up to
+  yet) and both Dockerfiles now installs through it via `-c
+  constraints.lock.txt`. `detect-secrets` stays outside the lock,
+  pinned on its own in `security.yml` exactly as before — the hook
+  treats any version drift against `.secrets.baseline` as "needs
+  updating," so bumping it is its own deliberate step. See
+  `docs/cicd.md`'s "The backend's dependency lock" section.
 - **Renamed the platform from Aegis AI Security to Kervy Security**,
   end to end rather than at the branding layer alone: every `AEGIS_*`
   environment variable (`AEGIS_EVIDENCE_ENCRYPTION_KEY`,

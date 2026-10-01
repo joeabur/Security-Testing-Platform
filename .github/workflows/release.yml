@@ -85,7 +85,11 @@ jobs:
         # its own declared one. A release is the one CI run meant to be at
         # least as strict as a PR's — this makes it match rather than quietly
         # test less.
-        run: pip install -e ".[dev,appsec,pdf]"
+        #
+        # -c constraints.lock.txt pins every transitive dependency to
+        # uv.lock's resolved version (regenerate both via
+        # `python -m scripts.relock`), the same lock ci.yml installs from.
+        run: pip install -c constraints.lock.txt -e ".[dev,appsec,pdf]"
 
       - name: Migrate
         working-directory: backend
@@ -138,8 +142,11 @@ jobs:
 
       - name: Generate the SBOM for what was just built
         working-directory: backend
+        # -c constraints.lock.txt pins the backend's own dependency tree
+        # (cyclonedx-bom itself is this job's own tool, not part of the
+        # shipped application, so it stays unpinned).
         run: |
-          pip install -e . cyclonedx-bom
+          pip install -c constraints.lock.txt -e . cyclonedx-bom
           cyclonedx-py environment --output-format json \
             --outfile ../dist/kervy-sbom.cdx.json
 

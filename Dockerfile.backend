@@ -13,12 +13,17 @@ RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-COPY backend/pyproject.toml ./
+COPY backend/pyproject.toml backend/constraints.lock.txt ./
 COPY backend/app ./app
 COPY backend/alembic ./alembic
 COPY backend/alembic.ini ./
 
-RUN pip install --no-cache-dir . \
+# -c pins every transitive dependency to backend/uv.lock's resolved version
+# (regenerate both via `python -m scripts.relock`, backend/scripts/relock.py)
+# rather than whatever `>=` in pyproject.toml happens to resolve to today —
+# the same drift class that produced several of this repo's own past
+# dedicated "fix CI" PRs.
+RUN pip install --no-cache-dir -c constraints.lock.txt . \
     && useradd --create-home --uid 1000 appuser \
     && chown -R appuser:appuser /app
 

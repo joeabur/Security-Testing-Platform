@@ -14,7 +14,7 @@ See `docs/installation.md` for the full path. The short version:
 ```bash
 cd backend
 python3.12 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
+pip install -c constraints.lock.txt -e ".[dev]"
 alembic upgrade head
 ```
 

@@ -66,7 +66,10 @@ jobs:
           cache: pip
 
       - name: Install
-        run: pip install -e ".[dev,appsec]"
+        # -c constraints.lock.txt pins every transitive dependency to
+        # uv.lock's resolved version (regenerate both via
+        # `python -m scripts.relock`).
+        run: pip install -c constraints.lock.txt -e ".[dev,appsec]"
 
       - name: Migrate
         run: alembic upgrade head

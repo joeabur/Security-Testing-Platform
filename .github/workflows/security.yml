@@ -40,14 +40,20 @@ jobs:
           cache: pip
 
       - name: Install analysis tools
-        # detect-secrets is pinned, not just installed. Its baseline file
-        # embeds the exact producing version, and the hook treats *any*
-        # mismatch — including a newer release — as "needs updating" and
-        # exits 3 every single run, regardless of whether any secret
-        # actually changed. Bumping this and `.secrets.baseline`'s
-        # `version` field together is a deliberate, reviewed step, not an
-        # upstream release landing silently under us.
-        run: pip install bandit semgrep detect-secrets==1.5.0
+        # bandit/semgrep are pinned via -c constraints.lock.txt, the same
+        # lock the Backend (ci.yml) job installs from, so a finding here
+        # can't disagree with one there over a version difference.
+        #
+        # detect-secrets is pinned separately, on the command line, not
+        # from the lock. Its baseline file embeds the exact producing
+        # version, and the hook treats *any* mismatch — including a newer
+        # release — as "needs updating" and exits 3 every single run,
+        # regardless of whether any secret actually changed. Bumping this
+        # and `.secrets.baseline`'s `version` field together is a
+        # deliberate, reviewed step, not an upstream release (or a routine
+        # relock) landing silently under us — constraints.lock.txt
+        # deliberately excludes it for the same reason.
+        run: pip install -c constraints.lock.txt bandit semgrep detect-secrets==1.5.0
 
       - name: Bandit
         # Medium and above, and the whole app. `-ll` rather than a baseline
