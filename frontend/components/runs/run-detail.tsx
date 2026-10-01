@@ -3,11 +3,16 @@
 import { useEffect, useState } from "react";
 
 import { ExploitationFires } from "@/components/runs/exploitation-fires";
+import { ReportDownload } from "@/components/runs/report-download";
 import { Alert } from "@/components/ui/alert";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { clientApiFetch } from "@/lib/api-client";
 import { TERMINAL_RUN_STATUSES, type Run, type RunEvent } from "@/lib/types";
+
+// Mirrors _NOT_YET_RUN in app/api/v1/routers/reports.py: a report is only
+// meaningful once the run has actually executed.
+const NOT_YET_RUN: readonly Run["status"][] = ["draft", "queued"];
 
 const POLL_MS = 2000;
 
@@ -185,6 +190,10 @@ export function RunDetail({
           )}
         </CardContent>
       </Card>
+
+      {!NOT_YET_RUN.includes(run.status) && (
+        <ReportDownload organizationId={organizationId} runId={runId} />
+      )}
 
       {run.status === "completed" && (
         <ExploitationFires organizationId={organizationId} runId={runId} />

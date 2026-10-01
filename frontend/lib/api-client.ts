@@ -110,3 +110,26 @@ async function safeJson(response: Response): Promise<unknown> {
     return null;
   }
 }
+
+/**
+ * Same session-cookie auth as `clientApiFetch`, but for an endpoint that
+ * returns a file (`Content-Disposition: attachment`) rather than JSON — the
+ * report and evidence download routes. GET is CSRF-safe, so no token header
+ * is needed here either.
+ */
+export async function clientApiDownload(
+  path: string,
+): Promise<{ blob: Blob; filename: string }> {
+  const response = await fetch(`${PUBLIC_API_BASE_URL}${path}`, { credentials: "include" });
+
+  if (!response.ok) {
+    const body = (await safeJson(response)) as Partial<ApiErrorBody> | null;
+    throw new ApiError(response.status, body);
+  }
+
+  const disposition = response.headers.get("Content-Disposition") ?? "";
+  const match = disposition.match(/filename="([^"]+)"/);
+  const filename = match?.[1] ?? "download";
+
+  return { blob: await response.blob(), filename };
+}
