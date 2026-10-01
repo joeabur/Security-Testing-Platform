@@ -11,6 +11,7 @@ from app.api.v1.router import api_router
 from app.core.config import get_settings
 from app.core.constants import API_VERSION_PREFIX, PRODUCT_NAME
 from app.core.csrf import enforce as csrf
+from app.core.ratelimit import dependency as ratelimit
 from app.schemas.errors import ErrorDetail, ErrorResponse
 from app.web.router import STATIC_DIR as WEB_STATIC_DIR
 from app.web.router import router as web_router
@@ -70,6 +71,35 @@ def create_app() -> FastAPI:
         response = await call_next(request)
         response.headers["X-Request-ID"] = request_id
         return response
+
+    @app.middleware("http")
+    async def api_rate_limit_middleware(
+        request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
+        """The coarse ceiling over the rest of the API — §22's "per-route rate
+        limiting" applied to every route rather than the ones somebody
+        remembered to instrument. See `app.core.ratelimit.policy`'s
+        "Choosing the numbers" for `api_default`'s own reasoning.
+
+        Middleware rather than a per-route `enforce` call, for the exact
+        reason `csrf_middleware` above already gives for being one: this
+        covers every route under `/api/v1`, including any added later,
+        narrowed by the *request's path* rather than by a list somebody has
+        to keep in sync. `/health` is excluded — an orchestrator's liveness
+        probe is not the traffic this exists to bound, and throttling it
+        would turn a rate limit into an outage detector false-triggering an
+        outage.
+        """
+        path = request.url.path
+        if path == f"{API_VERSION_PREFIX}/health" or not path.startswith(API_VERSION_PREFIX):
+            return await call_next(request)
+        try:
+            await ratelimit.enforce(
+                request, "api_default", identity=ratelimit.best_effort_identity(request)
+            )
+        except HTTPException as exc:
+            return await http_exception_handler(request, exc)
+        return await call_next(request)
 
     @app.exception_handler(HTTPException)
     async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:

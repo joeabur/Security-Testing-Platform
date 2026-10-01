@@ -423,6 +423,15 @@ arrived with no `Retry-After` — telling a client it was throttled but not for
 how long. Pre-existing, and it would have applied equally to
 `WWW-Authenticate` or `Allow`.
 
+**§22's "per-route" reading was still partly open.** The above covered only
+the unauthenticated, identity-adjacent routes; every authenticated route had
+no rate limit at all beyond RBAC. A coarse `api_default` ceiling
+(`docs/rate-limiting.md`) now sits under the rest of `/api/v1`, applied by
+middleware rather than a per-route call so it covers a route added later the
+same way the CSRF middleware beside it does — deliberately generous next to
+`login`'s attack-shaped budget, since it exists to bound a scripted loop
+rather than to be a tight limit tuned to one endpoint's own risk.
+
 ## CSRF protection (§18, §22)
 
 Cookie-authenticated state changes now require a token. `docs/csrf.md` has the
