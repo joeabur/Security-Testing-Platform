@@ -31,7 +31,9 @@ from app.core.integrations.dispatch import (
     deliver_once,
     event_for_finding,
     event_for_investigation,
+    event_for_retest,
     event_for_run,
+    event_for_workflow_gate,
     event_from_snapshot,
     event_snapshot,
     select_channels,
@@ -513,6 +515,59 @@ def test_a_failed_investigation_names_the_tool_that_failed() -> None:
     )
     assert event.event_type is EventType.AGENT_INVESTIGATION_FAILED
     assert event.facts == {"steps": 2, "failed_tool": "start_scan"}
+
+
+def test_a_retest_event_carries_verdict_counts() -> None:
+    event = event_for_retest(
+        organization_id=ORG,
+        run_id=uuid.uuid4(),
+        target_name="acme-api",
+        reproduced=1,
+        not_reproduced=2,
+        not_tested=0,
+    )
+    assert event.event_type is EventType.RETEST_COMPLETED
+    assert event.facts == {"reproduced": 1, "not_reproduced": 2, "not_tested": 0}
+
+
+def test_a_retest_event_round_trips_through_its_snapshot() -> None:
+    event = event_for_retest(
+        organization_id=ORG,
+        run_id=uuid.uuid4(),
+        target_name="acme-api",
+        reproduced=1,
+        not_reproduced=0,
+        not_tested=1,
+    )
+    rebuilt = event_from_snapshot(ORG, event_snapshot(event))
+    assert event_snapshot(rebuilt) == event_snapshot(event)
+
+
+def test_a_failed_gate_event_names_the_workflow_and_the_reasons() -> None:
+    event = event_for_workflow_gate(
+        organization_id=ORG,
+        workflow_run_id=uuid.uuid4(),
+        workflow_name="nightly-scan",
+        reasons=["2 CRITICAL findings exceed the gate's limit of 0"],
+        counts={"critical": 2, "high": 1},
+    )
+    assert event.event_type is EventType.GATE_FAILED
+    assert "nightly-scan" in event.title
+    assert event.facts["critical"] == 2
+    assert event.facts["high"] == 1
+    assert event.facts["reasons"] == "2 CRITICAL findings exceed the gate's limit of 0"
+
+
+def test_a_gate_event_round_trips_through_its_snapshot() -> None:
+    event = event_for_workflow_gate(
+        organization_id=ORG,
+        workflow_run_id=uuid.uuid4(),
+        workflow_name="nightly-scan",
+        reasons=["blocked"],
+        counts={"critical": 1},
+    )
+    rebuilt = event_from_snapshot(ORG, event_snapshot(event))
+    assert event_snapshot(rebuilt) == event_snapshot(event)
 
 
 def test_an_investigation_event_round_trips_through_its_snapshot() -> None:
