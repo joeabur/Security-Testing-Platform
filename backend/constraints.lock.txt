@@ -99,7 +99,7 @@ mako==1.4.3
 markdown-it-py==4.2.0
 markdown==3.11
 markupsafe==3.0.3
-mcp==1.23.3
+mcp==1.28.1
 mdurl==0.1.2
 msgpack==1.2.3
 multidict==6.9.1
