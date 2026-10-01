@@ -4502,6 +4502,75 @@ gate-config-file-plus-schedule body; `workflow update`'s `--enable`/
 `reject`'s run-scoped paths and bodies. Full `tests/test_cli.py` (44
 tests) green.
 
+## Closing a self-documented gap: a general API rate limit
+
+### Context
+
+`docs/rate-limiting.md`'s own "What is not limited" section said so
+plainly: only the unauthenticated, identity-adjacent routes — `login`,
+`register`, `login/2fa`, `forgot-password`, the OAuth callback — were rate
+limited. Every authenticated route sat behind RBAC alone, with no throttle
+at all. `app/core/ratelimit/` already names §22's "per-route rate limiting"
+requirement and was built generally enough that the doc's own next line
+said closing this was "a table entry in `policy.py` — the machinery is
+general." It was; this is that entry, plus the one piece the machinery
+didn't yet have: something that applies a rule to a route nobody
+individually instrumented.
+
+### Design
+
+A new `api_default` policy entry (`app/core/ratelimit/policy.py`): 1200
+requests / 5 minutes per IP, 600 / 5 minutes per identity when one is
+available. Deliberately coarse next to `login`'s attack-shaped budget —
+this exists to bound a scripted loop hammering the API, not to be a tight
+production limit a real dashboard session could plausibly hit.
+
+Applied by a new `api_rate_limit_middleware` in `app/main.py`, not a
+per-route `enforce()` call — the identical reasoning the CSRF middleware
+right above it in the same file already gives for being middleware rather
+than a dependency: it covers every route under `/api/v1`, including any
+added later, narrowed by the request's own path rather than a list
+somebody has to remember to extend. `GET /health` is exempt, so an
+orchestrator's liveness probe can never turn this into a self-inflicted
+outage detector.
+
+The identity dimension needed a way to know who is asking *before* a
+route's own DB-backed auth dependency runs (middleware executes first). A
+new `best_effort_identity()` (`app/core/ratelimit/dependency.py`) decodes a
+bearer JWT's `sub` claim via `app.auth.security.decode_access_token`, which
+checks only the signing secret — no database round trip. An API key, a
+session cookie, or no credential at all all fall back to `None`, and the
+request is then bounded by the IP rule alone. This is deliberately not an
+authentication check: a forged or expired token simply fails to decode,
+the request still proceeds to the route's own real auth dependency exactly
+as before, and the only consequence of getting it wrong is which bucket a
+request's *budget* — never its authorization — is counted against.
+
+### What this does not change
+
+- `login`, `register`, `login/2fa`, `forgot-password`, and the OAuth
+  callback keep their own tighter, attack-specific budgets unchanged;
+  `api_default` layers under them as a floor, not a replacement.
+- No new dimension, no change to `Decision`, `RateLimitStore`, delivery, or
+  the fail-open-and-log behavior on an unreachable counter store — every
+  existing guarantee in `docs/rate-limiting.md` applies unchanged to this
+  rule.
+- Still a fixed window, still `MemoryStore`-is-not-for-multi-process — the
+  same two stated limitations the rest of the module already carries.
+
+### Verified
+
+`ruff check`/`mypy` clean. New tests in `tests/security/test_rate_limit.py`:
+the policy carries both dimensions; the budget is consumed and then refused
+against the real limiter; an ordinary authenticated route with no rule of
+its own is eventually throttled by the middleware end to end (a small
+monkeypatched limit, for speed — the real numbers are the module
+docstring's job); `/health` stays exempt even under a limit small enough
+that anything else would have tripped it. Full `test_rate_limit.py` (33
+tests) green, and the full backend suite run clean to confirm the new
+middleware does not collide with the per-test fresh rate-limit store every
+other test already relies on.
+
 ## Closing a self-documented gap: `retest.completed` and `gate.failed`
 
 ### Context
