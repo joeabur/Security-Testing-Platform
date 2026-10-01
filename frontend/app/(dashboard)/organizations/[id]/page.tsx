@@ -11,10 +11,11 @@ import {
   XCircle,
 } from "lucide-react";
 
+import { FindingsTrendChart } from "@/components/dashboard/findings-trend-chart";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { serverApiFetch } from "@/lib/api-server";
-import type { DashboardSummary, Severity } from "@/lib/types";
+import type { DashboardSummary, FindingsTrend, Severity } from "@/lib/types";
 
 export const metadata: Metadata = { title: "Overview — Kervy Security" };
 
@@ -76,7 +77,10 @@ export default async function OrganizationOverviewPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const summary = await serverApiFetch<DashboardSummary>(`/organizations/${id}/dashboard/summary`);
+  const [summary, trend] = await Promise.all([
+    serverApiFetch<DashboardSummary>(`/organizations/${id}/dashboard/summary`),
+    serverApiFetch<FindingsTrend>(`/organizations/${id}/dashboard/findings-trend`),
+  ]);
   const s = summary.open_findings_by_severity;
 
   return (
@@ -138,6 +142,19 @@ export default async function OrganizationOverviewPage({
               {severity.charAt(0) + severity.slice(1).toLowerCase()}: {count}
             </Badge>
           ))}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Findings trend</CardTitle>
+          <CardDescription>
+            New findings by day and severity over the last {trend.days} days, bucketed by when
+            each was first observed.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <FindingsTrendChart trend={trend} />
         </CardContent>
       </Card>
 

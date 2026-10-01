@@ -170,6 +170,7 @@ EXPECTED_ROLES: dict[tuple[str, str], Role] = {
     ("GET", "/organizations/{organization_id}/assistant/runs/{run_id}/drafts"): Role.VIEWER,
     ("GET", "/organizations/{organization_id}/assistant/status"): Role.VIEWER,
     ("GET", "/organizations/{organization_id}/dashboard/summary"): Role.VIEWER,
+    ("GET", "/organizations/{organization_id}/dashboard/findings-trend"): Role.VIEWER,
     ("GET", "/organizations/{organization_id}/findings"): Role.VIEWER,
     ("GET", "/organizations/{organization_id}/findings/{finding_id}"): Role.VIEWER,
     (
