@@ -148,6 +148,23 @@ instead of navigating to the API URL directly. A `501` (PDF requested
 without the optional `weasyprint` dependency present) surfaces as a plain
 message naming the problem, not a raw error.
 
+### Findings trend
+
+The organization overview page's "Findings trend" card
+(`components/dashboard/findings-trend-chart.tsx`) is a stacked area chart —
+new findings per day, by severity, over a trailing window — backed by a new
+`GET /organizations/{organization_id}/dashboard/findings-trend` endpoint
+(`app/core/dashboard/queries.py::findings_trend`, 30 days by default, clamped
+to at most 180). It is the first `recharts` usage in this frontend; the
+dependency had sat unused since the UI redesign. Bucketed by `first_seen`
+rather than `last_seen`/`created_at`, since a finding's row updates in place
+every time a later scan sees the same one again — `first_seen` is the one
+timestamp that answers "when did this first show up" and never moves once
+set. The page fetches summary and trend in parallel
+(`app/(dashboard)/organizations/[id]/page.tsx`) and fills every day in the
+window client-side, including the ones with no new findings, so a quiet day
+reads as zero rather than a gap in the chart.
+
 ## The Jinja2+HTMX dashboard (`/app`, pentest module Phase 17)
 
 A server-rendered dashboard at `/app`, served by the same FastAPI application as

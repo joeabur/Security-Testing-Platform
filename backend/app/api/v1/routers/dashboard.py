@@ -8,11 +8,12 @@ never quietly drift apart into two different answers to the same question.
 
 import uuid
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 
 from app.auth.dependencies import DbSession, require_membership
 from app.core.dashboard import queries
+from app.core.probes.models import Severity
 from app.models.organization import Membership, Role
 from app.models.target import Target
 from app.models.workflow import Workflow
@@ -21,9 +22,11 @@ from app.schemas.dashboard import (
     DashboardRunRead,
     DashboardSummary,
     DashboardWorkflowRunRead,
+    FindingsTrendRead,
     PillarCoverageEntry,
     RemediationSummaryRead,
     SeverityCounts,
+    TrendPointRead,
 )
 
 router = APIRouter(prefix="/organizations/{organization_id}/dashboard", tags=["dashboard"])
@@ -33,6 +36,11 @@ router = APIRouter(prefix="/organizations/{organization_id}/dashboard", tags=["d
 #: that already list everything, paginated.
 _RECENT_LIMIT = 5
 _TOP_FINDINGS_LIMIT = 10
+
+#: A chart is not a paginated list — but a window with no upper bound would
+#: let one request force a full-table scan and group-by. 180 days is generous
+#: for a trend chart and cheap for the query either way.
+_MAX_TREND_DAYS = 180
 
 
 @router.get("/summary", response_model=DashboardSummary)
@@ -135,5 +143,22 @@ async def get_dashboard_summary(
                 last_seen=finding.last_seen,
             )
             for finding in top_findings
+        ],
+    )
+
+
+@router.get("/findings-trend", response_model=FindingsTrendRead)
+async def get_findings_trend(
+    organization_id: uuid.UUID,
+    db: DbSession,
+    days: int = Query(30, ge=1, le=_MAX_TREND_DAYS),
+    membership: Membership = Depends(require_membership(Role.VIEWER)),  # noqa: B008
+) -> FindingsTrendRead:
+    points = await queries.findings_trend(db, organization_id, days=days)
+    return FindingsTrendRead(
+        days=days,
+        points=[
+            TrendPointRead(day=point.day, severity=Severity(point.severity), count=point.count)
+            for point in points
         ],
     )
