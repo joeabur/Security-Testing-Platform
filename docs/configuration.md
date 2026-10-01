@@ -22,6 +22,7 @@ that disables scope enforcement** — that is deliberate and permanent.
 | `KERVY_CSRF_SECRET` | falls back to `JWT_SECRET` | Signs the session-bound CSRF token |
 | `EVIDENCE_ROOT` | `var/evidence` | A path, not a URL. Evidence never leaves the deployment by default |
 | `KERVY_EVIDENCE_ENCRYPTION_KEY` | unset (plaintext) | Base64, 32 bytes (AES-256). One static key, no rotation — set before a deployment starts collecting evidence, not partway through |
+| `KERVY_WEBHOOK_SECRET_ENCRYPTION_KEY` | unset (workflow webhook automation disabled) | Base64, 32 bytes (AES-256). Not optional-encryption like the evidence key above — a webhook secret must never sit in Postgres in cleartext, so absent means a workflow's inbound webhook cannot be enabled at all, rather than being stored unencrypted |
 | `KERVY_TOTP_ENCRYPTION_KEY` | unset (2FA disabled platform-wide) | Base64, 32 bytes (AES-256). A TOTP shared secret is exactly as sensitive as a webhook secret — absent, `POST /auth/2fa/setup` refuses outright rather than storing one unencrypted; there is no per-organization opt-out once set |
 
 ## Credentials are held by reference
@@ -147,6 +148,9 @@ still answers 202 (never disclosing whether an address is registered — see
 - `KERVY_EVIDENCE_ENCRYPTION_KEY` set before the first run, if evidence
   encryption at rest is required — there is no tool to encrypt bundles
   already written without it.
+- `KERVY_WEBHOOK_SECRET_ENCRYPTION_KEY` set before any workflow's inbound
+  webhook is enabled — required, not optional, since the secret is refused
+  outright without it.
 - `KERVY_TOTP_ENCRYPTION_KEY` set before any organization enrolls in 2FA, if
   it is to be offered at all — there is no way to turn it on retroactively
   for accounts that enrolled before the key existed.
