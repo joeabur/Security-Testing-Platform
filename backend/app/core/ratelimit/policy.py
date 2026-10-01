@@ -42,6 +42,20 @@ budget for the tier that can queue a real scan or trigger a workflow —
 to the tools that touch the platform or a target, separate from the general
 tool-call budget above so a busy investigation reading findings never
 counts against the much smaller number of sensitive actions it may need.
+
+**Every other route, per IP: 1200 requests per 5 minutes.** Everything above
+this line is a tight, attack-specific budget for one endpoint; this is the
+coarse ceiling `app.main`'s `api_rate_limit_middleware` applies to the rest
+of `/api/v1` — the gap `docs/limitations.md` used to name plainly
+("no general throttling on the rest of the platform's own API"). Four
+requests a second sustained is generous for an office behind one NAT
+running the dashboard, and a real ceiling against a scripted loop.
+
+**Every other route, per identity: 600 requests per 5 minutes.** Tighter than
+the IP budget on purpose — it is scoped to one real account, not a whole
+building — and applied only when a bearer JWT's subject decodes for free
+(no DB round trip); an API-key-authenticated or anonymous request falls back
+to the IP rule alone, the same as every unauthenticated-adjacent rule above.
 """
 
 from __future__ import annotations
@@ -99,6 +113,31 @@ AGENT_SENSITIVE_TOOL_CALL_IDENTITY = Rule(
     name="agent_sensitive_tool_call", dimension=Dimension.IDENTITY, limit=10, window_seconds=10 * 60
 )
 
+# A coarse ceiling over the whole `/api/v1` surface, applied by
+# `app.main`'s `api_rate_limit_middleware` rather than a per-route `enforce`
+# call — the same "covers every route, including any added later" reasoning
+# `app.main`'s CSRF middleware already gives for being middleware instead of
+# a dependency somebody has to remember to add. Everything below login's own
+# much tighter, attack-specific budgets: this exists for the routes that
+# have *no* other rate limit at all, not to replace the ones that do.
+#
+# IP, always: the same dimension every other unauthenticated-adjacent rule
+# here already uses, and middleware runs before a route's own DB-backed
+# identity resolution, so it is what is cheaply available for every request.
+# 1200/5min is four requests a second sustained — generous for an office
+# behind one NAT running the dashboard, a real ceiling against a scripted
+# loop.
+API_DEFAULT_IP = Rule(name="api_default", dimension=Dimension.IP, limit=1200, window_seconds=5 * 60)
+# Identity, when a bearer JWT's subject decodes without a DB round trip
+# (`app.auth.security.decode_access_token` reads only the signing secret) —
+# tighter than the IP budget because it is scoped to one real account rather
+# than a whole building. An API-key-authenticated request has no identity
+# available this cheaply (resolving one is a DB lookup the middleware layer
+# does not do) and falls back to the IP rule alone, same as an anonymous one.
+API_DEFAULT_IDENTITY = Rule(
+    name="api_default", dimension=Dimension.IDENTITY, limit=600, window_seconds=5 * 60
+)
+
 #: What each protected route consumes. A route absent from here is not limited,
 #: which is why `tests/security/test_rate_limit.py` asserts the set rather than
 #: trusting that somebody remembered.
@@ -110,6 +149,7 @@ POLICY: dict[str, tuple[Rule, ...]] = {
     "oauth_callback": (OAUTH_CALLBACK_IP,),
     "agent_tool_call": (AGENT_TOOL_CALL_IDENTITY,),
     "agent_sensitive_tool_call": (AGENT_SENSITIVE_TOOL_CALL_IDENTITY,),
+    "api_default": (API_DEFAULT_IP, API_DEFAULT_IDENTITY),
 }
 
 
