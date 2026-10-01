@@ -746,8 +746,12 @@ async def gate_workflow_run_if_linked_async(run_id: str) -> None:
                 workflow_run_id=str(workflow_run.id),
             )
             return
-        await workflow_service.gate_run_once_scan_finished(db, workflow_run, workflow)
+        outcome = await workflow_service.gate_run_once_scan_finished(db, workflow_run, workflow)
         await db.commit()
+        if outcome.gate_passed is False:
+            from app.workers.notifications import notify_workflow_gate_failed
+
+            notify_workflow_gate_failed.delay(str(workflow_run.id))
 
 
 @celery_app.task(name="kervy.gate_workflow_run_if_linked")
@@ -832,10 +836,14 @@ async def run_scheduled_workflow_async(workflow_id: str) -> None:
         )
         run, outcome = await workflow_service.start_and_maybe_pause(db, workflow, trigger)
         if run.status != WorkflowStatus.AWAITING_APPROVAL.value:
-            await workflow_service.finish(
+            outcome = await workflow_service.finish(
                 db, run, workflow, outcome, actions_detail="triggered by Celery Beat"
             )
         await db.commit()
+        if outcome.gate_passed is False:
+            from app.workers.notifications import notify_workflow_gate_failed
+
+            notify_workflow_gate_failed.delay(str(run.id))
 
 
 @celery_app.task(name="kervy.run_scheduled_workflow")

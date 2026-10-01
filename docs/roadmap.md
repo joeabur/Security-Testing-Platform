@@ -4569,3 +4569,73 @@ organization returning `404`. Two new routes added to
 `tests/security/test_authorization_matrix.py`'s `EXPECTED_ROLES`. Full
 targeted run (`test_organizations.py`, `test_authorization_matrix.py`) —
 306 passed, 2 skipped.
+
+## Closing a self-documented gap: `retest.completed` and `gate.failed`
+
+### Context
+
+`EventType` (`app/core/integrations/contract.py`) has named `RETEST_COMPLETED`
+and `GATE_FAILED` since Phase 17/Phase 9's own work, and `docs/integrations.md`
+has said, plainly, "nothing emits them yet" since it was written — a channel
+subscribed to either received nothing, silently. This closes that gap for
+both.
+
+### Design
+
+**`retest.completed`** fires from the same place `assessment.completed`
+already does — `_notify_run` in `app/workers/notifications.py`, itself
+scheduled via `notify_run_finished.delay(run_id)` after `run_assessment`'s own
+transaction commits. When the run is `RunKind.RETEST`, a second event is
+enqueued alongside the run summary, built by a new `event_for_retest()`
+(`app/core/integrations/dispatch.py`) from the run's own `RetestResult` rows,
+carrying `reproduced`/`not_reproduced`/`not_tested` counts — the verdicts a
+retest exists to produce, which a channel subscribed only to
+`assessment.completed` would otherwise have to infer from the run's generic
+severity counts.
+
+**`gate.failed`** fires only when a workflow run's gate decision refuses it —
+a passing gate is already covered by the `workflow.completed` audit event
+`finish()` already writes, and this platform's own stated policy is that "a
+channel that fires on every triage keystroke gets muted by its readers": a
+failing gate is the one workflow outcome worth paging on, the automation
+equivalent of a broken CI build. A new `_notify_workflow_gate_failed` worker
+function (mirroring `_notify_run`'s shape) reads the `WorkflowRun` back
+through its own session — never trusting a caller's snapshot of a decision
+that might have moved on — and refuses to fire unless `gate_passed is False`
+exactly (not `None`, which covers a `REFUSED` outcome from a bad gate config:
+that is not a gate *decision*, and paging on it would be a different kind of
+false alarm). Built from the run's own stored `gate_reasons`/`gate_counts` by
+a new `event_for_workflow_gate()`.
+
+`finish()` itself gained no integrations-layer knowledge — it returns the
+same `WorkflowOutcome` it always has. The three places that call it
+(`app/api/v1/routers/workflows.py::run_workflow`,
+`app/workers/tasks.py::gate_workflow_run_if_linked_async`, and
+`run_scheduled_workflow_async`) each schedule
+`notify_workflow_gate_failed.delay(str(run.id))` themselves, after their own
+commit, when `outcome.gate_passed is False` — the same "queued after the
+caller's own transaction, so a hanging channel can never hold the caller's
+request open" discipline `notify_run_finished` already documents.
+
+### What this does not change
+
+- No new event types, no change to the channel subscription model, no change
+  to delivery/retry/dead-letter semantics — both events go through the exact
+  same `enqueue`/`attempt`/`_deliver_due` machinery every other event already
+  uses.
+- A `REFUSED` workflow run (a misconfigured gate, or an authorization
+  refusal) still fires nothing. That is a different failure mode from a real
+  gate decision and is not this entry's to page on.
+
+### Verified
+
+`ruff check`/`mypy` clean. New tests: `tests/test_integrations.py` (the two
+new event builders, including their snapshot round-trip);
+`tests/test_integrations_api.py` (`_notify_run` on a real `RETEST_COMPLETED`
+run, end to end against the database, alongside the existing
+`assessment.completed` fan-out test); `tests/test_workflow.py` (a real
+gate-failing run fans out to a subscribed channel with the right facts, and a
+passing gate produces nothing even when `_notify_workflow_gate_failed` is
+called directly). Full `test_integrations.py`, `test_integrations_api.py`,
+`test_workflow.py`, `test_workflows_api.py`, `test_workflow_automation.py`
+green.

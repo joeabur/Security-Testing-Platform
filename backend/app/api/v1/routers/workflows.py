@@ -259,6 +259,14 @@ async def run_workflow(
         # Persisted and returned with its reason. A refusal is a result, and
         # hiding it behind an error status would lose the stored record.
         pass
+    if outcome.gate_passed is False:
+        # Queued after this request's own commit, same reasoning as
+        # `notify_run_finished`: a hanging channel must never hold this
+        # request open, and a notification failure must never surface as
+        # this endpoint's own failure.
+        from app.workers.notifications import notify_workflow_gate_failed
+
+        notify_workflow_gate_failed.delay(str(run.id))
     return run
 
 

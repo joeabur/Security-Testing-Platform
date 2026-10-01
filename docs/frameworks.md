@@ -16,7 +16,7 @@ string may come from.
 | `owasp_llm_2026` | 2026 edition | 2026-09-17 | GenAI-Security-Project/GenAI-LLM-Top10, `2026/final/` |
 | `owasp_asi_2026` | 2026 (ASI01–ASI10) | 2026-09-17 | genai.owasp.org |
 | `owasp_api_2023` | 2023 | 2026-09-17 | owasp.org/API-Security/editions/2023 |
-| `owasp_asvs` | 4.0.3 | 2026-09-17 | github.com/OWASP/ASVS |
+| `owasp_asvs` | 5.0.0 | 2026-09-30 | github.com/OWASP/ASVS |
 | `mitre_atlas` | v2026.09 | 2026-09-17 | github.com/mitre-atlas/atlas-data |
 | `nist_ai_rmf` | AI 100-1 (2023) | 2026-09-17 | nist.gov |
 | `nist_ssdf` | SP 800-218 v1.1 | 2026-09-17 | csrc.nist.gov |
