@@ -194,7 +194,7 @@ class GitleaksEngine:
             ),
             probe_id=self.meta.id,
             probe_version=self.meta.version,
-            frameworks=("CWE-798", "CWE-540", "OWASP-ASVS:V2.10"),
+            frameworks=("CWE-798", "CWE-540", "OWASP-ASVS:V13.3.1"),
             reproduction=(
                 "Run: gitleaks detect --source . --redact",
                 f"Observe rule {rule_id} at {relative}"

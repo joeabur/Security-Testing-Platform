@@ -137,7 +137,7 @@ class SecretScanEngine:
             ),
             probe_id=self.meta.id,
             probe_version=self.meta.version,
-            frameworks=("CWE-798", "CWE-540", "OWASP-ASVS:V2.10"),
+            frameworks=("CWE-798", "CWE-540", "OWASP-ASVS:V13.3.1"),
             reproduction=(
                 f"Open {relative} at line {line}.",
                 f"Observe a value whose digest is {match.sha256}.",

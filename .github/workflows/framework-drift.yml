@@ -69,9 +69,20 @@ jobs:
 
           while IFS=$'\t' read -r key repo; do
             [ -z "$key" ] && continue
-            version="$(gh api "repos/$repo/releases/latest" --jq .tag_name 2>/dev/null || true)"
-            if [ -z "$version" ]; then
-              version="$(gh api "repos/$repo/tags?per_page=1" --jq '.[0].name' 2>/dev/null || true)"
+            # `gh api` can write the raw HTTP error body (e.g. a 404's
+            # `{"message":"Not Found",...}`) to stdout even with --jq, while
+            # still exiting non-zero. Capturing output unconditionally (the
+            # old `$(... || true)` form) let that error body masquerade as a
+            # version. Only trust stdout when the command itself succeeded.
+            version=""
+            if out="$(gh api "repos/$repo/releases/latest" --jq .tag_name 2>/dev/null)"; then
+              version="$out"
+            fi
+            if [ -z "$version" ] || [ "$version" = "null" ]; then
+              version=""
+              if out="$(gh api "repos/$repo/tags?per_page=1" --jq '.[0].name' 2>/dev/null)"; then
+                version="$out"
+              fi
             fi
             if [ -n "$version" ] && [ "$version" != "null" ]; then
               echo "  $key -> $version"
