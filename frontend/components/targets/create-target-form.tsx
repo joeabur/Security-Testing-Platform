@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 
 import { Alert } from "@/components/ui/alert";
@@ -23,6 +23,38 @@ const KIND_LABELS: Record<string, string> = {
   mcp_server: "MCP server",
   model_endpoint: "Model endpoint",
   web_app: "Web application",
+  container: "Container image",
+  cloud_account: "Cloud account",
+  virtual_machine: "Virtual machine",
+  domain: "Domain",
+};
+
+// base_url means something different per kind (backend/app/models/target.py):
+// a URL for the adapter-driven kinds above, but an image reference, a cloud
+// account ARN/subscription/project id, a VM hostname, or a root domain for
+// the pentest-module kinds below. The field's own label and placeholder
+// follow whichever kind is selected.
+const BASE_URL_FIELD: Record<string, { label: string; placeholder: string }> = {
+  container: {
+    label: "Image reference",
+    placeholder: "123456789012.dkr.ecr.us-east-1.amazonaws.com/myapp:latest",
+  },
+  cloud_account: {
+    label: "Cloud account identifier",
+    placeholder: "arn:aws:iam::123456789012:root",
+  },
+  virtual_machine: {
+    label: "VM hostname",
+    placeholder: "db1.internal.corp",
+  },
+  domain: {
+    label: "Root domain",
+    placeholder: "example.com",
+  },
+};
+const DEFAULT_BASE_URL_FIELD = {
+  label: "Base URL",
+  placeholder: "https://staging.example.test",
 };
 
 export function CreateTargetForm({ organizationId }: { organizationId: string }) {
@@ -32,11 +64,14 @@ export function CreateTargetForm({ organizationId }: { organizationId: string })
     register,
     handleSubmit,
     reset,
+    control,
     formState: { errors, isSubmitting },
   } = useForm<CreateTargetInput>({
     resolver: zodResolver(createTargetSchema),
     defaultValues: { environment: "staging", kind: "web_app" },
   });
+  const selectedKind = useWatch({ control, name: "kind" });
+  const baseUrlField = BASE_URL_FIELD[selectedKind] ?? DEFAULT_BASE_URL_FIELD;
 
   async function onSubmit(values: CreateTargetInput) {
     setFormError(null);
@@ -86,10 +121,10 @@ export function CreateTargetForm({ organizationId }: { organizationId: string })
           </Select>
         </div>
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="target-base-url">Base URL</Label>
+          <Label htmlFor="target-base-url">{baseUrlField.label}</Label>
           <Input
             id="target-base-url"
-            placeholder="https://staging.example.test"
+            placeholder={baseUrlField.placeholder}
             {...register("base_url")}
           />
           {errors.base_url && (
