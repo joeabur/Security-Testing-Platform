@@ -221,7 +221,11 @@ async def open_findings(
     if severity and severity.upper() in SEVERITY_ORDER:
         statement = statement.where(Finding.severity == Severity(severity.upper()))
     statement = (
-        statement.order_by(Finding.risk_score.desc(), Finding.last_seen.desc())
+        # `id` is a final, unique tiebreaker: without one, rows tied on both
+        # risk_score and last_seen have no guaranteed relative order, and
+        # `has_more_findings` below must agree with this exact ordering for
+        # its own offset check to mean anything.
+        statement.order_by(Finding.risk_score.desc(), Finding.last_seen.desc(), Finding.id)
         .offset(offset)
         .limit(limit)
     )
@@ -243,7 +247,7 @@ async def has_more_findings(
     if severity and severity.upper() in SEVERITY_ORDER:
         statement = statement.where(Finding.severity == Severity(severity.upper()))
     statement = (
-        statement.order_by(Finding.risk_score.desc(), Finding.last_seen.desc())
+        statement.order_by(Finding.risk_score.desc(), Finding.last_seen.desc(), Finding.id)
         .offset(offset + limit)
         .limit(1)
     )
