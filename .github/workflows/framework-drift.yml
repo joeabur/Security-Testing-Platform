@@ -46,7 +46,10 @@ jobs:
 
       - name: Install the backend
         working-directory: backend
-        run: pip install -e .
+        # -c constraints.lock.txt pins every transitive dependency to
+        # uv.lock's resolved version (regenerate both via
+        # `python -m scripts.relock`).
+        run: pip install -c constraints.lock.txt -e .
 
       - name: Read the upstream version of each repository-backed framework
         id: upstream

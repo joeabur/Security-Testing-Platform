@@ -52,7 +52,7 @@ createdb -U postgres kervy
 # 2. Backend
 cd backend
 python3.12 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
+pip install -c constraints.lock.txt -e ".[dev]"
 
 export DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/kervy
 export REDIS_URL=redis://localhost:6379/0

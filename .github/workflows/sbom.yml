@@ -34,8 +34,13 @@ jobs:
 
       - name: Install the backend and the SBOM generator
         working-directory: backend
+        # -c constraints.lock.txt pins the backend's own dependency tree to
+        # uv.lock's resolved versions, matching every other workflow that
+        # installs it (regenerate both via `python -m scripts.relock`).
+        # cyclonedx-bom itself is not part of that lock — it is this job's
+        # own tool, not something the shipped application depends on.
         run: |
-          pip install -e ".[dev,appsec]"
+          pip install -c constraints.lock.txt -e ".[dev,appsec]"
           pip install cyclonedx-bom
 
       - uses: actions/setup-node@v4
