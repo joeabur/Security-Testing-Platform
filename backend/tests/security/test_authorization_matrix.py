@@ -229,6 +229,11 @@ EXPECTED_ROLES: dict[tuple[str, str], Role] = {
     ("POST", "/organizations/{organization_id}/members"): Role.ADMIN,
     ("PATCH", "/organizations/{organization_id}/members/{member_id}"): Role.ADMIN,
     ("DELETE", "/organizations/{organization_id}/members/{member_id}"): Role.ADMIN,
+    ("GET", "/organizations/{organization_id}/members/{member_id}/sessions"): Role.ADMIN,
+    (
+        "DELETE",
+        "/organizations/{organization_id}/members/{member_id}/sessions/{session_id}",
+    ): Role.ADMIN,
     # The whole point of this endpoint: security-engineer, not the admin
     # `POST /targets` needs, because adding a repository carries its own
     # self-affirmed consent instead of an operator-granted authorization.

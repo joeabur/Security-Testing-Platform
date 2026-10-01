@@ -4502,6 +4502,74 @@ gate-config-file-plus-schedule body; `workflow update`'s `--enable`/
 `reject`'s run-scoped paths and bodies. Full `tests/test_cli.py` (44
 tests) green.
 
+## Closing a stated gap: an org admin's view of a fellow member's sessions
+
+### Context
+
+`docs/revocation.md` stated the boundary plainly at the time
+`user_sessions` shipped: "there is no admin view of another user's
+sessions." That was a deliberate scope cut then, not an oversight — but it
+left a real operational gap the same review that produced the general
+rate-limit ceiling and the notification-event wiring also surfaced: an
+organization admin investigating a suspected compromised teammate account
+had no way to see, let alone force-end, that account's active sessions
+without the teammate's own cooperation.
+
+### Design
+
+Two new endpoints on the existing organizations router rather than a
+wider `GET /auth/sessions`: `GET`/`DELETE
+/organizations/{organization_id}/members/{member_id}/sessions[/{session_id}]`
+(`app/api/v1/routers/organizations.py`). `member_id` is a `Membership`
+row, the same shape `update_member_role`/`remove_member` already take, so
+`_load_target_member`'s existing 404-not-403 non-disclosure applies
+identically — an admin can never learn that a member id belongs to
+another organization by probing this endpoint, and never needs a bare
+user id from outside their own organization to ask the question.
+`Role.ADMIN` for both, matching every other membership-management action
+on this router.
+
+Revoking carries the same owner carve-out `update_member_role`/
+`remove_member` already enforce: an Admin may force-revoke another
+Admin's, Security Engineer's, Analyst's, or Viewer's session, but only an
+Owner may revoke an Owner's (`403`, the same `_OWNER_DETAIL` message).
+The reasoning is identical to why an Admin cannot demote or remove an
+Owner outright — a compromised Admin who could unilaterally force an
+Owner out of every active session could disrupt the one role that could
+undo the damage while it is happening. Listing carries no such
+restriction: visibility into a fellow member's sessions is not itself the
+privileged action revocation is, and an admin investigating a suspected
+compromise needs to *see* an Owner's sessions to judge whether anything
+looks wrong, even if force-ending one requires escalating to another
+Owner. Revoking writes the same `jti` to the same per-token deny-list
+`/auth/logout`/`DELETE /auth/sessions/{id}` already use — this is a new
+way to reach that mechanism, not a second one.
+
+### What this does not change
+
+- `GET /auth/sessions`/`DELETE /auth/sessions/{id}` are unchanged and
+  still scoped to the caller's own account — this is a separate,
+  org-scoped pair of endpoints, not a widened version of those.
+- No dashboard or CLI surface yet — API-only, matching every earlier
+  phase's own "client surface is a later increment" precedent.
+- No notification when an admin revokes a member's session — the audit
+  log (`auth.session_revoke`, now carrying `target_user_id` when the
+  caller is an admin acting on someone else) is the record; nothing
+  pages the affected member today.
+
+### Verified
+
+`ruff check`/`mypy` clean on `app/api/v1/routers/organizations.py` and
+`app/api/v1/routers/auth.py`. New tests in `tests/test_organizations.py`:
+an admin listing and then revoking a member's session (and the member's
+token failing every subsequent request once revoked); an admin refused
+with `403` attempting to revoke an owner's session, with the owner's
+session confirmed still live afterward; and a member id from another
+organization returning `404`. Two new routes added to
+`tests/security/test_authorization_matrix.py`'s `EXPECTED_ROLES`. Full
+targeted run (`test_organizations.py`, `test_authorization_matrix.py`) —
+306 passed, 2 skipped.
+
 ## Closing a self-documented gap: a general API rate limit
 
 ### Context

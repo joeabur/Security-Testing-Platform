@@ -142,6 +142,18 @@ All notable changes to this project are recorded here. The format follows
 
 ### Added
 
+- **An organization admin's view of a fellow member's active sessions**:
+  `docs/revocation.md` stated the boundary plainly when `user_sessions`
+  shipped — "no admin view of another user's sessions" — which left an
+  admin investigating a suspected compromised teammate account no way to
+  see or force-end that account's sessions. New `GET`/`DELETE
+  /organizations/{organization_id}/members/{member_id}/sessions[/{id}]`
+  (`Role.ADMIN`, `app/api/v1/routers/organizations.py`) close it, scoped
+  to a fellow member of the caller's own organization — not a widened
+  `GET /auth/sessions`. Revoking carries the same owner carve-out
+  `update_member_role`/`remove_member` already enforce: an Admin may
+  force-revoke another Admin's, Security Engineer's, Analyst's, or
+  Viewer's session, but only an Owner may revoke an Owner's.
 - **A "Report" card on the run detail page**: the backend has rendered
   markdown/HTML/PDF/JSON/SARIF/CSV reports across four audience templates
   (`/reports` API, §14) since Phase 9, but nothing in the dashboard ever

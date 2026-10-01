@@ -344,8 +344,12 @@ async def list_sessions(
     The gap this closes: previously the only answers to "what is logged in
     as me right now" were "this one" (`/auth/logout`) or "everything"
     (`/auth/logout-all`) — there was nothing to list. Scoped to the caller's
-    own account only; there is no admin view of another user's sessions
-    here, the same boundary `/auth/logout-all` already draws.
+    own account only, the same boundary `/auth/logout-all` already draws.
+    An organization admin's equivalent view of a fellow member's sessions is
+    a separate, org-scoped pair of endpoints —
+    `GET/DELETE .../organizations/{organization_id}/members/{member_id}/sessions`
+    in `app/api/v1/routers/organizations.py` — not a wider version of this
+    one.
     """
     now = datetime.now(UTC)
     result = await db.execute(
