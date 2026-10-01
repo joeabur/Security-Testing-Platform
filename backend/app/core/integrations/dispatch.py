@@ -399,3 +399,73 @@ def event_for_finding(
         run_id=run_id,
         link_path=f"findings/{finding_id}",
     )
+
+
+def event_for_retest(
+    *,
+    organization_id: uuid.UUID,
+    run_id: uuid.UUID,
+    target_name: str | None,
+    reproduced: int,
+    not_reproduced: int,
+    not_tested: int,
+    occurred_at: datetime | None = None,
+) -> IntegrationEvent:
+    """`retest.completed`, fired once a `RunKind.RETEST` run finishes.
+
+    Distinct from `assessment.completed`, which every run — retest or not —
+    already gets: this one carries the verdict counts a retest exists to
+    produce, so a channel can tell "a scan ran" from "three findings were
+    confirmed fixed" without parsing the run summary's generic facts.
+    """
+    when = occurred_at or datetime.now(UTC)
+    return IntegrationEvent(
+        event_type=EventType.RETEST_COMPLETED,
+        organization_id=organization_id,
+        occurred_at_iso=when.isoformat(),
+        title=f"Retest completed for {target_name or 'target'}",
+        resource_type="assessment_run",
+        resource_id=str(run_id),
+        target_name=target_name,
+        run_id=run_id,
+        facts={
+            "reproduced": reproduced,
+            "not_reproduced": not_reproduced,
+            "not_tested": not_tested,
+        },
+        link_path=f"runs/{run_id}",
+    )
+
+
+def event_for_workflow_gate(
+    *,
+    organization_id: uuid.UUID,
+    workflow_run_id: uuid.UUID,
+    workflow_name: str,
+    reasons: Sequence[str],
+    counts: Mapping[str, int],
+    occurred_at: datetime | None = None,
+) -> IntegrationEvent:
+    """`gate.failed`, fired when a workflow run's gate decision refuses it.
+
+    Only the failing decision gets an event — a passing gate is already
+    covered by `workflow.completed` in the audit log, and this platform
+    fires no `workflow.*` integration event at all (§ module docstring: "a
+    channel that fires on every triage keystroke gets muted by its
+    readers"). A failing gate is the one workflow outcome worth paging on:
+    it is the automation equivalent of a broken CI build.
+    """
+    when = occurred_at or datetime.now(UTC)
+    facts: dict[str, str | int | float] = {key: value for key, value in counts.items() if value}
+    if reasons:
+        facts["reasons"] = "; ".join(reasons)
+    return IntegrationEvent(
+        event_type=EventType.GATE_FAILED,
+        organization_id=organization_id,
+        occurred_at_iso=when.isoformat(),
+        title=f"Security gate failed for workflow {workflow_name}",
+        resource_type="workflow_run",
+        resource_id=str(workflow_run_id),
+        facts=facts,
+        link_path=f"workflows/{workflow_run_id}",
+    )

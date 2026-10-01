@@ -11,6 +11,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime, timedelta
 
+import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -375,6 +376,139 @@ async def test_accepting_a_change_is_a_humans_write_and_the_gate_reads_it(
     run2, outcome2 = await start(db_session, workflow, trigger_from(workflow))
     await finish(db_session, run2, workflow, outcome2)
     assert outcome2.gate_passed is False
+
+
+async def test_a_failed_gate_fans_out_to_subscribed_channels(
+    client, strong_password: str, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`finish()` itself never talks to the integrations layer — see
+    `app/workers/notifications.py::_notify_workflow_gate_failed`, scheduled
+    from each of `finish()`'s call sites once their own transaction commits.
+    This exercises that worker function directly against a run whose gate
+    actually failed, the same way `test_integrations_api.py` exercises
+    `_notify_run` directly rather than through Celery."""
+    from app.core.workflow.service import finish, start, trigger_from
+    from app.models.integration import NotificationDelivery
+    from app.models.workflow import Workflow
+    from app.workers.notifications import _notify_workflow_gate_failed
+
+    monkeypatch.setenv(
+        "KERVY_TEST_SLACK_WEBHOOK",
+        "https://hooks.slack.com/services/T111/B222/zzzzzzzzzzzzzzzzzzzzzzzz",
+    )
+    get_settings.cache_clear()
+
+    org_id, target_id, headers = await _org_and_target(client, strong_password, "c")
+    critical = finding(
+        organization_id=uuid.UUID(org_id),
+        target_id=uuid.UUID(target_id),
+        severity=Severity.CRITICAL,
+        fingerprint="sha256:critical-gate-test",
+    )
+    db_session.add(critical)
+    workflow = Workflow(
+        organization_id=uuid.UUID(org_id),
+        target_id=uuid.UUID(target_id),
+        name="gated",
+        trigger_kind=TriggerKind.REPOSITORY_CHANGE.value,
+    )
+    db_session.add(workflow)
+    await db_session.commit()
+
+    await client.post(
+        f"/api/v1/organizations/{org_id}/notification-channels",
+        json={
+            "name": "gate-alerts",
+            "kind": "slack_webhook",
+            "events": ["gate.failed"],
+            "endpoint_env_var": "KERVY_TEST_SLACK_WEBHOOK",
+        },
+        headers=headers,
+    )
+
+    run, outcome = await start(db_session, workflow, trigger_from(workflow))
+    await finish(db_session, run, workflow, outcome)
+    assert outcome.gate_passed is False
+    # `_notify_workflow_gate_failed` reads the run back through its own,
+    # separate session (the same reasoning `_notify_run` documents), so the
+    # write must actually be committed, not just flushed within this test's
+    # session, for it to be visible there.
+    await db_session.commit()
+
+    await _notify_workflow_gate_failed(run.id)
+
+    rows = (
+        (
+            await db_session.execute(
+                select(NotificationDelivery).where(
+                    NotificationDelivery.organization_id == uuid.UUID(org_id)
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert [row.event_type for row in rows] == ["gate.failed"]
+    facts = (rows[0].event_json or {}).get("facts") or {}
+    assert facts.get("CRITICAL") == "1"
+    assert "reasons" in facts
+    get_settings.cache_clear()
+
+
+async def test_a_passed_gate_notifies_no_channel(
+    client, strong_password: str, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The read-back guard in `_notify_workflow_gate_failed`: a run whose
+    gate actually passed must never produce a `gate.failed` delivery, even
+    if the task were somehow scheduled for it."""
+    from app.core.workflow.service import finish, start, trigger_from
+    from app.models.integration import NotificationDelivery
+    from app.models.workflow import Workflow
+    from app.workers.notifications import _notify_workflow_gate_failed
+
+    monkeypatch.setenv(
+        "KERVY_TEST_SLACK_WEBHOOK",
+        "https://hooks.slack.com/services/T111/B222/zzzzzzzzzzzzzzzzzzzzzzzz",
+    )
+    get_settings.cache_clear()
+
+    org_id, target_id, headers = await _org_and_target(client, strong_password, "d")
+    workflow = Workflow(
+        organization_id=uuid.UUID(org_id),
+        target_id=uuid.UUID(target_id),
+        name="clean",
+        trigger_kind=TriggerKind.REPOSITORY_CHANGE.value,
+    )
+    db_session.add(workflow)
+    await db_session.commit()
+    await client.post(
+        f"/api/v1/organizations/{org_id}/notification-channels",
+        json={
+            "name": "gate-alerts",
+            "kind": "slack_webhook",
+            "events": ["gate.failed"],
+            "endpoint_env_var": "KERVY_TEST_SLACK_WEBHOOK",
+        },
+        headers=headers,
+    )
+
+    run, outcome = await start(db_session, workflow, trigger_from(workflow))
+    await finish(db_session, run, workflow, outcome)
+    assert outcome.gate_passed is True
+    await db_session.commit()
+
+    delivered = await _notify_workflow_gate_failed(run.id)
+    assert delivered == 0
+
+    rows = (
+        await db_session.execute(
+            select(NotificationDelivery).where(
+                NotificationDelivery.organization_id == uuid.UUID(org_id)
+            )
+        )
+    ).scalars().all()
+    assert rows == []
+    get_settings.cache_clear()
 
 
 async def test_a_workflow_run_records_all_five_stages_and_the_plan_digest(

@@ -74,8 +74,8 @@ record or log line contains it.
 | `assessment.failed` | a run ended in failure |
 | `finding.created` | a finding was promoted |
 | `finding.critical` | …and it is critical |
-| `retest.completed` | **defined, not yet emitted** — see below |
-| `gate.failed` | **defined, not yet emitted** — see below |
+| `retest.completed` | a `RunKind.RETEST` run finished |
+| `gate.failed` | a workflow run's gate decision refused it |
 | `agent_investigation.completed` | a native-agent investigation reached `COMPLETED` |
 | `agent_investigation.failed` | a native-agent investigation reached `FAILED` |
 
@@ -87,11 +87,19 @@ from the investigation's own outcomes, never from the request text or a
 tool's raw output — the same zero-persistence discipline `docs/agent.md`
 describes for the agent's own storage.
 
-`retest.completed` and `gate.failed` are part of the event vocabulary and a
-channel may subscribe to them, but nothing emits them yet: the retest worker and
-the CI gate have not been wired to `enqueue`. A channel subscribed only to those
-will receive nothing. Said plainly here rather than left for someone to discover
-during an incident; tracked in `docs/roadmap.md`.
+`retest.completed` fires alongside a retest run's own `assessment.completed`
+(`_notify_run`, `app/workers/notifications.py`), carrying `reproduced` /
+`not_reproduced` / `not_tested` verdict counts in `facts` — the whole reason a
+retest was requested, which a channel subscribed to `assessment.completed`
+alone would have to infer from generic counts.
+
+`gate.failed` fires only when a workflow run's gate decision refuses it — a
+passing gate is already covered by the `workflow.completed` audit event, and
+only the failing outcome is worth paging on. Scheduled from each of
+`finish()`'s three call sites (`app/core/workflow/service.py`) once their own
+transaction commits, and built by `_notify_workflow_gate_failed` from the
+run's own stored `gate_reasons`/`gate_counts` rather than values passed at
+call time, so a retry always reflects what was actually decided.
 
 A channel subscribes to specific events and may set `min_severity` as a floor.
 An event no channel subscribes to produces no delivery row at all. An event
