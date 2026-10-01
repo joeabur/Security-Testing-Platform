@@ -60,24 +60,53 @@ export const createOrganizationSchema = z.object({
 });
 export type CreateOrganizationInput = z.infer<typeof createOrganizationSchema>;
 
-export const createTargetSchema = z.object({
-  name: z.string().min(1, "Name is required").max(200),
-  environment: z.enum(["staging", "test", "dev", "production"]),
-  kind: z.enum([
-    "llm_app",
-    "agent",
-    "rag",
-    "api",
-    "mcp_server",
-    "model_endpoint",
-    "web_app",
-  ]),
-  base_url: z
-    .string()
-    .min(1, "Base URL is required")
-    .max(2048)
-    .url("Enter a valid URL, e.g. https://staging.example.test"),
-});
+// The pentest-module kinds (backend/app/models/target.py's own comment)
+// repurpose base_url as an image reference, a cloud account ARN/
+// subscription/project id, or a VM hostname/domain rather than a URL, so
+// only the kinds with a real network/adapter surface require URL-shaped
+// input.
+const URL_BASED_TARGET_KINDS = new Set([
+  "llm_app",
+  "agent",
+  "rag",
+  "api",
+  "mcp_server",
+  "model_endpoint",
+  "web_app",
+]);
+const targetUrlSchema = z.string().url();
+
+export const createTargetSchema = z
+  .object({
+    name: z.string().min(1, "Name is required").max(200),
+    environment: z.enum(["staging", "test", "dev", "production"]),
+    kind: z.enum([
+      "llm_app",
+      "agent",
+      "rag",
+      "api",
+      "mcp_server",
+      "model_endpoint",
+      "web_app",
+      "container",
+      "cloud_account",
+      "virtual_machine",
+      "domain",
+    ]),
+    base_url: z.string().min(1, "This field is required").max(2048),
+  })
+  .superRefine((value, ctx) => {
+    if (
+      URL_BASED_TARGET_KINDS.has(value.kind) &&
+      !targetUrlSchema.safeParse(value.base_url).success
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Enter a valid URL, e.g. https://staging.example.test",
+        path: ["base_url"],
+      });
+    }
+  });
 export type CreateTargetInput = z.infer<typeof createTargetSchema>;
 
 export const createRepositorySchema = z.object({

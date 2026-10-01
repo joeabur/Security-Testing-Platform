@@ -72,7 +72,11 @@ export type TargetKind =
   | "mcp_server"
   | "model_endpoint"
   | "web_app"
-  | "code_repo";
+  | "code_repo"
+  | "container"
+  | "cloud_account"
+  | "virtual_machine"
+  | "domain";
 
 export interface Target {
   id: string;
