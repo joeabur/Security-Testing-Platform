@@ -248,10 +248,13 @@ honesty rule:
 - Evidence is unredacted-secret-free but **not encrypted at rest**.
 - Revoking `UPDATE`/`DELETE` on `audit_logs` at the database level is
   recommended, not enforced by this platform.
-- Rate limiting covers only the unauthenticated, identity-adjacent routes
-  (`login`, `register`, `login/2fa`, `forgot-password`, the OAuth callback);
-  every authenticated route relies on RBAC instead (extending the policy is
-  a table entry, not new machinery). The agent's own `agent_tool_call`/
+- The tight, attack-specific rate-limit budgets are still only the
+  unauthenticated, identity-adjacent routes (`login`, `register`,
+  `login/2fa`, `forgot-password`, the OAuth callback); every other
+  authenticated route sits behind one coarser, generous `api_default`
+  ceiling instead (1200 req/5 min per IP, 600/5 min per identity) rather
+  than RBAC alone — giving a route its own tighter budget beyond that is a
+  table entry, not new machinery. The agent's own `agent_tool_call`/
   `agent_sensitive_tool_call` policy entries are registered but not yet
   wired to a route — `docs/rate-limiting.md`.
 - The optional AI judge, if an operator turns it on, is only as good as its
