@@ -302,3 +302,106 @@ async def test_summary_is_404_for_a_non_member(client: AsyncClient, strong_passw
         f"/api/v1/organizations/{org_id}/dashboard/summary", headers=outsider_headers
     )
     assert response.status_code == 404
+
+
+async def test_empty_organization_has_an_empty_trend(
+    client: AsyncClient, strong_password: str
+) -> None:
+    org_id, _, headers = await _setup(client, strong_password, uuid.uuid4().hex[:8])
+
+    response = await client.get(
+        f"/api/v1/organizations/{org_id}/dashboard/findings-trend", headers=headers
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["days"] == 30
+    assert body["points"] == []
+
+
+async def test_trend_buckets_by_day_and_severity_within_the_window(
+    client: AsyncClient, db_session: AsyncSession, strong_password: str
+) -> None:
+    org_id, target_id, headers = await _setup(client, strong_password, uuid.uuid4().hex[:8])
+
+    today = datetime.now(UTC)
+    yesterday = today - timedelta(days=1)
+    outside_window = today - timedelta(days=90)
+
+    db_session.add_all(
+        [
+            _finding(
+                org_id, target_id, severity=Severity.CRITICAL, first_seen=today, last_seen=today
+            ),
+            _finding(
+                org_id, target_id, severity=Severity.HIGH, first_seen=today, last_seen=today
+            ),
+            _finding(
+                org_id,
+                target_id,
+                severity=Severity.CRITICAL,
+                first_seen=yesterday,
+                last_seen=yesterday,
+            ),
+            # Outside the default 30-day window — must not appear.
+            _finding(
+                org_id,
+                target_id,
+                severity=Severity.CRITICAL,
+                first_seen=outside_window,
+                last_seen=outside_window,
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    response = await client.get(
+        f"/api/v1/organizations/{org_id}/dashboard/findings-trend", headers=headers
+    )
+    assert response.status_code == 200
+    body = response.json()
+
+    by_day: dict[str, dict[str, int]] = {}
+    for point in body["points"]:
+        by_day.setdefault(point["day"], {})[point["severity"]] = point["count"]
+
+    assert by_day[today.date().isoformat()]["CRITICAL"] == 1
+    assert by_day[today.date().isoformat()]["HIGH"] == 1
+    assert by_day[yesterday.date().isoformat()]["CRITICAL"] == 1
+    assert outside_window.date().isoformat() not in by_day
+
+
+async def test_trend_days_query_param_is_clamped(
+    client: AsyncClient, strong_password: str
+) -> None:
+    org_id, _, headers = await _setup(client, strong_password, uuid.uuid4().hex[:8])
+
+    response = await client.get(
+        f"/api/v1/organizations/{org_id}/dashboard/findings-trend?days=9000", headers=headers
+    )
+    assert response.status_code == 422
+
+
+async def test_trend_does_not_leak_another_organizations_data(
+    client: AsyncClient, db_session: AsyncSession, strong_password: str
+) -> None:
+    org_a, _, headers_a = await _setup(client, strong_password, uuid.uuid4().hex[:8])
+    org_b, target_b, _headers_b = await _setup(client, strong_password, uuid.uuid4().hex[:8])
+
+    db_session.add(_finding(org_b, target_b, severity=Severity.CRITICAL))
+    await db_session.commit()
+
+    response = await client.get(
+        f"/api/v1/organizations/{org_a}/dashboard/findings-trend", headers=headers_a
+    )
+    assert response.status_code == 200
+    assert response.json()["points"] == []
+
+
+async def test_trend_is_404_for_a_non_member(client: AsyncClient, strong_password: str) -> None:
+    org_id, _, _ = await _setup(client, strong_password, uuid.uuid4().hex[:8])
+    _, _, outsider_headers = await _setup(client, strong_password, uuid.uuid4().hex[:8])
+
+    response = await client.get(
+        f"/api/v1/organizations/{org_id}/dashboard/findings-trend", headers=outsider_headers
+    )
+    assert response.status_code == 404

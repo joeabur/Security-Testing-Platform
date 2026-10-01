@@ -7,7 +7,7 @@ that knows how each number is derived.
 """
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel
 
@@ -62,6 +62,17 @@ class DashboardFindingRead(BaseModel):
     target_id: uuid.UUID | None
     target_name: str | None
     last_seen: datetime
+
+
+class TrendPointRead(BaseModel):
+    day: date
+    severity: Severity
+    count: int
+
+
+class FindingsTrendRead(BaseModel):
+    days: int
+    points: list[TrendPointRead]
 
 
 class DashboardSummary(BaseModel):

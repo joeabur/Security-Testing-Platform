@@ -519,6 +519,53 @@ async def remediation_summary(
     return RemediationSummary(open=int(open_count), overdue=int(overdue_count))
 
 
+@dataclass(frozen=True)
+class TrendPoint:
+    """One day's new-finding count, for one severity."""
+
+    day: date
+    severity: str
+    count: int
+
+
+async def findings_trend(
+    db: AsyncSession, organization_id: uuid.UUID, *, days: int = 30
+) -> list[TrendPoint]:
+    """Findings first observed per day, by severity, over the trailing window.
+
+    Bucketed by `first_seen`, not `created_at` or `last_seen`: a finding's
+    row is updated in place every time a later scan sees it again (`Finding`'s
+    own dedup-by-fingerprint rule), so `first_seen` is the one timestamp that
+    answers "when did this first show up" and never moves once set. A day
+    with nothing new simply has no row here — the caller fills the gap, the
+    same "zero is a fact, absence is not" split `Overview` already draws.
+    """
+    since = datetime.now(UTC) - timedelta(days=days)
+    rows = (
+        await db.execute(
+            select(
+                func.date_trunc("day", Finding.first_seen).label("day"),
+                Finding.severity,
+                func.count(Finding.id),
+            )
+            .where(
+                Finding.organization_id == organization_id,
+                Finding.first_seen >= since,
+            )
+            .group_by("day", Finding.severity)
+            .order_by("day")
+        )
+    ).all()
+    return [
+        TrendPoint(
+            day=day.date(),
+            severity=str(getattr(severity, "value", severity)).upper(),
+            count=int(count),
+        )
+        for day, severity, count in rows
+    ]
+
+
 async def pending_retest_count(db: AsyncSession, organization_id: uuid.UUID) -> int:
     """Findings claimed fixed but not yet checked.
 
