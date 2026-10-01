@@ -59,7 +59,13 @@ async def list_findings(
         # organization have open in total".
         query = query.where(Finding.last_run_id == run_id)
 
-    query = query.order_by(Finding.risk_score.desc(), Finding.last_seen.desc()).offset(offset)
+    # `id` is a final, unique tiebreaker: without one, rows tied on both
+    # risk_score and last_seen (e.g. several findings from the same scan)
+    # have no guaranteed relative order, so an unbounded query and a
+    # limit/offset-paginated one over the same data can disagree on it.
+    query = query.order_by(
+        Finding.risk_score.desc(), Finding.last_seen.desc(), Finding.id
+    ).offset(offset)
     if limit is not None:
         query = query.limit(limit)
 

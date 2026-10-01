@@ -8,6 +8,15 @@ All notable changes to this project are recorded here. The format follows
 
 ### Fixed
 
+- **Findings listing had no deterministic tiebreaker, so a page could silently disagree
+  with the unbounded list it was paging through.** `GET /organizations/{id}/findings` and
+  the dashboard's `top_findings`/`has_more_findings` queries all ordered by
+  `risk_score.desc(), last_seen.desc()` alone; two findings from the same scan commonly tie
+  on both, and Postgres gives no guarantee about a tied row's relative order between two
+  differently-shaped queries over the same data (e.g. an unbounded `SELECT` vs. one with
+  `LIMIT`/`OFFSET`). Added `Finding.id` as a final, unique `order_by` term in all three
+  query sites (`app/api/v1/routers/findings.py`, `app/core/dashboard/queries.py`) so paging
+  and the dashboard's "has more" check always agree with the full list's own order.
 - **`owasp_asvs` was pinned to a superseded edition, and the weekly
   framework-drift check couldn't tell.** OWASP ASVS 5.0.0 has been out since
   well before this deployment's last manual read, but the pin in
