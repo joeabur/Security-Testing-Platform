@@ -8,6 +8,25 @@ All notable changes to this project are recorded here. The format follows
 
 ### Fixed
 
+- **`owasp_asvs` was pinned to a superseded edition, and the weekly
+  framework-drift check couldn't tell.** OWASP ASVS 5.0.0 has been out since
+  well before this deployment's last manual read, but the pin in
+  `app/core/findings/frameworks.py` still named 4.0.3. Per OWASP's own
+  published v4.0.3→v5.0.0 crosswalk, `V2.10.4` ("secrets, API keys, and
+  passwords not included in source code") was deleted and merged into
+  `V13.3.1` ("secrets must not be included in application source code or
+  build artifacts") — updated the secrets-detection engine's two finding
+  sites (`app/core/appsec/secrets/engine.py`,
+  `.../secrets/gitleaks_engine.py`) accordingly, bumped the pinned edition,
+  and updated `docs/frameworks.md`'s table to match. Also fixed the
+  `framework-drift.yml` workflow itself: `gh api`'s HTTP error body can
+  reach stdout even with `--jq` and a non-2xx exit, and the old
+  `$(cmd || true)` capture trusted that output unconditionally — a 404 for
+  a framework with no GitHub releases (`owasp_llm_2026`) was landing in the
+  weekly drift issue as spurious "drift" (`{"message":"Not Found",...}`
+  read as the upstream version) instead of "could not be read." The fetch
+  now only trusts a capture when the command itself exited zero. See
+  GitHub issue #10.
 - **Frontend CI was broken on `main` for every PR**: the zod 3.23.8→4.5.0
   security bump left `lib/validation.ts`'s three `z.literal(true, {
   errorMap: ... })` calls using a v3-only option zod v4 no longer accepts
@@ -139,6 +158,19 @@ All notable changes to this project are recorded here. The format follows
   save via a transient object-URL anchor. A `501` (PDF requested without
   the optional `weasyprint` dependency installed) surfaces as a plain
   message pointing at another format, instead of a raw error.
+- **`retest.completed` and `gate.failed` notification events, previously
+  defined in the event vocabulary but never emitted** (`docs/integrations.md`
+  said so plainly). A retest run now fires `retest.completed` alongside its
+  own `assessment.completed`, carrying reproduced/not-reproduced/not-tested
+  verdict counts (`app/workers/notifications.py::_notify_run`); a workflow
+  run whose gate decision refuses it fires `gate.failed`, carrying the
+  severity counts and reasons the gate itself recorded
+  (`_notify_workflow_gate_failed`, scheduled from each of `finish()`'s three
+  call sites once their own transaction commits — the same "never let a
+  hanging channel hold the caller's request open" discipline
+  `notify_run_finished` already follows). A passing gate stays silent by
+  design: `workflow.completed` in the audit log already covers it, and only
+  the failing outcome is worth paging on.
 - **CLI: `kervy-ai assist` and `kervy-ai workflow`.** Two domains with a
   real API and no CLI command group at all — Phase 16's own write-up
   named `kervy assist` as deferred, and Phase 17 explicitly refused to add

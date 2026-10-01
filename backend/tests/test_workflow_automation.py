@@ -55,13 +55,27 @@ def _stub_broker(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     """`approve()` queues a real scan through `queue_run`, which sends a
     Celery task to a broker this test suite does not run. Same stub
     `test_runs_api.py`/`test_agent_tools.py` use against the same
-    `app.core.runs.service.celery_app`."""
+    `app.core.runs.service.celery_app`.
+
+    Two different calling conventions reach this stub: `queue_run` calls
+    `celery_app.send_task(name, args=[...])` directly, while a task's own
+    `.delay(...)` (e.g. `notify_workflow_gate_failed.delay(...)`, called from
+    `gate_workflow_run_if_linked_async`) routes through `Task.apply_async`,
+    which calls `app.send_task(name, args, kwargs, **options)` with `args`
+    and `kwargs` as the second and third *positional* parameters. The
+    signature below accepts both.
+    """
     queued: list[str] = []
 
     class _AsyncResult:
         id = "stub-task-id"
 
-    def _send_task(name: str, args: list[str] | None = None, **kwargs: object) -> _AsyncResult:
+    def _send_task(
+        name: str,
+        args: list[str] | tuple[str, ...] | None = None,
+        kwargs: dict[str, object] | None = None,
+        **options: object,
+    ) -> _AsyncResult:
         queued.append((args or [""])[0])
         return _AsyncResult()
 
