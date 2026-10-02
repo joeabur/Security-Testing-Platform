@@ -294,6 +294,66 @@ def _email(event: IntegrationEvent, base_url: str | None) -> RenderedMessage:
     )
 
 
+#: ServiceNow's `urgency`/`impact` fields on `incident` (and compatible
+#: tables) are small integers where *lower is more severe* — the opposite
+#: direction from this platform's own severity order. There is no fifth
+#: band: ServiceNow ships three, so `INFORMATIONAL` and `LOW` both land on
+#: the lowest urgency rather than inventing a value the table does not have.
+_SERVICENOW_URGENCY: Mapping[str, int] = {
+    "CRITICAL": 1,
+    "HIGH": 1,
+    "MEDIUM": 2,
+    "LOW": 3,
+    "INFORMATIONAL": 3,
+}
+
+
+def _adf_doc(lines: list[str]) -> dict[str, object]:
+    """Atlassian Document Format for a Jira v3 `description` field.
+
+    One paragraph, lines joined by `hardBreak` nodes, rather than one
+    paragraph per line — a plain list of short fact lines reads as a single
+    block in Jira's issue view either way, and this is fewer nodes for a
+    reader opening "Request body" in a debugger to look at.
+    """
+    content: list[dict[str, object]] = []
+    for index, line in enumerate(lines):
+        if index:
+            content.append({"type": "hardBreak"})
+        content.append({"type": "text", "text": line})
+    return {"type": "doc", "version": 1, "content": [{"type": "paragraph", "content": content}]}
+
+
+def _jira(event: IntegrationEvent, base_url: str | None) -> RenderedMessage:
+    lines = summary_lines(event, base_url)
+    summary = _safe(f"[Kervy] {event.title}"[:255])
+    description_text = "\n".join(lines)
+    _safe(description_text)
+    payload = {"summary": summary, "description_adf": _adf_doc(lines)}
+    return RenderedMessage(
+        body=json.dumps(payload).encode("utf-8"),
+        content_type="application/json",
+        summary=description_text,
+    )
+
+
+def _servicenow(event: IntegrationEvent, base_url: str | None) -> RenderedMessage:
+    description_text = _safe("\n".join(summary_lines(event, base_url)))
+    short_description = _safe(f"[Kervy] {event.title}"[:160])
+    urgency = _SERVICENOW_URGENCY.get((event.severity or "").upper(), 3)
+    payload = {
+        "short_description": short_description,
+        "description": description_text,
+        "urgency": urgency,
+        "impact": urgency,
+    }
+    return RenderedMessage(
+        body=json.dumps(payload).encode("utf-8"),
+        content_type="application/json",
+        summary=description_text,
+    )
+
+
 _RENDERERS = {
     ChannelKind.SLACK_WEBHOOK: _slack,
     ChannelKind.MSTEAMS_WEBHOOK: _teams,
@@ -302,6 +362,8 @@ _RENDERERS = {
     ChannelKind.SIEM_SPLUNK_HEC: _splunk_hec,
     ChannelKind.SIEM_SENTINEL: _sentinel,
     ChannelKind.SIEM_GENERIC_CEF: _cef,
+    ChannelKind.TICKET_JIRA: _jira,
+    ChannelKind.TICKET_SERVICENOW: _servicenow,
 }
 
 

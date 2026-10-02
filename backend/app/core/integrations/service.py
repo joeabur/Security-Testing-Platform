@@ -98,6 +98,7 @@ async def attempt(
     delivery.next_attempt_at = next_attempt
     delivery.status_code = result.status_code
     delivery.last_error = None if result.delivered else result.detail
+    delivery.external_reference = result.external_reference
     if result.delivered:
         delivery.delivered_at = datetime.now(UTC)
 
