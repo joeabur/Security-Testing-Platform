@@ -114,6 +114,171 @@ async def send_webhook(
     )
 
 
+def _basic_auth_header(username: str, password: str) -> str:
+    """`Authorization: Basic` value for a username/password pair.
+
+    Both Jira Cloud (email + API token) and ServiceNow's Table API document
+    this as a supported, simpler alternative to OAuth2 for a dedicated
+    integration account — see `send_jira_ticket`/`send_servicenow_ticket`.
+    """
+    import base64
+
+    return "Basic " + base64.b64encode(f"{username}:{password}".encode()).decode("ascii")
+
+
+async def send_jira_ticket(
+    destination: Destination,
+    message: RenderedMessage,
+    *,
+    email: str,
+    api_token: str,
+    project_key: str,
+    issue_type: str,
+    transport: GatedTransport | None = None,
+) -> DeliveryResult:
+    """Create one Jira Cloud issue via the v3 REST API.
+
+    `destination.url` is the site's base URL (`resolve_jira_destination`);
+    this appends the one path Jira documents for issue creation. A
+    successful create answers 201 with `{"key": "SEC-123", ...}` — that key
+    is what `external_reference` carries back, because it is the one thing
+    a caller needs to link to the ticket it just made.
+    """
+    import json
+
+    body = message.body
+    try:
+        parsed = json.loads(body)
+        issue_payload = {
+            "fields": {
+                "project": {"key": project_key},
+                "summary": parsed["summary"],
+                "description": parsed["description_adf"],
+                "issuetype": {"name": issue_type},
+            }
+        }
+    except (ValueError, KeyError) as exc:
+        return DeliveryResult(
+            delivered=False, detail=f"malformed Jira render: {exc}"[:400], retryable=False
+        )
+
+    ctx = notification_egress_context(destination)
+    client = transport or GatedTransport()
+    try:
+        observation = await client.send(
+            ctx,
+            method="POST",
+            url=f"{destination.url}/rest/api/3/issue",
+            headers={
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "Authorization": _basic_auth_header(email, api_token),
+            },
+            content=json.dumps(issue_payload).encode("utf-8"),
+            timeout_seconds=15.0,
+        )
+    except ScopeBlockedError as exc:
+        return DeliveryResult(
+            delivered=False,
+            detail=f"refused by scope engine: {exc.decision.reason}",
+            retryable=False,
+        )
+    except Exception as exc:  # noqa: BLE001 - a transport fault is retryable
+        return DeliveryResult(
+            delivered=False, detail=f"{type(exc).__name__}: {exc}"[:400], retryable=True
+        )
+
+    status = observation.status_code
+    if status == 201:
+        try:
+            key = json.loads(observation.body)["key"]
+        except (ValueError, KeyError):
+            key = None
+        return DeliveryResult(
+            delivered=True,
+            status_code=status,
+            detail="created" if key is None else f"created {key}",
+            external_reference=key,
+        )
+    return DeliveryResult(
+        delivered=False,
+        status_code=status,
+        detail=f"Jira returned HTTP {status}",
+        retryable=status in _RETRYABLE_STATUS,
+    )
+
+
+async def send_servicenow_ticket(
+    destination: Destination,
+    message: RenderedMessage,
+    *,
+    username: str,
+    password: str,
+    table: str,
+    transport: GatedTransport | None = None,
+) -> DeliveryResult:
+    """Create one record via the ServiceNow Table API.
+
+    `table` is interpolated into the request path after already passing the
+    DNS-label pattern in `schemas/integration.py`; `quote` here is the same
+    belt-and-braces `send_sentinel` applies to its own admin-supplied path
+    segments, not the only check. A successful create answers 201 with
+    `{"result": {"number": "INC0012345", ...}}` — `number` is the
+    human-facing identifier ServiceNow's own UI shows, so that is what
+    `external_reference` carries, falling back to `sys_id` if a customised
+    table's response ever omits it.
+    """
+    import json
+    from urllib.parse import quote
+
+    ctx = notification_egress_context(destination)
+    client = transport or GatedTransport()
+    try:
+        observation = await client.send(
+            ctx,
+            method="POST",
+            url=f"{destination.url}/api/now/table/{quote(table, safe='')}",
+            headers={
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "Authorization": _basic_auth_header(username, password),
+            },
+            content=message.body,
+            timeout_seconds=15.0,
+        )
+    except ScopeBlockedError as exc:
+        return DeliveryResult(
+            delivered=False,
+            detail=f"refused by scope engine: {exc.decision.reason}",
+            retryable=False,
+        )
+    except Exception as exc:  # noqa: BLE001 - a transport fault is retryable
+        return DeliveryResult(
+            delivered=False, detail=f"{type(exc).__name__}: {exc}"[:400], retryable=True
+        )
+
+    status = observation.status_code
+    if status == 201:
+        reference = None
+        try:
+            result = json.loads(observation.body)["result"]
+            reference = result.get("number") or result.get("sys_id")
+        except (ValueError, KeyError, AttributeError):
+            pass
+        return DeliveryResult(
+            delivered=True,
+            status_code=status,
+            detail="created" if reference is None else f"created {reference}",
+            external_reference=reference,
+        )
+    return DeliveryResult(
+        delivered=False,
+        status_code=status,
+        detail=f"ServiceNow returned HTTP {status}",
+        retryable=status in _RETRYABLE_STATUS,
+    )
+
+
 def smtp_scope_context(host: str, port: int) -> RunContext:
     """Scope context for one mail relay, so the engine can adjudicate it.
 

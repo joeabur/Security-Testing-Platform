@@ -10,6 +10,7 @@ service, a plaintext scheme, a payload carrying a secret.
 from __future__ import annotations
 
 import ipaddress
+import json
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -43,13 +44,15 @@ from app.core.integrations.dispatch import (
 from app.core.integrations.egress import notification_egress_context
 from app.core.integrations.policy import (
     redact_url,
+    resolve_jira_destination,
     resolve_secret,
+    resolve_servicenow_destination,
     resolve_smtp_host,
     resolve_webhook_destination,
     valid_env_var_name,
 )
 from app.core.integrations.render import MAX_SUMMARY_CHARS, render
-from app.core.integrations.send import send_webhook
+from app.core.integrations.send import send_jira_ticket, send_servicenow_ticket, send_webhook
 from app.core.integrations.signing import (
     SIGNATURE_HEADER,
     TIMESTAMP_HEADER,
@@ -766,3 +769,178 @@ async def test_an_smtp_relay_resolving_to_the_metadata_service_is_refused() -> N
     assert not result.delivered
     assert "refused by scope engine" in result.detail
     assert result.retryable is False
+
+
+# --- ticketing: Jira Cloud, ServiceNow -----------------------------------------
+
+
+class RecordingJsonTransport:
+    """Like `RecordingTransport`, but returns a configurable JSON body.
+
+    Jira and ServiceNow both answer a successful create with the created
+    record's identifier in the body, which `send_jira_ticket`/
+    `send_servicenow_ticket` must parse back out as `external_reference` —
+    `RecordingTransport` above never needed to return a body at all.
+    """
+
+    def __init__(self, status_code: int = 201, body: bytes = b"{}") -> None:
+        self.status_code = status_code
+        self.body = body
+        self.calls: list[dict[str, object]] = []
+
+    async def send(self, ctx: object, **kwargs: object) -> Observation:
+        self.calls.append(kwargs)
+        return Observation(
+            method=str(kwargs.get("method")),
+            url=str(kwargs.get("url")),
+            status_code=self.status_code,
+            headers={},
+            elapsed_ms=1.0,
+            body=self.body,
+        )
+
+
+def test_jira_site_must_be_a_dns_label() -> None:
+    with pytest.raises(IntegrationError, match="not a valid Jira site label"):
+        resolve_jira_destination("not a label/")
+
+
+def test_jira_destination_is_pinned_to_atlassian_net() -> None:
+    destination = resolve_jira_destination("mycompany")
+    assert destination.host == "mycompany.atlassian.net"
+    assert destination.url == "https://mycompany.atlassian.net"
+
+
+def test_servicenow_instance_must_be_a_dns_label() -> None:
+    with pytest.raises(IntegrationError, match="not a valid ServiceNow instance name"):
+        resolve_servicenow_destination("evil.com")
+
+
+def test_servicenow_destination_is_pinned_to_service_now_com() -> None:
+    destination = resolve_servicenow_destination("mycompany")
+    assert destination.host == "mycompany.service-now.com"
+    assert destination.url == "https://mycompany.service-now.com"
+
+
+def test_jira_payload_has_an_adf_description_and_a_summary() -> None:
+    message = render(ChannelKind.TICKET_JIRA, make_event())
+    payload = json.loads(message.body)
+    assert payload["summary"].startswith("[Kervy]")
+    adf = payload["description_adf"]
+    assert adf["type"] == "doc"
+    assert adf["content"][0]["type"] == "paragraph"
+
+
+def test_servicenow_payload_maps_severity_to_urgency() -> None:
+    critical = render(ChannelKind.TICKET_SERVICENOW, make_event(severity="CRITICAL"))
+    low = render(ChannelKind.TICKET_SERVICENOW, make_event(severity="LOW"))
+    assert json.loads(critical.body)["urgency"] == 1
+    assert json.loads(low.body)["urgency"] == 3
+
+
+async def test_jira_creates_an_issue_and_returns_its_key() -> None:
+    destination = resolve_jira_destination("mycompany")
+    message = render(ChannelKind.TICKET_JIRA, make_event())
+    transport = RecordingJsonTransport(
+        status_code=201, body=json.dumps({"id": "10001", "key": "SEC-123"}).encode()
+    )
+    result = await send_jira_ticket(
+        destination,
+        message,
+        email="bot@example.test",
+        api_token="tok",  # noqa: S106 - test fixture value, not a real token
+        project_key="SEC",
+        issue_type="Bug",
+        transport=transport,  # type: ignore[arg-type]
+    )
+    assert result.delivered
+    assert result.external_reference == "SEC-123"
+    assert result.status_code == 201
+    call = transport.calls[0]
+    assert call["url"] == "https://mycompany.atlassian.net/rest/api/3/issue"
+    headers = call["headers"]
+    assert isinstance(headers, dict)
+    assert headers["Authorization"].startswith("Basic ")
+    body = json.loads(call["content"])  # type: ignore[arg-type]
+    assert body["fields"]["project"]["key"] == "SEC"
+    assert body["fields"]["issuetype"]["name"] == "Bug"
+
+
+async def test_jira_a_non_201_response_is_not_delivered() -> None:
+    destination = resolve_jira_destination("mycompany")
+    message = render(ChannelKind.TICKET_JIRA, make_event())
+    transport = RecordingJsonTransport(status_code=400, body=b"{}")
+    result = await send_jira_ticket(
+        destination,
+        message,
+        email="bot@example.test",
+        api_token="tok",  # noqa: S106
+        project_key="SEC",
+        issue_type="Bug",
+        transport=transport,  # type: ignore[arg-type]
+    )
+    assert not result.delivered
+    assert result.external_reference is None
+    assert result.retryable is False
+
+
+async def test_servicenow_creates_a_record_and_returns_its_number() -> None:
+    destination = resolve_servicenow_destination("mycompany")
+    message = render(ChannelKind.TICKET_SERVICENOW, make_event())
+    transport = RecordingJsonTransport(
+        status_code=201,
+        body=json.dumps({"result": {"sys_id": "abc123", "number": "INC0012345"}}).encode(),
+    )
+    result = await send_servicenow_ticket(
+        destination,
+        message,
+        username="bot",
+        password="pw",  # noqa: S106 - test fixture value, not a real password  # pragma: allowlist secret
+        table="incident",
+        transport=transport,  # type: ignore[arg-type]
+    )
+    assert result.delivered
+    assert result.external_reference == "INC0012345"
+    call = transport.calls[0]
+    assert call["url"] == "https://mycompany.service-now.com/api/now/table/incident"
+    headers = call["headers"]
+    assert isinstance(headers, dict)
+    assert headers["Authorization"].startswith("Basic ")
+
+
+async def test_servicenow_a_500_response_is_retryable() -> None:
+    destination = resolve_servicenow_destination("mycompany")
+    message = render(ChannelKind.TICKET_SERVICENOW, make_event())
+    transport = RecordingJsonTransport(status_code=500, body=b"{}")
+    result = await send_servicenow_ticket(
+        destination,
+        message,
+        username="bot",
+        password="pw",  # noqa: S106  # pragma: allowlist secret
+        table="incident",
+        transport=transport,  # type: ignore[arg-type]
+    )
+    assert not result.delivered
+    assert result.retryable is True
+
+
+async def test_servicenow_table_name_is_escaped_in_the_request_path() -> None:
+    """A table name outside the schema's own pattern should never reach this
+    far in production, but `send_servicenow_ticket` does not trust that: the
+    `quote` it applies is the second of two independent checks (the other
+    being the schema's own `pattern=r"^[a-z0-9_]+$"`), and this proves it
+    actually runs rather than just existing in a docstring."""
+    destination = resolve_servicenow_destination("mycompany")
+    message = render(ChannelKind.TICKET_SERVICENOW, make_event())
+    transport = RecordingJsonTransport(status_code=201, body=b'{"result": {}}')
+    await send_servicenow_ticket(
+        destination,
+        message,
+        username="bot",
+        password="pw",  # noqa: S106  # pragma: allowlist secret
+        table="incident/../secret",
+        transport=transport,  # type: ignore[arg-type]
+    )
+    url = str(transport.calls[0]["url"])
+    assert "/../" not in url
+    assert "incident%2F..%2Fsecret" in url

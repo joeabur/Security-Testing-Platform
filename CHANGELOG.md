@@ -169,6 +169,20 @@ All notable changes to this project are recorded here. The format follows
 
 ### Added
 
+- **External ticketing: production Jira Cloud and ServiceNow adapters for
+  notification channels.** Two new `ChannelKind` values, `ticket_jira` and
+  `ticket_servicenow`, alongside the existing Slack/Teams/webhook/email
+  kinds — a delivery to one of these *creates a record* rather than
+  notifying about one. Jira: `POST /rest/api/3/issue` with Basic auth
+  (account email + API token) and an Atlassian Document Format description;
+  ServiceNow: `POST /api/now/table/<table>` with Basic auth (username +
+  password), severity mapped to `urgency`/`impact`. Both vendor-host-pinned
+  (`*.atlassian.net`, `*.service-now.com`) from an admin-chosen site/instance
+  *label*, never a URL, so there is no field through which a channel could
+  be repointed at an arbitrary host. The created ticket's key/number comes
+  back as `NotificationDelivery.external_reference`. See
+  `docs/integrations.md`'s "Ticketing channels" section and
+  `docs/roadmap.md`'s external-ticketing write-up.
 - **MITRE ATT&CK (Enterprise) mapping for the pentest module's own findings.**
   `docs/frameworks.md` already pinned `mitre_atlas` (AI-specific), but the
   pentest module's engines test conventional infrastructure — exactly

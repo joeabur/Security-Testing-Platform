@@ -4838,3 +4838,104 @@ claimed" tests cover the new entry with no changes of their own),
 `test_framework_drift.py`. All run against an isolated scratch database to
 avoid colliding with the full-suite run already in flight; full backend
 suite confirmed separately.
+
+## External ticketing: Jira Cloud, ServiceNow
+
+### Context
+
+Every channel this platform has ever had *notifies* about an event —
+Slack, Teams, a signed generic webhook, email, and (separately) the SIEM
+kinds (Splunk HEC, Microsoft Sentinel, generic CEF). None of them creates
+a record anyone has to act on and close; that is the one capability a
+ticketing integration exists for, and the platform had no adapter that did
+it.
+
+### Design
+
+Two new `ChannelKind` values on the existing `NotificationChannel`
+machinery — `ticket_jira`, `ticket_servicenow` — rather than a parallel
+model, for the same reason the SIEM kinds reused it: subscription,
+retry/backoff/dead-letter, audit logging and the CLI all already exist and
+apply unchanged. What is genuinely new is the *outcome* a delivery
+produces: `DeliveryResult` gains `external_reference`, the ticket key or
+number a creation call's 2xx response carried back
+(`NotificationDelivery.external_reference` persists it), because a ticket
+a caller cannot find is not meaningfully different from no ticket.
+
+**Jira Cloud** (`app/core/integrations/send.py::send_jira_ticket`) —
+`POST /rest/api/3/issue`, `Authorization: Basic` over the account email
+and an API token (Atlassian's own documented alternative to OAuth for a
+dedicated integration account; verified against Atlassian's own developer
+docs, not assumed). The v3 API represents `description` in Atlassian
+Document Format, not plain text — `render.py`'s `_jira` builds one
+paragraph with `hardBreak` nodes between the same fact lines every other
+renderer already produces from `summary_lines()`. Success is `201` with
+`{"key": "SEC-123", ...}`.
+
+**ServiceNow** (`send_servicenow_ticket`) — `POST /api/now/table/<table>`,
+`Authorization: Basic` over a username and password — ServiceNow's own
+Table API documentation lists Basic auth alongside OAuth2 as a supported
+method, chosen here the same way Splunk HEC's single header was chosen
+over Sentinel's two-call OAuth flow in the SIEM integration: one vendor in
+the pair carries the simpler auth so the increment is not two OAuth2
+integrations at once. Severity maps to ServiceNow's `urgency`/`impact`
+(1 = most urgent — the inverse of this platform's own severity order, not
+a mistake): CRITICAL/HIGH → 1, MEDIUM → 2, LOW/INFORMATIONAL → 3. Success
+is `201` with `{"result": {"number": "INC0012345", ...}}`.
+
+**Destination resolution is a label, not a URL — on purpose.**
+`policy.resolve_jira_destination`/`resolve_servicenow_destination` take
+only `jira_site`/`servicenow_instance`, build
+`https://<label>.atlassian.net` (or `.service-now.com`) themselves, and
+check the *result* against `KIND_HOST_POLICY`. This is a stricter shape
+than every other kind in this file: there is no field an admin fills in
+that could itself be an off-vendor URL, because there is no URL field at
+all. What remains is the label, plus `servicenow_table` — the one other
+identifier that ends up in a request path rather than only a JSON body
+field (`jira_project_key`/`jira_issue_type` never do): both
+`jira_site`/`servicenow_instance` and `servicenow_table` are restricted to
+a DNS-label-like or Table-API-safe charset at the schema layer
+(`app/schemas/integration.py`'s `pattern=` fields), and `send.py` applies
+`urllib.parse.quote` to `servicenow_table` again at the point of use —
+the identical two-layer discipline (schema pattern, then `quote` at the
+call site) the SIEM integration's Sentinel adapter uses for its own
+admin-supplied path segments (`tenant_id`, `dcr_immutable_id`,
+`stream_name`), applied here from the first commit rather than added
+after a finding, since that lesson was already learned.
+
+### What this does not do
+
+No real Jira or ServiceNow account was used to verify delivery end to
+end — that needs real tenant credentials this deployment does not have.
+What is verified: every HTTP call is spec-correct (auth header, URL shape,
+request/response contract) against each vendor's own published API
+documentation, and the full control-flow (host policy, Basic-auth
+resolution, response-body parsing into `external_reference`,
+retry/refusal classification) is exercised with a fake transport the same
+way every other adapter in this file is. No OAuth2 support for either
+vendor — both document Basic auth with a dedicated account as a supported
+path, and adding OAuth2 client-credentials for one or both is a later,
+separate increment if an operator needs it, not required to prove this
+increment's control flow. No UI for configuring a channel — API and CLI
+only, matching this platform's own "dashboard is a later phase" precedent.
+No update/re-sync of a ticket after creation (status changes, comments) —
+this is a one-shot "open a ticket" integration, the same scope the SIEM
+kinds have for "send an event."
+
+### Verified
+
+`ruff check`/`mypy app kervy_cli mcp_server` clean. Migration round-trips
+(`upgrade head`, `downgrade -1`, `upgrade head` again) clean against a
+real Postgres. New tests in `tests/test_integrations.py` (Jira/ServiceNow
+destination resolution rejecting a malformed label, ADF description shape,
+ServiceNow severity-to-urgency mapping, both adapters' full creation flow
+against a fake transport including a non-2xx response and the
+`servicenow_table` quoting actually running rather than just existing in a
+docstring) and `tests/test_integrations_api.py` (schema validation for
+each kind's required fields, a malformed site/table label rejected at the
+schema layer, Jira and ServiceNow fields refused on each other's kind, a
+created channel's response never carrying the token/password value). Full
+`test_integrations.py` (79) and `test_integrations_api.py` (25) pass
+against an isolated database, run from a separate git worktree so as not
+to collide with the SIEM integration's own full-suite run already in
+flight on the shared `kervy_test` database.

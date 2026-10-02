@@ -113,6 +113,33 @@ def slack_payload(**extra: object) -> dict[str, object]:
     }
 
 
+def jira_payload(**extra: object) -> dict[str, object]:
+    return {
+        "name": "jira-tickets",
+        "kind": "ticket_jira",
+        "events": ["finding.critical"],
+        "jira_site": "mycompany",
+        "jira_email": "bot@example.test",
+        "jira_api_token_env_var": "KERVY_TEST_JIRA_TOKEN",  # pragma: allowlist secret
+        "jira_project_key": "SEC",
+        "jira_issue_type": "Bug",
+        **extra,
+    }
+
+
+def servicenow_payload(**extra: object) -> dict[str, object]:
+    return {
+        "name": "servicenow-tickets",
+        "kind": "ticket_servicenow",
+        "events": ["finding.critical"],
+        "servicenow_instance": "mycompany",
+        "servicenow_table": "incident",
+        "servicenow_username": "bot",
+        "servicenow_password_env_var": "KERVY_TEST_SERVICENOW_PASSWORD",  # pragma: allowlist secret
+        **extra,
+    }
+
+
 # --- creation ---------------------------------------------------------------
 
 
@@ -777,3 +804,106 @@ async def test_a_run_with_no_subscribed_channel_writes_no_delivery_rows(
         .all()
     )
     assert rows == []
+
+
+# --- ticketing: Jira Cloud, ServiceNow ---------------------------------------
+
+
+async def test_a_jira_channel_missing_required_fields_is_rejected(
+    client: AsyncClient, strong_password: str
+) -> None:
+    org_id, headers = await _owner(client, strong_password, "m")
+    response = await client.post(
+        f"/api/v1/organizations/{org_id}/notification-channels",
+        json=jira_payload(jira_project_key=None),
+        headers=headers,
+    )
+    assert response.status_code == 422
+    assert "jira_project_key" in response.text
+
+
+async def test_a_jira_site_with_invalid_characters_is_rejected_by_the_schema(
+    client: AsyncClient, strong_password: str
+) -> None:
+    org_id, headers = await _owner(client, strong_password, "n")
+    response = await client.post(
+        f"/api/v1/organizations/{org_id}/notification-channels",
+        json=jira_payload(jira_site="not a label/"),
+        headers=headers,
+    )
+    assert response.status_code == 422
+
+
+async def test_a_jira_channel_is_created_with_identifiers_but_no_secret_value(
+    client: AsyncClient, strong_password: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("KERVY_TEST_JIRA_TOKEN", "super-secret-api-token")
+    org_id, headers = await _owner(client, strong_password, "o")
+    response = await client.post(
+        f"/api/v1/organizations/{org_id}/notification-channels",
+        json=jira_payload(),
+        headers=headers,
+    )
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["jira_site"] == "mycompany"
+    assert body["jira_project_key"] == "SEC"
+    assert body["jira_api_token_env_var"] == "KERVY_TEST_JIRA_TOKEN"  # pragma: allowlist secret
+    assert "super-secret-api-token" not in response.text
+
+
+async def test_a_servicenow_channel_missing_required_fields_is_rejected(
+    client: AsyncClient, strong_password: str
+) -> None:
+    org_id, headers = await _owner(client, strong_password, "p")
+    response = await client.post(
+        f"/api/v1/organizations/{org_id}/notification-channels",
+        json=servicenow_payload(servicenow_table=None),
+        headers=headers,
+    )
+    assert response.status_code == 422
+    assert "servicenow_table" in response.text
+
+
+async def test_a_servicenow_table_with_invalid_characters_is_rejected_by_the_schema(
+    client: AsyncClient, strong_password: str
+) -> None:
+    org_id, headers = await _owner(client, strong_password, "q")
+    response = await client.post(
+        f"/api/v1/organizations/{org_id}/notification-channels",
+        json=servicenow_payload(servicenow_table="incident/../secret"),
+        headers=headers,
+    )
+    assert response.status_code == 422
+
+
+async def test_a_servicenow_channel_is_created_with_identifiers_but_no_secret_value(
+    client: AsyncClient, strong_password: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("KERVY_TEST_SERVICENOW_PASSWORD", "super-secret-password")
+    org_id, headers = await _owner(client, strong_password, "r")
+    response = await client.post(
+        f"/api/v1/organizations/{org_id}/notification-channels",
+        json=servicenow_payload(),
+        headers=headers,
+    )
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["servicenow_instance"] == "mycompany"
+    assert body["servicenow_table"] == "incident"
+    env_var_name = "KERVY_TEST_SERVICENOW_PASSWORD"  # pragma: allowlist secret
+    assert body["servicenow_password_env_var"] == env_var_name
+    assert "super-secret-password" not in response.text
+
+
+async def test_jira_and_servicenow_fields_do_not_cross_apply(
+    client: AsyncClient, strong_password: str
+) -> None:
+    org_id, headers = await _owner(client, strong_password, "s")
+    response = await client.post(
+        f"/api/v1/organizations/{org_id}/notification-channels",
+        json=jira_payload(servicenow_instance="mycompany"),
+        headers=headers,
+    )
+    assert response.status_code == 422
+    assert "ServiceNow" in response.text

@@ -79,6 +79,27 @@ class NotificationChannel(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     from_address: Mapped[str | None] = mapped_column(String(320), nullable=True)
     recipients: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
 
+    #: Jira Cloud only. `jira_site` is the label before `.atlassian.net` —
+    #: not a secret, but constrained to a DNS-label charset at the schema
+    #: layer because it becomes part of a request URL (`policy.py`). The
+    #: API token is by reference like every other credential; the email
+    #: identifies the Atlassian account the token belongs to and is not
+    #: itself secret.
+    jira_site: Mapped[str | None] = mapped_column(String(63), nullable=True)
+    jira_email: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    jira_api_token_env_var: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    jira_project_key: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    jira_issue_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    #: ServiceNow only. Same shape as the Jira fields above: `servicenow_instance`
+    #: is a DNS label, `servicenow_table` is the Table API table name (also
+    #: constrained, since it too becomes part of a request URL), and the
+    #: password is by reference.
+    servicenow_instance: Mapped[str | None] = mapped_column(String(63), nullable=True)
+    servicenow_table: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    servicenow_username: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    servicenow_password_env_var: Mapped[str | None] = mapped_column(String(128), nullable=True)
+
     #: Event types this channel is subscribed to, as `EventType` values.
     events: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     #: Floor on finding severity. Null means every subscribed event goes out.
@@ -117,6 +138,9 @@ class NotificationDelivery(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     status_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
     #: Redacted before it is written, and short. Never a response body.
     last_error: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    #: The ticket a `TICKET_*` channel's creation call returned — see
+    #: `DeliveryResult.external_reference`. Null for every other kind.
+    external_reference: Mapped[str | None] = mapped_column(String(200), nullable=True)
 
     #: The event's scalar fields, kept so a dead-lettered delivery can be
     #: understood and replayed. Never the rendered body, which for a signed

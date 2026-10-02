@@ -649,6 +649,19 @@ def cmd_channels_add(args: argparse.Namespace, profile: Profile) -> ExitCode:
         payload["signing_secret_env_var"] = args.signing_secret_env_var
     if args.min_severity:
         payload["min_severity"] = args.min_severity
+    for field, value in (
+        ("jira_site", args.jira_site),
+        ("jira_email", args.jira_email),
+        ("jira_api_token_env_var", args.jira_api_token_env_var),
+        ("jira_project_key", args.jira_project_key),
+        ("jira_issue_type", args.jira_issue_type),
+        ("servicenow_instance", args.servicenow_instance),
+        ("servicenow_table", args.servicenow_table),
+        ("servicenow_username", args.servicenow_username),
+        ("servicenow_password_env_var", args.servicenow_password_env_var),
+    ):
+        if value:
+            payload[field] = value
     _emit(
         _client(profile).request(
             "POST", f"/organizations/{org}/notification-channels", json_body=payload
@@ -1079,7 +1092,14 @@ def _parser() -> argparse.ArgumentParser:
     ch_add.add_argument(
         "--kind",
         required=True,
-        choices=["slack_webhook", "msteams_webhook", "generic_webhook", "email_smtp"],
+        choices=[
+            "slack_webhook",
+            "msteams_webhook",
+            "generic_webhook",
+            "email_smtp",
+            "ticket_jira",
+            "ticket_servicenow",
+        ],
     )
     ch_add.add_argument(
         "--event", action="append", required=True, help="repeatable; an event type to subscribe to"
@@ -1089,6 +1109,15 @@ def _parser() -> argparse.ArgumentParser:
     )
     ch_add.add_argument("--signing-secret-env-var")
     ch_add.add_argument("--min-severity")
+    ch_add.add_argument("--jira-site", help="the label before '.atlassian.net'")
+    ch_add.add_argument("--jira-email")
+    ch_add.add_argument("--jira-api-token-env-var")
+    ch_add.add_argument("--jira-project-key")
+    ch_add.add_argument("--jira-issue-type")
+    ch_add.add_argument("--servicenow-instance", help="the label before '.service-now.com'")
+    ch_add.add_argument("--servicenow-table")
+    ch_add.add_argument("--servicenow-username")
+    ch_add.add_argument("--servicenow-password-env-var")
     ch_add.set_defaults(handler=cmd_channels_add)
     ch_test = channels.add_parser("test")
     ch_test.add_argument("--channel", required=True)
