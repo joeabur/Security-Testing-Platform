@@ -255,6 +255,17 @@ class Settings(BaseSettings):
         default=None, alias="KERVY_PLATFORM_SMTP_PASSWORD_ENV_VAR"
     )
 
+    # --- organization invitations --------------------------------------------
+    #: A week, not 30 minutes like a password reset: an invitation goes to
+    #: someone who may not check their inbox right away, and re-inviting is
+    #: an admin action the recipient cannot trigger themselves the way
+    #: `/auth/forgot-password` lets a locked-out user retry instantly. Uses
+    #: the same `platform_smtp_*` relay as a password reset — there is only
+    #: one platform-level outbound mail destination, not one per feature.
+    invitation_token_ttl_minutes: int = Field(
+        default=10080, alias="KERVY_INVITATION_TOKEN_TTL_MINUTES"
+    )
+
     # --- two-factor authentication (TOTP) ----------------------------------
     #: Not "optional encryption" any more than `webhook_secret_encryption_key`
     #: is — a TOTP shared secret is exactly as sensitive as a webhook secret
@@ -293,6 +304,14 @@ class Settings(BaseSettings):
 
     @property
     def password_reset_enabled(self) -> bool:
+        return bool(self.platform_smtp_host and self.platform_smtp_from_address)
+
+    @property
+    def invitation_email_enabled(self) -> bool:
+        """Same underlying check as `password_reset_enabled` — there is one
+        platform SMTP relay, not one per feature — named separately so a
+        caller asks about its own feature rather than a password-reset
+        concept it has nothing to do with."""
         return bool(self.platform_smtp_host and self.platform_smtp_from_address)
 
     def model_post_init(self, __context: object) -> None:
