@@ -177,7 +177,7 @@ async def _fetch_sentinel_token(
     failure: an unobtainable token means this attempt cannot proceed, the
     same as any other configuration problem `_deliver_once_raw` catches."""
     import json
-    from urllib.parse import urlencode
+    from urllib.parse import quote, urlencode
 
     body = urlencode(
         {
@@ -192,7 +192,7 @@ async def _fetch_sentinel_token(
         observation = await transport.send(
             ctx,
             method="POST",
-            url=f"https://{SENTINEL_TOKEN_HOST}/{tenant_id}/oauth2/v2.0/token",
+            url=f"https://{SENTINEL_TOKEN_HOST}/{quote(tenant_id, safe='')}/oauth2/v2.0/token",
             headers={"Content-Type": "application/x-www-form-urlencoded"},
             content=body,
             timeout_seconds=15.0,
@@ -239,8 +239,11 @@ async def send_sentinel(
     except IntegrationError as exc:
         return DeliveryResult(delivered=False, detail=str(exc), retryable=False)
 
+    from urllib.parse import quote
+
     url = (
-        f"{destination.url}/dataCollectionRules/{dcr_immutable_id}/streams/{stream_name}"
+        f"{destination.url}/dataCollectionRules/{quote(dcr_immutable_id, safe='')}"
+        f"/streams/{quote(stream_name, safe='')}"
         f"?api-version={SENTINEL_API_VERSION}"
     )
     ctx = notification_egress_context(destination)

@@ -4920,5 +4920,5 @@ required fields, a Sentinel channel pointed off the Azure ingestion domain
 refused at creation, a created channel's response never carrying the
 client secret's value). Full `test_integrations.py` (70) and
 `test_integrations_api.py` combined with it (93 total) pass against an
-isolated database. Full backend suite (2081 passed, 3 skipped) confirmed
+isolated database. Full backend suite (2093 passed, 3 skipped) confirmed
 separately against the same migrated database.

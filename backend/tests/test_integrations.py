@@ -962,7 +962,7 @@ async def test_sentinel_a_failed_token_exchange_never_reaches_the_dce() -> None:
         message,
         tenant_id="tenant-1",
         client_id="client-1",
-        client_secret="wrong",
+        client_secret="wrong",  # pragma: allowlist secret
         dcr_immutable_id="dcr-abc",
         stream_name="Custom-KervySecurityEvent",
         transport=transport,  # type: ignore[arg-type]

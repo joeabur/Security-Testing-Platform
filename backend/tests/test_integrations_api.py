@@ -860,7 +860,7 @@ async def test_a_sentinel_channel_pointing_off_the_azure_domain_is_refused(
             "sentinel_endpoint": "https://attacker.test/x",
             "azure_tenant_id": "tenant-1",
             "azure_client_id": "client-1",
-            "azure_client_secret_env_var": "KERVY_TEST_AZURE_SECRET",
+            "azure_client_secret_env_var": "KERVY_TEST_AZURE_SECRET",  # pragma: allowlist secret
             "sentinel_dcr_immutable_id": "dcr-abc",
             "sentinel_stream_name": "Custom-KervySecurityEvent",
         },

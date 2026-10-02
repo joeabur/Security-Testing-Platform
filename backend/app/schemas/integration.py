@@ -32,12 +32,28 @@ class ChannelCreate(BaseModel):
 
     # Sentinel only. None of these six are secrets except
     # azure_client_secret_env_var — see app/models/integration.py.
+    #
+    # All four identifier fields below end up interpolated into the path of
+    # an outbound HTTPS request (`send.py`'s token-exchange and
+    # Logs-Ingestion URLs). The destination *host* in those requests is
+    # always a fixed literal or an already-policy-checked `Destination`, so
+    # these values can never redirect the request to a different host — but
+    # an unconstrained value could still rewrite the *path* (e.g. embed
+    # `/../` or a stray `?`/`#`) in a way static analysis cannot distinguish
+    # from a host-changing injection. Restricting the charset to what Azure
+    # itself ever issues for these identifiers closes that off at the one
+    # place it can be fixed for good, rather than trusting every call site
+    # downstream to escape it correctly.
     sentinel_endpoint: str | None = Field(default=None, max_length=300)
-    azure_tenant_id: str | None = Field(default=None, max_length=64)
-    azure_client_id: str | None = Field(default=None, max_length=64)
+    azure_tenant_id: str | None = Field(default=None, max_length=64, pattern=r"^[A-Za-z0-9._-]+$")
+    azure_client_id: str | None = Field(default=None, max_length=64, pattern=r"^[A-Za-z0-9-]+$")
     azure_client_secret_env_var: str | None = Field(default=None, max_length=128)
-    sentinel_dcr_immutable_id: str | None = Field(default=None, max_length=64)
-    sentinel_stream_name: str | None = Field(default=None, max_length=100)
+    sentinel_dcr_immutable_id: str | None = Field(
+        default=None, max_length=64, pattern=r"^[A-Za-z0-9-]+$"
+    )
+    sentinel_stream_name: str | None = Field(
+        default=None, max_length=100, pattern=r"^[A-Za-z0-9_-]+$"
+    )
 
     # Email.
     smtp_host: str | None = Field(default=None, max_length=255)
