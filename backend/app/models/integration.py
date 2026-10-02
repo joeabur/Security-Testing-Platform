@@ -71,6 +71,29 @@ class NotificationChannel(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     #: from anyone else's POST.
     signing_secret_env_var: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
+    #: Splunk HEC only: env var holding the HEC token sent as
+    #: `Authorization: Splunk <token>`. By reference like every other
+    #: credential here — see the module docstring.
+    auth_token_env_var: Mapped[str | None] = mapped_column(String(128), nullable=True)
+
+    #: Microsoft Sentinel only (Logs Ingestion API). None of these five are
+    #: secrets by themselves — a Data Collection Endpoint URL carries no
+    #: token in its path (unlike a Slack/Teams webhook), and a tenant id,
+    #: client id and DCR/stream name are identifiers, not credentials — so
+    #: all five are stored directly rather than by env-var reference; only
+    #: the Entra ID app's client *secret* is. Reaching the endpoint still
+    #: requires a bearer token scoped to that specific DCR, obtained via the
+    #: client-credentials exchange below.
+    sentinel_endpoint: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    azure_tenant_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    azure_client_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    azure_client_secret_env_var: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    #: The Data Collection Rule's immutable id and the custom table's stream
+    #: name, together addressing exactly where an event lands —
+    #: `{endpoint}/dataCollectionRules/{dcr_immutable_id}/streams/{stream_name}`.
+    sentinel_dcr_immutable_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    sentinel_stream_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+
     #: Email only. The password is by reference like everything else.
     smtp_host: Mapped[str | None] = mapped_column(String(255), nullable=True)
     smtp_port: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -78,6 +101,27 @@ class NotificationChannel(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     smtp_password_env_var: Mapped[str | None] = mapped_column(String(128), nullable=True)
     from_address: Mapped[str | None] = mapped_column(String(320), nullable=True)
     recipients: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+
+    #: Jira Cloud only. `jira_site` is the label before `.atlassian.net` —
+    #: not a secret, but constrained to a DNS-label charset at the schema
+    #: layer because it becomes part of a request URL (`policy.py`). The
+    #: API token is by reference like every other credential; the email
+    #: identifies the Atlassian account the token belongs to and is not
+    #: itself secret.
+    jira_site: Mapped[str | None] = mapped_column(String(63), nullable=True)
+    jira_email: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    jira_api_token_env_var: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    jira_project_key: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    jira_issue_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    #: ServiceNow only. Same shape as the Jira fields above: `servicenow_instance`
+    #: is a DNS label, `servicenow_table` is the Table API table name (also
+    #: constrained, since it too becomes part of a request URL), and the
+    #: password is by reference.
+    servicenow_instance: Mapped[str | None] = mapped_column(String(63), nullable=True)
+    servicenow_table: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    servicenow_username: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    servicenow_password_env_var: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
     #: Event types this channel is subscribed to, as `EventType` values.
     events: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
@@ -117,6 +161,9 @@ class NotificationDelivery(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     status_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
     #: Redacted before it is written, and short. Never a response body.
     last_error: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    #: The ticket a `TICKET_*` channel's creation call returned — see
+    #: `DeliveryResult.external_reference`. Null for every other kind.
+    external_reference: Mapped[str | None] = mapped_column(String(200), nullable=True)
 
     #: The event's scalar fields, kept so a dead-lettered delivery can be
     #: understood and replayed. Never the rendered body, which for a signed

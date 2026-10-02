@@ -42,12 +42,22 @@ from app.core.integrations.contract import (
 )
 from app.core.integrations.policy import (
     redact_url,
+    resolve_jira_destination,
     resolve_secret,
+    resolve_sentinel_destination,
+    resolve_servicenow_destination,
     resolve_smtp_host,
     resolve_webhook_destination,
 )
 from app.core.integrations.render import render
-from app.core.integrations.send import DEFAULT_SMTP_PORT, send_email, send_webhook
+from app.core.integrations.send import (
+    DEFAULT_SMTP_PORT,
+    send_email,
+    send_jira_ticket,
+    send_sentinel,
+    send_servicenow_ticket,
+    send_webhook,
+)
 from app.core.redaction.secrets import redact
 from app.models.integration import DeliveryStatus, NotificationChannel
 
@@ -73,6 +83,12 @@ class ChannelSecrets:
     endpoint_url: str | None = None
     signing_secret: str | None = None
     smtp_password: str | None = None
+    #: Splunk HEC only.
+    auth_token: str | None = None
+    #: Sentinel only — the Entra ID app's client secret.
+    azure_client_secret: str | None = None
+    jira_api_token: str | None = None
+    servicenow_password: str | None = None
 
 
 def subscribes(channel: NotificationChannel, event: IntegrationEvent) -> bool:
@@ -154,6 +170,37 @@ async def _deliver_once_raw(
 
     resolved = secrets or ChannelSecrets()
     try:
+        if kind is ChannelKind.SIEM_SENTINEL:
+            if not channel.sentinel_endpoint:
+                raise IntegrationError("Sentinel channel has no sentinel_endpoint configured")
+            if not (
+                channel.azure_tenant_id
+                and channel.azure_client_id
+                and channel.sentinel_dcr_immutable_id
+                and channel.sentinel_stream_name
+            ):
+                raise IntegrationError(
+                    "Sentinel channel is missing azure_tenant_id, azure_client_id, "
+                    "sentinel_dcr_immutable_id, or sentinel_stream_name"
+                )
+            client_secret = resolved.azure_client_secret
+            if client_secret is None and channel.azure_client_secret_env_var:
+                client_secret = resolve_secret(channel.azure_client_secret_env_var, environ)
+            if not client_secret:
+                raise IntegrationError("Sentinel channel has no azure_client_secret_env_var")
+            destination = resolve_sentinel_destination(
+                channel.sentinel_endpoint, operator_hosts=operator_webhook_hosts
+            )
+            return await send_sentinel(
+                destination,
+                message,
+                tenant_id=channel.azure_tenant_id,
+                client_id=channel.azure_client_id,
+                client_secret=client_secret,
+                dcr_immutable_id=channel.sentinel_dcr_immutable_id,
+                stream_name=channel.sentinel_stream_name,
+            )
+
         if kind is ChannelKind.EMAIL_SMTP:
             host = resolve_smtp_host(channel.smtp_host or "", operator_hosts=operator_smtp_hosts)
             password = resolved.smtp_password
@@ -171,6 +218,37 @@ async def _deliver_once_raw(
                 password=password,
             )
 
+        if kind is ChannelKind.TICKET_JIRA:
+            destination = resolve_jira_destination(channel.jira_site or "")
+            api_token = resolved.jira_api_token
+            if api_token is None and channel.jira_api_token_env_var:
+                api_token = resolve_secret(channel.jira_api_token_env_var, environ)
+            if not api_token:
+                raise IntegrationError("Jira channel has no API token")
+            return await send_jira_ticket(
+                destination,
+                message,
+                email=channel.jira_email or "",
+                api_token=api_token,
+                project_key=channel.jira_project_key or "",
+                issue_type=channel.jira_issue_type or "",
+            )
+
+        if kind is ChannelKind.TICKET_SERVICENOW:
+            destination = resolve_servicenow_destination(channel.servicenow_instance or "")
+            password = resolved.servicenow_password
+            if password is None and channel.servicenow_password_env_var:
+                password = resolve_secret(channel.servicenow_password_env_var, environ)
+            if not password:
+                raise IntegrationError("ServiceNow channel has no password")
+            return await send_servicenow_ticket(
+                destination,
+                message,
+                username=channel.servicenow_username or "",
+                password=password,
+                table=channel.servicenow_table or "",
+            )
+
         if not channel.endpoint_env_var:
             raise IntegrationError("webhook channel has no endpoint_env_var")
         destination = resolve_webhook_destination(
@@ -186,15 +264,23 @@ async def _deliver_once_raw(
         signing_secret = resolved.signing_secret
         if (
             signing_secret is None
-            and kind is ChannelKind.GENERIC_WEBHOOK
+            and kind in (ChannelKind.GENERIC_WEBHOOK, ChannelKind.SIEM_GENERIC_CEF)
             and channel.signing_secret_env_var
         ):
             signing_secret = resolve_secret(channel.signing_secret_env_var, environ)
+        auth_token = resolved.auth_token
+        if (
+            auth_token is None
+            and kind is ChannelKind.SIEM_SPLUNK_HEC
+            and channel.auth_token_env_var
+        ):
+            auth_token = resolve_secret(channel.auth_token_env_var, environ)
         return await send_webhook(
             destination,
             message,
             event_type=event.event_type.value,
             signing_secret=signing_secret,
+            auth_token=auth_token,
         )
     except IntegrationError as exc:
         # Configuration, policy, or a payload the redactor stopped. Final.

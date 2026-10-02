@@ -169,6 +169,34 @@ All notable changes to this project are recorded here. The format follows
 
 ### Added
 
+- **SIEM integration: Splunk HEC, Microsoft Sentinel, and generic CEF
+  notification channels.** `ChannelKind.GENERIC_WEBHOOK` was always the
+  extension point for "feed a SIEM," but a generic signed JSON POST isn't
+  what Splunk's HTTP Event Collector or Sentinel's Logs Ingestion API
+  actually expect on the wire. Three new channel kinds
+  (`app/core/integrations/`): `siem_splunk_hec` (HEC-token auth), `siem_sentinel`
+  (Entra ID client-credentials exchange, then a POST to the Data Collection
+  Endpoint — `*.ingest.monitor.azure.com` is the only pinned vendor host),
+  and `siem_generic_cef` (Common Event Format over the existing signed
+  generic-webhook path, for any SIEM with no dedicated adapter). New
+  `NotificationChannel` columns via migration `d4f8e2a91c73`. See
+  `docs/integrations.md`'s "SIEM channels" section and
+  `docs/roadmap.md`'s write-up for the full design and what remains
+  unverified against a real vendor account.
+- **External ticketing: production Jira Cloud and ServiceNow adapters for
+  notification channels.** Two new `ChannelKind` values, `ticket_jira` and
+  `ticket_servicenow`, alongside the existing Slack/Teams/webhook/email
+  kinds — a delivery to one of these *creates a record* rather than
+  notifying about one. Jira: `POST /rest/api/3/issue` with Basic auth
+  (account email + API token) and an Atlassian Document Format description;
+  ServiceNow: `POST /api/now/table/<table>` with Basic auth (username +
+  password), severity mapped to `urgency`/`impact`. Both vendor-host-pinned
+  (`*.atlassian.net`, `*.service-now.com`) from an admin-chosen site/instance
+  *label*, never a URL, so there is no field through which a channel could
+  be repointed at an arbitrary host. The created ticket's key/number comes
+  back as `NotificationDelivery.external_reference`. See
+  `docs/integrations.md`'s "Ticketing channels" section and
+  `docs/roadmap.md`'s external-ticketing write-up.
 - **Email invitations for a teammate who hasn't registered yet.**
   `invite_member` previously 404ed on an unregistered email; it now creates
   a pending `OrganizationInvitation` (`app/models/invitation.py`) and emails

@@ -27,7 +27,13 @@ from app.core.integrations.contract import (
     IntegrationEvent,
 )
 from app.core.integrations.dispatch import event_snapshot
-from app.core.integrations.policy import resolve_smtp_host, resolve_webhook_destination
+from app.core.integrations.policy import (
+    resolve_jira_destination,
+    resolve_sentinel_destination,
+    resolve_servicenow_destination,
+    resolve_smtp_host,
+    resolve_webhook_destination,
+)
 from app.core.integrations.service import attempt
 from app.models.integration import DeliveryStatus, NotificationChannel, NotificationDelivery
 from app.models.organization import Membership, Role
@@ -81,6 +87,20 @@ async def create_channel(
             resolve_smtp_host(
                 payload.smtp_host or "", operator_hosts=settings.notify_allowed_smtp_hosts
             )
+        elif payload.kind is ChannelKind.SIEM_SENTINEL:
+            # No env-var-held secret to resolve here — the endpoint itself
+            # carries no token — but the host still has to clear policy
+            # before the channel is accepted.
+            resolve_sentinel_destination(
+                payload.sentinel_endpoint or "",
+                operator_hosts=settings.notify_allowed_webhook_hosts,
+            )
+        elif payload.kind is ChannelKind.TICKET_JIRA:
+            destination = resolve_jira_destination(payload.jira_site or "")
+            redacted = destination.redacted
+        elif payload.kind is ChannelKind.TICKET_SERVICENOW:
+            destination = resolve_servicenow_destination(payload.servicenow_instance or "")
+            redacted = destination.redacted
         else:
             destination = resolve_webhook_destination(
                 payload.kind,
@@ -109,12 +129,28 @@ async def create_channel(
         endpoint_env_var=payload.endpoint_env_var,
         endpoint_redacted=redacted,
         signing_secret_env_var=payload.signing_secret_env_var,
+        auth_token_env_var=payload.auth_token_env_var,
+        sentinel_endpoint=payload.sentinel_endpoint,
+        azure_tenant_id=payload.azure_tenant_id,
+        azure_client_id=payload.azure_client_id,
+        azure_client_secret_env_var=payload.azure_client_secret_env_var,
+        sentinel_dcr_immutable_id=payload.sentinel_dcr_immutable_id,
+        sentinel_stream_name=payload.sentinel_stream_name,
         smtp_host=payload.smtp_host,
         smtp_port=payload.smtp_port,
         smtp_username=payload.smtp_username,
         smtp_password_env_var=payload.smtp_password_env_var,
         from_address=payload.from_address,
         recipients=list(payload.recipients),
+        jira_site=payload.jira_site,
+        jira_email=payload.jira_email,
+        jira_api_token_env_var=payload.jira_api_token_env_var,
+        jira_project_key=payload.jira_project_key,
+        jira_issue_type=payload.jira_issue_type,
+        servicenow_instance=payload.servicenow_instance,
+        servicenow_table=payload.servicenow_table,
+        servicenow_username=payload.servicenow_username,
+        servicenow_password_env_var=payload.servicenow_password_env_var,
         events=[event.value for event in payload.events],
         min_severity=payload.min_severity.value if payload.min_severity else None,
         enabled=payload.enabled,

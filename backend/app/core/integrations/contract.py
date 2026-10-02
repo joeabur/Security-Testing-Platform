@@ -14,7 +14,11 @@ refused for a notification exactly as they are for a target. On top of that,
 generic webhook host must appear in an operator-set allowlist that lives in
 the environment, not in the database. An organization admin can therefore
 choose *which* Slack workspace to notify; they cannot choose to notify
-`169.254.169.254`.
+`169.254.169.254`. `TICKET_JIRA`/`TICKET_SERVICENOW` are pinned the same
+way, to `*.atlassian.net`/`*.service-now.com`; the admin-chosen site or
+instance *label* that builds the rest of the host is itself restricted to a
+DNS-label charset (`schemas/integration.py`), so it cannot smuggle a path
+separator or a second host into the URLs `send.py` builds from it.
 
 **Can a notification leak what the platform redacts?** Evidence bundles are
 redacted before they are written (§13); a notification must not be the hole
@@ -46,6 +50,26 @@ class ChannelKind(StrEnum):
     MSTEAMS_WEBHOOK = "msteams_webhook"
     GENERIC_WEBHOOK = "generic_webhook"
     EMAIL_SMTP = "email_smtp"
+    #: Splunk's HTTP Event Collector. Almost always self-hosted (a customer's
+    #: own Splunk instance, not a shared vendor host), so it carries no
+    #: built-in `KIND_HOST_POLICY` entry — the operator allowlist is the only
+    #: way in, the same as `GENERIC_WEBHOOK`.
+    SIEM_SPLUNK_HEC = "siem_splunk_hec"
+    #: Microsoft Sentinel's Logs Ingestion API. Pinned to Azure Monitor's own
+    #: ingestion domain, since every deployment's Data Collection Endpoint
+    #: lives under it.
+    SIEM_SENTINEL = "siem_sentinel"
+    #: Vendor-neutral: a CEF-formatted event over a signed webhook POST, for
+    #: a SIEM with no dedicated adapter here (QRadar, Elastic, Sumo Logic,
+    #: Chronicle, …). Shares `GENERIC_WEBHOOK`'s signing and host-allowlist
+    #: rules; only the payload format differs.
+    SIEM_GENERIC_CEF = "siem_generic_cef"
+    #: External ticketing. Unlike every kind above, a delivery here *creates*
+    #: a record in someone else's system rather than notifying about one —
+    #: see `send.py`'s `send_jira_ticket`/`send_servicenow_ticket` and
+    #: `DeliveryResult.external_reference`.
+    TICKET_JIRA = "ticket_jira"
+    TICKET_SERVICENOW = "ticket_servicenow"
 
 
 class EventType(StrEnum):
@@ -105,6 +129,19 @@ KIND_HOST_POLICY: Mapping[ChannelKind, tuple[str, ...]] = {
     ),
     ChannelKind.GENERIC_WEBHOOK: (),
     ChannelKind.EMAIL_SMTP: (),
+    ChannelKind.SIEM_SPLUNK_HEC: (),
+    # Every Data Collection Endpoint Azure Monitor issues lives under this
+    # domain — https://learn.microsoft.com/azure/azure-monitor/data-collection/
+    # data-collection-endpoint-overview.
+    ChannelKind.SIEM_SENTINEL: ("*.ingest.monitor.azure.com",),
+    ChannelKind.SIEM_GENERIC_CEF: (),
+    #: Jira *Cloud* only (the task this kind exists for): every Cloud site
+    #: lives under this one domain, so a site label is the only thing a
+    #: channel configures — see `policy.resolve_jira_destination`.
+    ChannelKind.TICKET_JIRA: ("*.atlassian.net",),
+    #: Likewise every ServiceNow instance, Cloud or dedicated, is reached
+    #: through this domain.
+    ChannelKind.TICKET_SERVICENOW: ("*.service-now.com",),
 }
 
 
@@ -190,6 +227,13 @@ class DeliveryResult:
     #: API, so it must never carry a token or a response body.
     detail: str = ""
     retryable: bool = False
+    #: The ticket a `TICKET_*` adapter's creation call returned — Jira's
+    #: issue key (`SEC-123`) or ServiceNow's record number (`INC0012345`).
+    #: `None` for every other kind, and for a ticket delivery that was never
+    #: attempted or never reached 2xx. This is what a notification's
+    #: `detail` deliberately is not: an identifier, not prose, so a caller
+    #: can link to the created record without parsing a sentence.
+    external_reference: str | None = None
 
 
 def host_permitted(host: str, patterns: Sequence[str]) -> bool:

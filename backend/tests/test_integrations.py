@@ -10,8 +10,10 @@ service, a plaintext scheme, a payload carrying a secret.
 from __future__ import annotations
 
 import ipaddress
+import json
 import uuid
 from datetime import UTC, datetime, timedelta
+from urllib.parse import urlparse
 
 import pytest
 
@@ -43,13 +45,21 @@ from app.core.integrations.dispatch import (
 from app.core.integrations.egress import notification_egress_context
 from app.core.integrations.policy import (
     redact_url,
+    resolve_jira_destination,
     resolve_secret,
+    resolve_sentinel_destination,
+    resolve_servicenow_destination,
     resolve_smtp_host,
     resolve_webhook_destination,
     valid_env_var_name,
 )
 from app.core.integrations.render import MAX_SUMMARY_CHARS, render
-from app.core.integrations.send import send_webhook
+from app.core.integrations.send import (
+    send_jira_ticket,
+    send_sentinel,
+    send_servicenow_ticket,
+    send_webhook,
+)
 from app.core.integrations.signing import (
     SIGNATURE_HEADER,
     TIMESTAMP_HEADER,
@@ -766,3 +776,391 @@ async def test_an_smtp_relay_resolving_to_the_metadata_service_is_refused() -> N
     assert not result.delivered
     assert "refused by scope engine" in result.detail
     assert result.retryable is False
+
+
+# --- ticketing: Jira Cloud, ServiceNow -----------------------------------------
+
+
+class RecordingJsonTransport:
+    """Like `RecordingTransport`, but returns a configurable JSON body.
+
+    Jira and ServiceNow both answer a successful create with the created
+    record's identifier in the body, which `send_jira_ticket`/
+    `send_servicenow_ticket` must parse back out as `external_reference` —
+    `RecordingTransport` above never needed to return a body at all.
+    """
+
+    def __init__(self, status_code: int = 201, body: bytes = b"{}") -> None:
+        self.status_code = status_code
+        self.body = body
+        self.calls: list[dict[str, object]] = []
+
+    async def send(self, ctx: object, **kwargs: object) -> Observation:
+        self.calls.append(kwargs)
+        return Observation(
+            method=str(kwargs.get("method")),
+            url=str(kwargs.get("url")),
+            status_code=self.status_code,
+            headers={},
+            elapsed_ms=1.0,
+            body=self.body,
+        )
+
+
+def test_jira_site_must_be_a_dns_label() -> None:
+    with pytest.raises(IntegrationError, match="not a valid Jira site label"):
+        resolve_jira_destination("not a label/")
+
+
+def test_jira_destination_is_pinned_to_atlassian_net() -> None:
+    destination = resolve_jira_destination("mycompany")
+    assert destination.host == "mycompany.atlassian.net"
+    assert destination.url == "https://mycompany.atlassian.net"
+
+
+def test_servicenow_instance_must_be_a_dns_label() -> None:
+    with pytest.raises(IntegrationError, match="not a valid ServiceNow instance name"):
+        resolve_servicenow_destination("evil.com")
+
+
+def test_servicenow_destination_is_pinned_to_service_now_com() -> None:
+    destination = resolve_servicenow_destination("mycompany")
+    assert destination.host == "mycompany.service-now.com"
+    assert destination.url == "https://mycompany.service-now.com"
+
+
+def test_jira_payload_has_an_adf_description_and_a_summary() -> None:
+    message = render(ChannelKind.TICKET_JIRA, make_event())
+    payload = json.loads(message.body)
+    assert payload["summary"].startswith("[Kervy]")
+    adf = payload["description_adf"]
+    assert adf["type"] == "doc"
+    assert adf["content"][0]["type"] == "paragraph"
+
+
+def test_servicenow_payload_maps_severity_to_urgency() -> None:
+    critical = render(ChannelKind.TICKET_SERVICENOW, make_event(severity="CRITICAL"))
+    low = render(ChannelKind.TICKET_SERVICENOW, make_event(severity="LOW"))
+    assert json.loads(critical.body)["urgency"] == 1
+    assert json.loads(low.body)["urgency"] == 3
+
+
+async def test_jira_creates_an_issue_and_returns_its_key() -> None:
+    destination = resolve_jira_destination("mycompany")
+    message = render(ChannelKind.TICKET_JIRA, make_event())
+    transport = RecordingJsonTransport(
+        status_code=201, body=json.dumps({"id": "10001", "key": "SEC-123"}).encode()
+    )
+    result = await send_jira_ticket(
+        destination,
+        message,
+        email="bot@example.test",
+        api_token="tok",  # noqa: S106 - test fixture value, not a real token
+        project_key="SEC",
+        issue_type="Bug",
+        transport=transport,  # type: ignore[arg-type]
+    )
+    assert result.delivered
+    assert result.external_reference == "SEC-123"
+    assert result.status_code == 201
+    call = transport.calls[0]
+    assert call["url"] == "https://mycompany.atlassian.net/rest/api/3/issue"
+    headers = call["headers"]
+    assert isinstance(headers, dict)
+    assert headers["Authorization"].startswith("Basic ")
+    body = json.loads(call["content"])  # type: ignore[arg-type]
+    assert body["fields"]["project"]["key"] == "SEC"
+    assert body["fields"]["issuetype"]["name"] == "Bug"
+
+
+async def test_jira_a_non_201_response_is_not_delivered() -> None:
+    destination = resolve_jira_destination("mycompany")
+    message = render(ChannelKind.TICKET_JIRA, make_event())
+    transport = RecordingJsonTransport(status_code=400, body=b"{}")
+    result = await send_jira_ticket(
+        destination,
+        message,
+        email="bot@example.test",
+        api_token="tok",  # noqa: S106
+        project_key="SEC",
+        issue_type="Bug",
+        transport=transport,  # type: ignore[arg-type]
+    )
+    assert not result.delivered
+    assert result.external_reference is None
+    assert result.retryable is False
+
+
+async def test_servicenow_creates_a_record_and_returns_its_number() -> None:
+    destination = resolve_servicenow_destination("mycompany")
+    message = render(ChannelKind.TICKET_SERVICENOW, make_event())
+    transport = RecordingJsonTransport(
+        status_code=201,
+        body=json.dumps({"result": {"sys_id": "abc123", "number": "INC0012345"}}).encode(),
+    )
+    result = await send_servicenow_ticket(
+        destination,
+        message,
+        username="bot",
+        password="pw",  # noqa: S106 - test fixture value, not a real password  # pragma: allowlist secret
+        table="incident",
+        transport=transport,  # type: ignore[arg-type]
+    )
+    assert result.delivered
+    assert result.external_reference == "INC0012345"
+    call = transport.calls[0]
+    assert call["url"] == "https://mycompany.service-now.com/api/now/table/incident"
+    headers = call["headers"]
+    assert isinstance(headers, dict)
+    assert headers["Authorization"].startswith("Basic ")
+
+
+async def test_servicenow_a_500_response_is_retryable() -> None:
+    destination = resolve_servicenow_destination("mycompany")
+    message = render(ChannelKind.TICKET_SERVICENOW, make_event())
+    transport = RecordingJsonTransport(status_code=500, body=b"{}")
+    result = await send_servicenow_ticket(
+        destination,
+        message,
+        username="bot",
+        password="pw",  # noqa: S106  # pragma: allowlist secret
+        table="incident",
+        transport=transport,  # type: ignore[arg-type]
+    )
+    assert not result.delivered
+    assert result.retryable is True
+
+
+async def test_servicenow_table_name_is_escaped_in_the_request_path() -> None:
+    """A table name outside the schema's own pattern should never reach this
+    far in production, but `send_servicenow_ticket` does not trust that: the
+    `quote` it applies is the second of two independent checks (the other
+    being the schema's own `pattern=r"^[a-z0-9_]+$"`), and this proves it
+    actually runs rather than just existing in a docstring."""
+    destination = resolve_servicenow_destination("mycompany")
+    message = render(ChannelKind.TICKET_SERVICENOW, make_event())
+    transport = RecordingJsonTransport(status_code=201, body=b'{"result": {}}')
+    await send_servicenow_ticket(
+        destination,
+        message,
+        username="bot",
+        password="pw",  # noqa: S106  # pragma: allowlist secret
+        table="incident/../secret",
+        transport=transport,  # type: ignore[arg-type]
+    )
+    url = str(transport.calls[0]["url"])
+    assert "/../" not in url
+    assert "incident%2F..%2Fsecret" in url
+
+
+def test_splunk_hec_needs_an_operator_sanctioned_host() -> None:
+    """Almost always self-hosted, so it carries no built-in vendor host."""
+    with pytest.raises(IntegrationError, match="KERVY_NOTIFY_ALLOWED_WEBHOOK_HOSTS"):
+        resolve_webhook_destination(
+            ChannelKind.SIEM_SPLUNK_HEC,
+            "VAR",
+            environ={"VAR": "https://splunk.internal.test:8088/x"},
+        )
+    destination = resolve_webhook_destination(
+        ChannelKind.SIEM_SPLUNK_HEC,
+        "VAR",
+        operator_hosts=["splunk.internal.test"],
+        environ={"VAR": "https://splunk.internal.test:8088/services/collector/event"},
+    )
+    assert destination.host == "splunk.internal.test"
+
+
+async def test_splunk_hec_refuses_to_send_with_no_token() -> None:
+    destination = resolve_webhook_destination(
+        ChannelKind.SIEM_SPLUNK_HEC,
+        "VAR",
+        operator_hosts=["splunk.test"],
+        environ={"VAR": "https://splunk.test:8088/services/collector/event"},
+    )
+    message = render(ChannelKind.SIEM_SPLUNK_HEC, make_event())
+    with pytest.raises(IntegrationError, match="auth_token_env_var"):
+        await send_webhook(destination, message, event_type="x", auth_token=None)
+
+
+async def test_splunk_hec_sends_the_documented_authorization_scheme() -> None:
+    destination = resolve_webhook_destination(
+        ChannelKind.SIEM_SPLUNK_HEC,
+        "VAR",
+        operator_hosts=["splunk.test"],
+        environ={"VAR": "https://splunk.test:8088/services/collector/event"},
+    )
+    message = render(ChannelKind.SIEM_SPLUNK_HEC, make_event())
+    transport = RecordingTransport()
+    result = await send_webhook(
+        destination,
+        message,
+        event_type="finding.critical",
+        auth_token="hec-token-123",
+        transport=transport,  # type: ignore[arg-type]
+    )
+    assert result.delivered
+    headers = transport.calls[0]["headers"]
+    assert isinstance(headers, dict)
+    # HEC's own documented scheme — not Bearer, not Basic.
+    assert headers["Authorization"] == "Splunk hec-token-123"
+
+
+def test_splunk_hec_event_envelope_carries_time_sourcetype_and_event() -> None:
+    import json
+
+    message = render(ChannelKind.SIEM_SPLUNK_HEC, make_event())
+    payload = json.loads(message.body)
+    assert payload["sourcetype"] == "kervy:security_event"
+    assert isinstance(payload["time"], float)
+    assert payload["event"]["title"] == make_event().title
+    assert payload["event"]["severity"] == "CRITICAL"
+
+
+async def test_generic_cef_needs_signing_like_the_generic_webhook() -> None:
+    destination = resolve_webhook_destination(
+        ChannelKind.SIEM_GENERIC_CEF,
+        "VAR",
+        operator_hosts=["siem.test"],
+        environ={"VAR": "https://siem.test/cef"},
+    )
+    message = render(ChannelKind.SIEM_GENERIC_CEF, make_event())
+    with pytest.raises(IntegrationError, match="must be signed"):
+        await send_webhook(destination, message, event_type="x", signing_secret=None)
+
+
+def test_cef_payload_has_the_documented_header_shape() -> None:
+    message = render(ChannelKind.SIEM_GENERIC_CEF, make_event())
+    line = message.body.decode("utf-8")
+    assert line.startswith("CEF:0|Kervy|SecurityTestingPlatform|1.0|")
+    # CRITICAL maps to the top of this platform's CEF severity scale.
+    fields = line.split("|")
+    assert fields[6] == "10"
+    assert "cs1Label=OrganizationId" in line
+
+
+def test_cef_header_fields_are_pipe_escaped() -> None:
+    """A finding title is free text; it must never be able to inject a CEF
+    field boundary."""
+    event = make_event(title="Injected|Field|Boundary")
+    message = render(ChannelKind.SIEM_GENERIC_CEF, event)
+    line = message.body.decode("utf-8")
+    assert "Injected\\|Field\\|Boundary" in line
+
+
+def test_sentinel_endpoint_needs_the_ingest_monitor_azure_com_domain() -> None:
+    with pytest.raises(IntegrationError, match="not permitted"):
+        resolve_sentinel_destination("https://attacker.test/x")
+    destination = resolve_sentinel_destination(
+        "https://my-dce-1234.eastus-1.ingest.monitor.azure.com"
+    )
+    assert destination.host == "my-dce-1234.eastus-1.ingest.monitor.azure.com"
+
+
+def test_sentinel_endpoint_must_be_https() -> None:
+    with pytest.raises(IntegrationError, match="must be https"):
+        resolve_sentinel_destination("http://my-dce.eastus-1.ingest.monitor.azure.com")
+
+
+class SentinelTransport:
+    """Two distinct calls, two distinct responses — the token exchange, then
+    the ingestion POST — matched by the request URL rather than call order,
+    so a bug that skipped the token call would fail loudly instead of
+    silently reading the wrong fixture."""
+
+    def __init__(self, *, token_status: int = 200, data_status: int = 204) -> None:
+        self.token_status = token_status
+        self.data_status = data_status
+        self.calls: list[dict[str, object]] = []
+
+    async def send(self, ctx: object, **kwargs: object) -> Observation:
+        self.calls.append(kwargs)
+        url = str(kwargs.get("url"))
+        if urlparse(url).hostname == "login.microsoftonline.com":
+            import json
+
+            return Observation(
+                method="POST",
+                url=url,
+                status_code=self.token_status,
+                headers={},
+                elapsed_ms=1.0,
+                body=json.dumps({"access_token": "fake-bearer-token"}).encode("utf-8"),
+            )
+        return Observation(
+            method="POST", url=url, status_code=self.data_status, headers={}, elapsed_ms=1.0
+        )
+
+
+async def test_sentinel_exchanges_a_token_then_posts_to_the_dcr_stream_url() -> None:
+    destination = resolve_sentinel_destination("https://my-dce.eastus-1.ingest.monitor.azure.com")
+    message = render(ChannelKind.SIEM_SENTINEL, make_event())
+    transport = SentinelTransport()
+    result = await send_sentinel(
+        destination,
+        message,
+        tenant_id="tenant-1",
+        client_id="client-1",
+        client_secret="shh",
+        dcr_immutable_id="dcr-abc",
+        stream_name="Custom-KervySecurityEvent",
+        transport=transport,  # type: ignore[arg-type]
+    )
+    assert result.delivered
+    assert result.status_code == 204
+    assert len(transport.calls) == 2
+    token_call, data_call = transport.calls
+    assert "login.microsoftonline.com/tenant-1" in str(token_call["url"])
+    assert "dataCollectionRules/dcr-abc/streams/Custom-KervySecurityEvent" in str(data_call["url"])
+    data_headers = data_call["headers"]
+    assert isinstance(data_headers, dict)
+    assert data_headers["Authorization"] == "Bearer fake-bearer-token"
+
+
+async def test_sentinel_a_non_204_data_response_is_not_delivered() -> None:
+    destination = resolve_sentinel_destination("https://my-dce.eastus-1.ingest.monitor.azure.com")
+    message = render(ChannelKind.SIEM_SENTINEL, make_event())
+    transport = SentinelTransport(data_status=400)
+    result = await send_sentinel(
+        destination,
+        message,
+        tenant_id="tenant-1",
+        client_id="client-1",
+        client_secret="shh",
+        dcr_immutable_id="dcr-abc",
+        stream_name="Custom-KervySecurityEvent",
+        transport=transport,  # type: ignore[arg-type]
+    )
+    assert not result.delivered
+    assert result.status_code == 400
+
+
+async def test_sentinel_a_failed_token_exchange_never_reaches_the_dce() -> None:
+    destination = resolve_sentinel_destination("https://my-dce.eastus-1.ingest.monitor.azure.com")
+    message = render(ChannelKind.SIEM_SENTINEL, make_event())
+    transport = SentinelTransport(token_status=401)
+    result = await send_sentinel(
+        destination,
+        message,
+        tenant_id="tenant-1",
+        client_id="client-1",
+        client_secret="wrong",  # pragma: allowlist secret
+        dcr_immutable_id="dcr-abc",
+        stream_name="Custom-KervySecurityEvent",
+        transport=transport,  # type: ignore[arg-type]
+    )
+    assert not result.delivered
+    assert result.retryable is False
+    # One call only: the DCE is never touched without a token.
+    assert len(transport.calls) == 1
+
+
+def test_sentinel_record_shape_matches_the_custom_table_schema() -> None:
+    import json
+
+    message = render(ChannelKind.SIEM_SENTINEL, make_event())
+    records = json.loads(message.body)
+    assert isinstance(records, list) and len(records) == 1
+    record = records[0]
+    assert record["EventType"] == "finding.critical"
+    assert record["Severity"] == "CRITICAL"
+    assert record["TargetName"] == "acme-api"

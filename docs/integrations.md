@@ -1,8 +1,10 @@
 # Outbound integrations
 
-Kervy sends notifications to Slack, Microsoft Teams, a signed generic webhook,
-or email. This document is written around the two questions that decide whether
-a notification feature is safe, because they are the ones a reviewer will ask.
+email, three SIEM-specific adapters — Splunk HEC, Microsoft Sentinel and a
+generic CEF-over-webhook kind (§ below) — and opens tickets in Jira Cloud or
+ServiceNow. This document is written around the two questions that decide
+whether a notification feature is safe, because they are the ones a reviewer
+will ask.
 
 ## Can a channel become an SSRF primitive?
 
@@ -21,12 +23,20 @@ between an organization admin and an outbound request:
    context can never stand in for a target authorization.
 3. **Vendor kinds are pinned to vendor hosts.** A `slack_webhook` channel can
    only ever reach `hooks.slack.com`; a `msteams_webhook` channel only
-   `*.webhook.office.com` or `*.logic.azure.com`.
+   `*.webhook.office.com` or `*.logic.azure.com`; a `siem_sentinel` channel
+   only `*.ingest.monitor.azure.com` — every Data Collection Endpoint Azure
+   Monitor issues lives under that domain; `ticket_jira` only
+   `*.atlassian.net`; `ticket_servicenow` only `*.service-now.com`.
 4. **A new destination is an operator decision, not a database row.** A
-   `generic_webhook` host must appear in `KERVY_NOTIFY_ALLOWED_WEBHOOK_HOSTS`,
-   and an SMTP relay in `KERVY_NOTIFY_ALLOWED_SMTP_HOSTS`. Both live in the
-   environment. An admin chooses among destinations an operator has sanctioned;
-   they cannot invent one.
+   `generic_webhook`, `siem_splunk_hec` or `siem_generic_cef` host must appear
+   in `KERVY_NOTIFY_ALLOWED_WEBHOOK_HOSTS` (Splunk HEC is almost always
+   self-hosted, so it carries no built-in vendor host at all), and an SMTP
+   relay in `KERVY_NOTIFY_ALLOWED_SMTP_HOSTS`. Both live in the environment.
+   An admin chooses among destinations an operator has sanctioned; they
+   cannot invent one. `ticket_jira`/`ticket_servicenow` take this a step
+   further: the admin names only a site/instance *label* (`jira_site`,
+   `servicenow_instance`), not a URL, and the full host is built from it, so
+   there is no URL field for an admin to repoint at all.
 
 SMTP is the one honest exception and is documented as such. It is not HTTP, so
 it cannot travel through `GatedTransport`. Instead `send_email` asks the same
@@ -61,10 +71,23 @@ A channel row holds the **name** of an environment variable, never a value:
 | `endpoint_redacted` | `https://host/…/…` — scheme, host, path *shape* |
 | `signing_secret_env_var` | name of the variable with the HMAC secret |
 | `smtp_password_env_var` | name of the variable with the relay password |
+| `auth_token_env_var` | Splunk HEC only: name of the variable with the HEC token |
+| `azure_client_secret_env_var` | Sentinel only: name of the variable with the Entra ID app's client secret |
+| `jira_api_token_env_var` | name of the variable with the Jira API token |
+| `servicenow_password_env_var` | name of the variable with the ServiceNow password |
 
 A Slack incoming webhook URL is a credential, because its path *is* the token.
 That is why the whole URL is held by reference and why no API response, audit
-record or log line contains it.
+record or log line contains it. Sentinel's `sentinel_endpoint`,
+`azure_tenant_id`, `azure_client_id`, `sentinel_dcr_immutable_id` and
+`sentinel_stream_name` are stored directly rather than by reference — none of
+the five carries a credential in its own right (a Data Collection Endpoint URL
+has no token in its path, unlike a Slack webhook), only the app registration's
+client *secret* does. A Jira or ServiceNow channel has no URL at all either —
+`jira_site`/`jira_email`/`jira_project_key`/`jira_issue_type` and
+`servicenow_instance`/`servicenow_table`/`servicenow_username` are identifiers,
+not secrets, and are stored directly the same way `smtp_host`/`smtp_username`
+already are.
 
 ## Events
 
@@ -142,6 +165,118 @@ Verify with a 300-second tolerance; the timestamp is inside the signed string so
 a captured request cannot be replayed forever.
 `app/core/integrations/signing.py` holds the reference implementation of both
 sides.
+
+## SIEM channels: Splunk HEC, Microsoft Sentinel, generic CEF
+
+Three adapters, not one generic shape, because each vendor's wire format and
+authentication differ enough that forcing them through `generic_webhook`
+would mean shipping a payload the vendor's own parser does not expect.
+
+**`siem_splunk_hec`** — Splunk's HTTP Event Collector. Each delivery is one
+`POST` carrying `Authorization: Splunk <token>` (HEC's own documented scheme,
+not Bearer or Basic) and a body shaped `{"time": <epoch seconds>,
+"sourcetype": "kervy:security_event", "event": {…}}`, where `event` holds the
+same scalar fields every other channel kind renders.
+
+**`siem_sentinel`** — Microsoft Sentinel's Logs Ingestion API. Two network
+calls per delivery: a client-credentials exchange against Entra ID
+(`https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token`, scope
+`https://monitor.azure.com/.default`), each in its own single-host scope
+context so a bug in one context's allowlist can never widen the other; then a
+`POST` of a one-record JSON array to
+`{sentinel_endpoint}/dataCollectionRules/{dcr_immutable_id}/streams/{stream_name}`
+with the fetched bearer token. A successful upload answers `204`, the API's
+own documented response — not `200`/`201`. Requires an Entra ID app
+registration with access to the target Data Collection Rule; set up the DCR,
+the custom table and the app registration in the Azure portal first.
+
+**`siem_generic_cef`** — Common Event Format over a signed webhook, for a
+SIEM with no dedicated adapter here (QRadar, Elastic, Sumo Logic, Chronicle,
+…). One line: `CEF:0|Kervy|SecurityTestingPlatform|1.0|<event type>|<title>
+|<severity 0-10>|<extension>`. Severity is mapped from this platform's own
+CRITICAL/HIGH/MEDIUM/LOW/INFORMATIONAL band to CEF's integer scale
+(10/7/5/3/1 — CEF names no canonical word-to-number table, so this mapping is
+ours). Signed exactly like `generic_webhook`: `signing_secret_env_var` is
+required, and the same `X-Kervy-*` headers apply.
+
+```bash
+kervy-ai channels add --name splunk --kind siem_splunk_hec \
+  --event finding.critical --endpoint-env-var KERVY_SPLUNK_HEC_URL \
+  --auth-token-env-var KERVY_SPLUNK_HEC_TOKEN
+
+kervy-ai channels add --name sentinel --kind siem_sentinel \
+  --event finding.critical \
+  --sentinel-endpoint https://my-dce.eastus-1.ingest.monitor.azure.com \
+  --azure-tenant-id <tenant-id> --azure-client-id <client-id> \
+  --azure-client-secret-env-var KERVY_SENTINEL_CLIENT_SECRET \
+  --sentinel-dcr-immutable-id <dcr-immutable-id> \
+  --sentinel-stream-name Custom-KervySecurityEvent
+## Ticketing channels: Jira Cloud, ServiceNow
+
+A `ticket_jira`/`ticket_servicenow` channel does not notify about a finding —
+it *creates a record* in someone else's system, the one thing every other
+kind in this document deliberately does not do. `send.py`'s
+`send_jira_ticket`/`send_servicenow_ticket` make exactly one creation call
+per delivery and parse the vendor's own response for the identifier it
+assigned, which is written back to `NotificationDelivery.external_reference`
+so a reader can find the ticket without re-deriving it.
+
+**Jira Cloud** — `POST /rest/api/3/issue` against
+`https://<jira_site>.atlassian.net`, `Authorization: Basic` over
+`<jira_email>:<api token>` (Atlassian's own documented alternative to
+OAuth for a dedicated integration account). The `description` field is
+Atlassian Document Format, not plain text — `render.py`'s `_jira` builds a
+single paragraph with `hardBreak` nodes between the same fact lines every
+other renderer produces. A successful create answers `201` with
+`{"key": "SEC-123", ...}`; that key is `external_reference`.
+
+**ServiceNow** — `POST /api/now/table/<servicenow_table>` against
+`https://<servicenow_instance>.service-now.com`, `Authorization: Basic`
+over `<servicenow_username>:<password>` — ServiceNow's Table API documents
+this as a supported alternative to OAuth2, chosen here for the same reason
+Splunk HEC's header auth was chosen over Sentinel's two-call OAuth flow in
+the SIEM integration: one of the two vendors in a pair gets the simpler
+path so the pair is not two OAuth integrations in one increment. Severity
+maps to ServiceNow's `urgency`/`impact` (1 = most urgent, matching
+ServiceNow's own direction, the opposite of this platform's own severity
+order): CRITICAL/HIGH → 1, MEDIUM → 2, LOW/INFORMATIONAL → 3. A successful
+create answers `201` with `{"result": {"number": "INC0012345", ...}}`;
+`number` is `external_reference`, falling back to `sys_id` if a customised
+table's response ever omits it.
+
+**Why there is no "off-domain" rejection test for these two, unlike
+Sentinel's.** Sentinel's channel stores a full endpoint URL, so policy has
+to check a host it did not choose. A Jira/ServiceNow channel stores only
+the site/instance *label* — `send.py` builds `https://<label>.atlassian.net`
+(or `.service-now.com`) itself — so the result can never be a different
+host by construction. What *can* go wrong is the label itself carrying a
+path separator or similar, which would not change which host the request
+reaches (the label is appended after an already-fixed authority) but could
+still rewrite the request's path in a way a reviewer should not have to
+reason through case by case. `jira_site`/`servicenow_instance` are
+therefore restricted to a DNS-label charset at the schema layer
+(`^[a-z0-9-]+$`), and `jira_project_key`/`servicenow_table` — the other two
+identifiers that end up in a URL — get their own patterns for the same
+reason. `send.py` applies `urllib.parse.quote` to `servicenow_table` again
+at the point of use, belt-and-braces rather than trusting the schema check
+alone, the same two-layer discipline the SIEM integration's Sentinel
+adapter applies to its own path-building identifiers.
+
+Two ticketing-specific CLI examples:
+
+```bash
+kervy-ai channels add --name sec-tickets --kind ticket_jira \
+  --event finding.critical \
+  --jira-site mycompany --jira-email bot@example.com \
+  --jira-api-token-env-var KERVY_JIRA_API_TOKEN \
+  --jira-project-key SEC --jira-issue-type Bug
+
+kervy-ai channels add --name sec-incidents --kind ticket_servicenow \
+  --event finding.critical \
+  --servicenow-instance mycompany --servicenow-table incident \
+  --servicenow-username kervy-bot \
+  --servicenow-password-env-var KERVY_SERVICENOW_PASSWORD
+```
 
 ## Configuration
 

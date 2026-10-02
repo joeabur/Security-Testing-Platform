@@ -1,7 +1,7 @@
 """organization invitations
 
 Revision ID: b4d7f29a6e81  # pragma: allowlist secret
-Revises: a7c3f91e5d20  # pragma: allowlist secret
+Revises: e91f4a6c2d85  # pragma: allowlist secret
 Create Date: 2026-10-02
 
 `organizations.py`'s `invite_member` has only ever been able to add an
@@ -24,7 +24,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "b4d7f29a6e81"  # pragma: allowlist secret
-down_revision: str | None = "a7c3f91e5d20"  # pragma: allowlist secret
+down_revision: str | None = "e91f4a6c2d85"  # pragma: allowlist secret
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
