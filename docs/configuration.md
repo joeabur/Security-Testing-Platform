@@ -24,6 +24,7 @@ that disables scope enforcement** — that is deliberate and permanent.
 | `KERVY_EVIDENCE_ENCRYPTION_KEY` | unset (plaintext) | Base64, 32 bytes (AES-256). One static key, no rotation — set before a deployment starts collecting evidence, not partway through |
 | `KERVY_WEBHOOK_SECRET_ENCRYPTION_KEY` | unset (workflow webhook automation disabled) | Base64, 32 bytes (AES-256). Not optional-encryption like the evidence key above — a webhook secret must never sit in Postgres in cleartext, so absent means a workflow's inbound webhook cannot be enabled at all, rather than being stored unencrypted |
 | `KERVY_TOTP_ENCRYPTION_KEY` | unset (2FA disabled platform-wide) | Base64, 32 bytes (AES-256). A TOTP shared secret is exactly as sensitive as a webhook secret — absent, `POST /auth/2fa/setup` refuses outright rather than storing one unencrypted; there is no per-organization opt-out once set |
+| `KERVY_PLATFORM_OWNER_BOOTSTRAP_EMAIL` | unset (no platform owner) | Read exactly once, by `python -m scripts.bootstrap_platform_owner`, and never by the running application — see `docs/rbac.md`'s "Above the ladder" section. Names an *already-registered* account to grant the deployment's first platform owner; every owner after that is granted by an existing one through `POST /platform/owners`, not this variable |
 
 ## Credentials are held by reference
 
@@ -157,6 +158,10 @@ still answers 202 (never disclosing whether an address is registered — see
 - `KERVY_EXPLOITATION_ALLOWED_NSE_SCRIPTS` reviewed and set explicitly if
   the exploitation tier's fire step is to be used at all; left empty, it is
   simulate-only forever, which is the correct default for most deployments.
+- `python -m scripts.bootstrap_platform_owner` run once, after the intended
+  owner's account has registered, with `KERVY_PLATFORM_OWNER_BOOTSTRAP_EMAIL`
+  set — a deployment with zero platform owners has no way to grant one
+  through the API itself (`POST /platform/owners` is platform-owner-only).
 - Separate database credentials for the app role; consider revoking `UPDATE` and
   `DELETE` on `audit_logs` at the database level. The application never issues
   them, but defence in depth here is cheap (tracked in `docs/roadmap.md`).

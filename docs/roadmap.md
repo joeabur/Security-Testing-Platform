@@ -4708,3 +4708,133 @@ passing gate produces nothing even when `_notify_workflow_gate_failed` is
 called directly). Full `test_integrations.py`, `test_integrations_api.py`,
 `test_workflow.py`, `test_workflows_api.py`, `test_workflow_automation.py`
 green.
+
+## The platform-owner model
+
+### Context
+
+Every authorization check this platform has ever had is organization-scoped
+— `Role.OWNER` is a ceiling *within* the organization that granted it
+(`docs/rbac.md`'s own "gates itself" section already documented that much).
+Nothing above an organization's own founder has existed: no account with
+authority over the deployment itself, and critically, no way to grant or
+revoke that authority without touching application code. A GitHub-vs-current
+audit of this project identified the gap and asked for it to be closed
+without the one shortcut that would make it worse: a hard-coded operator
+email checked at request time.
+
+### Design
+
+`User.platform_role` (`app/models/user.py`) is a nullable `PlatformRole`
+enum column, today holding only `OWNER` — deliberately a single tier for
+now; the hierarchy this models allows a lower "administrator" tier later
+without another migration, only a new enum member, but nothing issues one
+yet. `require_platform_owner` (`app/auth/dependencies.py`) mirrors
+`require_membership`'s shape with no `organization_id` to be unsure about,
+so it answers `403`, not `404` — a platform-owner-only route's existence is
+documented in the OpenAPI schema like any other, nothing to hide.
+
+Three endpoints (`app/api/v1/routers/platform.py`): `GET /platform/owners`
+to list, `POST /platform/owners` to grant an already-registered user by
+email (the same "must already exist" carve-out `invite_member` applies, at
+higher stakes), and `DELETE /platform/owners/{user_id}` to revoke — refused
+with `409` for the platform's last remaining owner, the same protection
+`organizations.remove_member` gives an organization's last owner, for the
+identical reason. Every grant and revoke is audited
+(`platform_owner.grant`/`.revoke`, `app/audit/service.py`).
+
+A fresh deployment has zero platform owners. `backend/scripts/
+bootstrap_platform_owner.py` grants the first, run once by whoever operates
+the deployment against an account that has already registered normally —
+reading `KERVY_PLATFORM_OWNER_BOOTSTRAP_EMAIL` exactly once, refusing
+outright if a platform owner already exists rather than quietly minting a
+second one, and never touched by any request-handling code afterward. Every
+owner after the first comes from an existing owner calling `POST
+/platform/owners`, not from that setting — the one property this whole
+design exists to guarantee: authorization is the stored column, never a
+comparison against a hard-coded address.
+
+### What this does not do
+
+No platform-level dashboard or UI yet — API and bootstrap script only,
+matching this platform's own "a later phase" precedent for API-first
+features. No second, lower platform-administrator tier — the enum allows
+one later; nothing needs it yet. No platform-owner visibility into an
+organization's own data — the column grants authority over *other platform
+owners*, nothing about what any organization holds; that boundary is
+untouched.
+
+### Verified
+
+`ruff check`/`mypy --strict` clean. Migration round-trips (`upgrade head`,
+`downgrade -1`, `upgrade head` again) clean against a real Postgres. New
+`tests/test_platform_owner.py`: unauthenticated refused, an ordinary user
+refused, **an organization's own `Role.OWNER` refused** (the isolation
+property this feature exists to prove), a platform owner can list and grant,
+granting an unregistered email or an already-owner both refused with the
+right status, a non-owner cannot grant, the last owner cannot be revoked,
+revoking one of two takes effect immediately for the revoked account's next
+request, and the bootstrap script both grants the first owner and refuses
+once one already exists. Full backend suite run alongside it to confirm no
+regression.
+
+## MITRE ATT&CK (Enterprise) mapping for the pentest module
+
+### Context
+
+`docs/frameworks.md` already pins `mitre_atlas`, but ATLAS is specific to
+attacks against AI systems. The pentest module's own engines (Pentest
+module Phase 6 and Phase 12) test conventional network infrastructure —
+service enumeration, a confirmed-vulnerable nmap NSE result, default/
+anonymous credentials, a live-fired exploit — which is classic Enterprise
+ATT&CK's domain, not ATLAS's, and grep confirmed no `MITRE-ATTACK:` prefix
+existed anywhere in the codebase before this: a real, undocumented gap
+rather than a decision recorded in frameworks.md's own "What is not
+mapped" section.
+
+### Design
+
+Exactly the existing framework-mapping machinery (`app/core/findings/
+frameworks.py`, `app/core/findings/normalize.py::group_mappings`) gets a
+new `mitre_attack` entry and a new `"MITRE-ATTACK:"` prefix — no new
+tables, no new column, nothing a probe author has to learn beyond the
+`frameworks=(...)` tuple every other probe already populates. The version
+pinned is Enterprise v19.2 (retrieved 2026-10-02, github.com/mitre/cti),
+confirmed via the same upstream source `scripts/framework_drift.py`'s
+weekly job already knows how to read — it needs no change to pick up this
+new entry, since `checkable()` finds it mechanically from the `github.com/`
+source string.
+
+`app/core/pentest/engine.py`'s four substantive finding functions each cite
+the one technique they actually observed, never a category: discovery
+(`KERVY-PENTEST-001`) cites `T1046` (Network Service Discovery); a
+confirmed-vulnerable nmap result (`KERVY-PENTEST-101`) cites `T1595.002`
+(Active Scanning: Vulnerability Scanning); a validated no/default-auth
+finding (`KERVY-PENTEST-102`) cites `T1078.001` (Valid Accounts: Default
+Accounts); a live-fired exploitation-tier result (`KERVY-PENTEST-103`,
+Pentest module Phase 12's `fire()` path) cites `T1210` (Exploitation of
+Remote Services). The simulate-only marker (`KERVY-PENTEST-108`) and the
+coverage marker (`KERVY-PENTEST-109`) carry no mapping — neither observed
+anything an attacker could be said to have done.
+
+### What this does not do
+
+No mapping yet for the domain/DNS, container, cloud or VM engines'
+findings — this pass is scoped to the pentest module's own engine, where
+the fit is clearest; extending it is the same one-line-per-finding change
+applied to a different file. No change to `framework-drift.yml` — it reads
+the pinned table generically and needed none.
+
+### Verified
+
+`ruff check`/`mypy` clean on every changed file. Targeted:
+`test_pentest_engine.py` (each of the four finding functions now asserts
+its own `frameworks` tuple), `test_pentest_exploitation.py` (regression —
+the dual-control fire path still produces `KERVY-PENTEST-103` with its new
+mapping), `test_findings_and_risk.py` (the grouping test now includes a
+`MITRE-ATTACK:` reference; the generic "every pinned entry names a real
+source and a real date" and "a framework with no references is not
+claimed" tests cover the new entry with no changes of their own),
+`test_framework_drift.py`. All run against an isolated scratch database to
+avoid colliding with the full-suite run already in flight; full backend
+suite confirmed separately.

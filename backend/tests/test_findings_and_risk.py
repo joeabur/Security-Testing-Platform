@@ -268,12 +268,22 @@ def test_the_severity_a_reader_sees_is_the_one_the_model_derived() -> None:
 
 def test_mappings_are_grouped_by_framework_and_never_guessed() -> None:
     grouped = group_mappings(
-        ("OWASP-API-2023:API1", "CWE-639", "OWASP-LLM-2026:LLM01", "SOMETHING-ELSE")
+        (
+            "OWASP-API-2023:API1",
+            "CWE-639",
+            "OWASP-LLM-2026:LLM01",
+            "MITRE-ATTACK:T1046",
+            "SOMETHING-ELSE",
+        )
     )
 
     assert grouped["owasp_api_2023"] == ["API1"]
     assert grouped["cwe"] == ["CWE-639"]
     assert grouped["owasp_llm_2026"] == ["LLM01"]
+    # Enterprise ATT&CK, distinct from `mitre_atlas` (AI-system-specific) —
+    # see `app/core/findings/frameworks.py`'s own note on why the pentest
+    # module's findings map here rather than to ATLAS.
+    assert grouped["mitre_attack"] == ["T1046"]
     # An unrecognised reference is kept rather than filed under a framework
     # it might not belong to.
     assert grouped["other"] == ["SOMETHING-ELSE"]

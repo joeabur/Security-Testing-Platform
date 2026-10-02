@@ -169,6 +169,32 @@ All notable changes to this project are recorded here. The format follows
 
 ### Added
 
+- **MITRE ATT&CK (Enterprise) mapping for the pentest module's own findings.**
+  `docs/frameworks.md` already pinned `mitre_atlas` (AI-specific), but the
+  pentest module's engines test conventional infrastructure — exactly
+  ATT&CK's domain — and carried no mapping at all. New `mitre_attack` entry
+  in `app/core/findings/frameworks.py` (Enterprise v19.2) and a
+  `"MITRE-ATTACK:"` prefix in `group_mappings`; `app/core/pentest/engine.py`'s
+  discovery, vulnerability-scan, validation and exploitation-fire findings
+  now each cite the one technique they actually observed (`T1046`,
+  `T1595.002`, `T1078.001`, `T1210`). See `docs/roadmap.md`'s "MITRE ATT&CK
+  (Enterprise) mapping for the pentest module" write-up.
+- **A platform-owner authority model, above every organization's own
+  `Role.OWNER`.** Every authorization check this platform has ever had was
+  organization-scoped; nothing governed the deployment itself, or who may
+  grant and revoke that governance. New nullable `User.platform_role`
+  column, a `require_platform_owner` dependency with no `organization_id` to
+  be unsure about (`app/auth/dependencies.py`), and three endpoints —
+  `GET`/`POST /platform/owners`, `DELETE /platform/owners/{user_id}`
+  (`app/api/v1/routers/platform.py`) — to list, grant and revoke it, with
+  the same last-owner protection an organization's own last owner already
+  gets. A fresh deployment has zero platform owners; `backend/scripts/
+  bootstrap_platform_owner.py` grants the first, once, against an
+  already-registered account named by `KERVY_PLATFORM_OWNER_BOOTSTRAP_EMAIL`
+  — read exactly once, by that script alone, never compared against
+  anything at request time. An organization's own `Role.OWNER` grants
+  nothing here, by design: see `docs/rbac.md`'s "Above the ladder" section
+  and `docs/roadmap.md`'s "The platform-owner model" write-up.
 - **An organization admin's view of a fellow member's active sessions**:
   `docs/revocation.md` stated the boundary plainly when `user_sessions`
   shipped — "no admin view of another user's sessions" — which left an

@@ -22,7 +22,7 @@ from app.db.session import get_db
 from app.db.tenant_context import set_current_organization
 from app.models.api_key import ApiKey, split_token
 from app.models.organization import Membership, Role
-from app.models.user import User
+from app.models.user import PlatformRole, User
 
 DbSession = Annotated[AsyncSession, Depends(get_db)]
 
@@ -207,3 +207,17 @@ def require_membership(
     # is only as good as whoever remembered to update it.
     dependency.minimum_role = minimum_role  # type: ignore[attr-defined]
     return dependency
+
+
+async def require_platform_owner(current_user: CurrentUser) -> User:
+    """Authority above every organization's own `Role.OWNER` — see
+    `app.models.user.PlatformRole` for what this column is and is not.
+
+    Unlike `require_membership`, this has no `organization_id` to be unsure
+    about, so a caller without this authority gets 403, not 404: a platform-
+    owner-only route's existence is not something worth hiding — it is
+    documented in the OpenAPI schema like every other route.
+    """
+    if current_user.platform_role != PlatformRole.OWNER:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Requires platform-owner authority")
+    return current_user
