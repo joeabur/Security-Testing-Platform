@@ -16,6 +16,8 @@ used. Exact pinned versions for the Python dependencies are in
 | **Gitleaks** | MIT | Secrets in git history | Run with `--redact`; the report file is deleted in a `finally` |
 | **Checkov** | Apache-2.0 | IaC | |
 | **Trivy** | Apache-2.0 | Container packages | Run offline (`--skip-db-update --offline-scan`) |
+| **OWASP ZAP** | Apache-2.0 | DAST (web app) | Baseline (passive) or full (active) scan, chosen by `allow_state_mutation` — not routed through `GatedTransport`; see `docs/dast.md` |
+| **Nuclei** | MIT | DAST (template-based) | Restricted to passive/detection tags unless the run allows state mutation — not routed through `GatedTransport`; see `docs/dast.md` |
 | **CodeQL** | GitHub terms | CI analysis of this repository | Our own CI only, not run against targets |
 
 If a tool is not installed, its engine reports `KERVY-APPSEC-000 — not tested`
