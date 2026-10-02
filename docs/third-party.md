@@ -18,6 +18,8 @@ used. Exact pinned versions for the Python dependencies are in
 | **Trivy** | Apache-2.0 | Container packages | Run offline (`--skip-db-update --offline-scan`) |
 | **OWASP ZAP** | Apache-2.0 | DAST (web app) | Baseline (passive) or full (active) scan, chosen by `allow_state_mutation` — not routed through `GatedTransport`; see `docs/dast.md` |
 | **Nuclei** | MIT | DAST (template-based) | Restricted to passive/detection tags unless the run allows state mutation — not routed through `GatedTransport`; see `docs/dast.md` |
+| **nmap** | Nmap licence (GPL-2.0 + exceptions) | Pentest module: VM port/service scan, NSE scripts | Restricted to `asset_scope.allowed_ports` and the `discovery`/`vuln`/`auth` NSE categories only — `exploit`/`brute`/`dos`/`intrusive` are excluded entirely; not routed through `GatedTransport`, the resolved address is checked against the scope engine's own blocklist first |
+| **Docker CLI** | Apache-2.0 | Container engine: registry image pulls | Invoked as a subprocess (`docker pull`/`docker rmi`), not `GatedTransport`, for the same reason `nmap` isn't — see `app/core/container/pull.py` |
 | **CodeQL** | GitHub terms | CI analysis of this repository | Our own CI only, not run against targets |
 
 If a tool is not installed, its engine reports `KERVY-APPSEC-000 — not tested`
