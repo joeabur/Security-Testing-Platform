@@ -178,7 +178,7 @@ async def test_a_successful_scan_produces_verified_findings_and_always_cleans_up
     finding = findings[0]
     assert finding.id == "KERVY-CONTAINER-101"
     assert "CVE-2023-12345" in finding.title
-    assert finding.frameworks == ("CVE-2023-12345", "CWE-120")
+    assert finding.frameworks == ("MITRE-ATTACK:T1595.002", "CVE-2023-12345", "CWE-120")
     assert finding.fingerprint is not None
     assert {item.tool_name for item in invocations} == {"docker", "trivy"}
 

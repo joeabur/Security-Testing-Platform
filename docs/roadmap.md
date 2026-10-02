@@ -4922,3 +4922,85 @@ client secret's value). Full `test_integrations.py` (70) and
 `test_integrations_api.py` combined with it (93 total) pass against an
 isolated database. Full backend suite (2093 passed, 3 skipped) confirmed
 separately against the same migrated database.
+
+## Extending MITRE ATT&CK mapping to the domain, container, cloud and VM engines
+
+### Context
+
+The pentest module's own `mitre_attack` mapping (previous section) covered
+exactly `app/core/pentest/engine.py`'s four findings and deliberately said
+nothing about the domain/DNS, container, cloud and VM engines (Pentest
+module Phases 2-5) — each of those had shipped before `mitre_attack` existed
+as a framework key, so grep confirmed none of their `ScanResult`
+constructors carried a `frameworks=` argument at all. That is a real,
+undocumented gap: all four engines perform an action a real adversary's
+reconnaissance or discovery tactic would also perform, not a heuristic
+guess, the same bar the pentest module's own write-up sets for when a
+mapping belongs on a finding and when it does not (its `_coverage_marker`
+and `_simulation_finding` carry none, because "neither observed anything an
+attacker could be said to have done").
+
+### Design
+
+No new machinery — the same `mitre_attack` framework entry and
+`"MITRE-ATTACK:"` prefix already registered in `app/core/findings/
+frameworks.py`/`normalize.py::group_mappings` for the pentest module. Four
+technique IDs, each verified against MITRE's own site before use (verified
+below), one per finding's actual action:
+
+- **`app/core/domain/engine.py`**: `_subdomain_discovery_finding`
+  (`KERVY-DOMAIN-001`) cites `T1590.002` (Gather Victim Network Information:
+  DNS) — certificate-transparency lookup plus DNS brute-force is exactly
+  that sub-technique's own two named collection methods. `_missing_headers_
+  finding` (`KERVY-DOMAIN-002`) and `_tls_finding` (`KERVY-DOMAIN-003`) both
+  cite `T1595.002` (Active Scanning: Vulnerability Scanning) — an
+  unauthenticated GET followed by inspecting the response/certificate for a
+  known weakness is this sub-technique's own description, word for word.
+- **`app/core/container/engine.py`**: the trivy CVE finding
+  (`KERVY-CONTAINER-101`) gets `"MITRE-ATTACK:T1595.002"` prepended to its
+  existing `frameworks` tuple, alongside the CVE advisories and CWE IDs it
+  already carried — trivy actively scanning the pulled image for known
+  vulnerabilities is this engine's own instance of the identical technique,
+  not a different one; the three framework families coexist on one finding
+  because `group_mappings` buckets by prefix, not by position.
+- **`app/core/cloud/engine.py`**: `_inventory_finding` (`KERVY-CLOUD-001`)
+  cites `T1580` (Cloud Infrastructure Discovery) — AWS's own `ListBuckets`
+  API, which this finding's underlying call uses, is named directly in that
+  technique's description. The public-bucket finding (`KERVY-CLOUD-101`)
+  cites `T1619` (Cloud Storage Object Discovery) instead: it is specifically
+  about storage reachable with no account credential at all, the exposure
+  class that sub-technique's own "adversaries may enumerate objects in
+  cloud storage infrastructure" describes, distinct from the authenticated
+  inventory call the other finding makes.
+- **`app/core/vm/engine.py`**: both `_inventory_finding` (`KERVY-VM-001`)
+  and `_noteworthy_port_finding` (`KERVY-VM-101`) cite `T1046` (Network
+  Service Discovery) — the same technique the pentest module's own
+  discovery-tier finding already cites for the identical action
+  (`nmap -sV`), one tier below this engine's own `scope-gated transport,
+  the `_coverage_marker` and `_simulation_finding` reasoning the pentest
+  module documents already excluding it.
+
+No finding that was already un-mapped stays mapped by accident: every
+`_coverage_marker` across all four engines (domain, container, cloud, VM)
+still carries no `frameworks` argument, for the same reason the pentest
+module's own markers don't.
+
+### What this does not do
+
+No change to `frameworks.py`'s pinned `mitre_attack` version (Enterprise
+v19.2) — these are additional citations against the edition already pinned
+for the pentest module, not a new edition. No mapping added to any
+`_coverage_marker`, by design (see above).
+
+### Verified
+
+Each of `T1046`, `T1595.002`, `T1590.002`, `T1580`, `T1619` confirmed by
+name and tactic via live web search against MITRE's own published
+technique pages (`attack.mitre.org`) before use, matching this project's
+own "a plausible-looking technique ID is the same class of error as an
+invented CVE" standard. `ruff check`/`mypy app` clean on every changed
+file. Targeted: `test_domain_engine.py`, `test_container_engine.py`,
+`test_cloud_engine.py`, `test_vm_engine.py` (each now asserts the exact
+`frameworks` tuple on every affected finding, not just that it is
+non-empty), `test_findings_and_risk.py`, `test_framework_drift.py`. Full
+backend suite confirmed separately.

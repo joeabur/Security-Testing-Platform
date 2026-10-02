@@ -169,6 +169,19 @@ All notable changes to this project are recorded here. The format follows
 
 ### Added
 
+- **MITRE ATT&CK mapping extended to the domain, container, cloud and VM
+  engines.** The pentest module's own `mitre_attack` mapping covered only
+  `app/core/pentest/engine.py`; the four earlier infrastructure engines
+  (Pentest module Phases 2-5) carried no `frameworks=` citation at all.
+  Added one technique per finding's actual action, each verified by name
+  and tactic against MITRE's own site: `T1590.002` (domain subdomain
+  discovery), `T1595.002` (domain missing-headers/TLS findings and the
+  container engine's trivy CVE finding, alongside its existing CVE/CWE
+  citations), `T1580` (cloud storage inventory), `T1619` (a publicly
+  accessible cloud storage bucket), and `T1046` (VM port/service
+  discovery, both the inventory and noteworthy-port findings). No
+  `_coverage_marker` across any of the four engines gets a mapping, same
+  as the pentest module's own markers. See `docs/roadmap.md`'s write-up.
 - **SIEM integration: Splunk HEC, Microsoft Sentinel, and generic CEF
   notification channels.** `ChannelKind.GENERIC_WEBHOOK` was always the
   extension point for "feed a SIEM," but a generic signed JSON POST isn't
