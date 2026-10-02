@@ -43,11 +43,17 @@ from app.core.integrations.contract import (
 from app.core.integrations.policy import (
     redact_url,
     resolve_secret,
+    resolve_sentinel_destination,
     resolve_smtp_host,
     resolve_webhook_destination,
 )
 from app.core.integrations.render import render
-from app.core.integrations.send import DEFAULT_SMTP_PORT, send_email, send_webhook
+from app.core.integrations.send import (
+    DEFAULT_SMTP_PORT,
+    send_email,
+    send_sentinel,
+    send_webhook,
+)
 from app.core.redaction.secrets import redact
 from app.models.integration import DeliveryStatus, NotificationChannel
 
@@ -73,6 +79,10 @@ class ChannelSecrets:
     endpoint_url: str | None = None
     signing_secret: str | None = None
     smtp_password: str | None = None
+    #: Splunk HEC only.
+    auth_token: str | None = None
+    #: Sentinel only — the Entra ID app's client secret.
+    azure_client_secret: str | None = None
 
 
 def subscribes(channel: NotificationChannel, event: IntegrationEvent) -> bool:
@@ -154,6 +164,37 @@ async def _deliver_once_raw(
 
     resolved = secrets or ChannelSecrets()
     try:
+        if kind is ChannelKind.SIEM_SENTINEL:
+            if not channel.sentinel_endpoint:
+                raise IntegrationError("Sentinel channel has no sentinel_endpoint configured")
+            if not (
+                channel.azure_tenant_id
+                and channel.azure_client_id
+                and channel.sentinel_dcr_immutable_id
+                and channel.sentinel_stream_name
+            ):
+                raise IntegrationError(
+                    "Sentinel channel is missing azure_tenant_id, azure_client_id, "
+                    "sentinel_dcr_immutable_id, or sentinel_stream_name"
+                )
+            client_secret = resolved.azure_client_secret
+            if client_secret is None and channel.azure_client_secret_env_var:
+                client_secret = resolve_secret(channel.azure_client_secret_env_var, environ)
+            if not client_secret:
+                raise IntegrationError("Sentinel channel has no azure_client_secret_env_var")
+            destination = resolve_sentinel_destination(
+                channel.sentinel_endpoint, operator_hosts=operator_webhook_hosts
+            )
+            return await send_sentinel(
+                destination,
+                message,
+                tenant_id=channel.azure_tenant_id,
+                client_id=channel.azure_client_id,
+                client_secret=client_secret,
+                dcr_immutable_id=channel.sentinel_dcr_immutable_id,
+                stream_name=channel.sentinel_stream_name,
+            )
+
         if kind is ChannelKind.EMAIL_SMTP:
             host = resolve_smtp_host(channel.smtp_host or "", operator_hosts=operator_smtp_hosts)
             password = resolved.smtp_password
@@ -186,15 +227,23 @@ async def _deliver_once_raw(
         signing_secret = resolved.signing_secret
         if (
             signing_secret is None
-            and kind is ChannelKind.GENERIC_WEBHOOK
+            and kind in (ChannelKind.GENERIC_WEBHOOK, ChannelKind.SIEM_GENERIC_CEF)
             and channel.signing_secret_env_var
         ):
             signing_secret = resolve_secret(channel.signing_secret_env_var, environ)
+        auth_token = resolved.auth_token
+        if (
+            auth_token is None
+            and kind is ChannelKind.SIEM_SPLUNK_HEC
+            and channel.auth_token_env_var
+        ):
+            auth_token = resolve_secret(channel.auth_token_env_var, environ)
         return await send_webhook(
             destination,
             message,
             event_type=event.event_type.value,
             signing_secret=signing_secret,
+            auth_token=auth_token,
         )
     except IntegrationError as exc:
         # Configuration, policy, or a payload the redactor stopped. Final.

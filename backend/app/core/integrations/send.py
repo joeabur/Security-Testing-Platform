@@ -59,6 +59,7 @@ async def send_webhook(
     *,
     event_type: str,
     signing_secret: str | None = None,
+    auth_token: str | None = None,
     transport: GatedTransport | None = None,
 ) -> DeliveryResult:
     """POST a rendered body to a checked destination through the gated transport."""
@@ -66,7 +67,7 @@ async def send_webhook(
         raise IntegrationError("send_webhook called for an email channel")
 
     headers = {"Content-Type": message.content_type, EVENT_HEADER: event_type}
-    if destination.kind == ChannelKind.GENERIC_WEBHOOK:
+    if destination.kind in (ChannelKind.GENERIC_WEBHOOK, ChannelKind.SIEM_GENERIC_CEF):
         if not signing_secret:
             raise IntegrationError(
                 "a generic webhook must be signed; configure signing_secret_env_var "
@@ -76,6 +77,14 @@ async def send_webhook(
         timestamp, signature = sign(signing_secret, message.body)
         headers[TIMESTAMP_HEADER] = timestamp
         headers[SIGNATURE_HEADER] = signature
+    elif destination.kind == ChannelKind.SIEM_SPLUNK_HEC:
+        if not auth_token:
+            raise IntegrationError(
+                "a Splunk HEC channel must have auth_token_env_var configured; "
+                "the collector refuses any request with no Authorization header"
+            )
+        # HEC's own documented scheme — not Bearer, not Basic.
+        headers["Authorization"] = f"Splunk {auth_token}"
 
     ctx = notification_egress_context(destination)
     client = transport or GatedTransport()
@@ -109,6 +118,160 @@ async def send_webhook(
         # The response body is deliberately not recorded: a vendor error page
         # is noise, and a receiver that echoes our payload back would put it
         # in our database.
+        detail=f"destination returned HTTP {status}",
+        retryable=status in _RETRYABLE_STATUS,
+    )
+
+
+#: Microsoft's fixed, stable identity-platform token endpoint host — the
+#: same one every Entra ID app, regardless of tenant, exchanges client
+#: credentials against. Not tenant-specific, so it is pinned here rather
+#: than derived from channel configuration.
+SENTINEL_TOKEN_HOST = "login.microsoftonline.com"
+#: Azure Monitor Logs Ingestion API's own fixed resource scope — see
+#: Microsoft's Logs Ingestion API overview.
+SENTINEL_TOKEN_SCOPE = "https://monitor.azure.com/.default"
+SENTINEL_API_VERSION = "2023-01-01"
+
+
+def _single_host_context(host: str) -> RunContext:
+    """A scope context permitting exactly one HTTPS host — the same shape
+    `notification_egress_context` builds from a `Destination`, used here for
+    the Azure AD token endpoint, which is not itself a notification
+    destination."""
+    now = datetime.now(UTC)
+    roe = RulesOfEngagement(
+        allowed_domains=(host,),
+        excluded_domains=(),
+        allowed_ip_ranges=(),
+        allowed_paths=(),
+        excluded_paths=(),
+        allowed_methods=("POST",),
+        forbidden_headers=(),
+        budgets=Budgets(
+            max_requests=2,
+            max_concurrency=1,
+            requests_per_second=2.0,
+            max_tokens_sent=0,
+            max_tokens_received=0,
+            max_estimated_cost_usd=0.0,
+            max_wall_clock_minutes=1,
+        ),
+        safe_mode=True,
+    )
+    return RunContext(
+        roe=roe,
+        authorization=ResolvedAuthorization(
+            valid_from=now - timedelta(minutes=1), valid_until=now + timedelta(minutes=2)
+        ),
+        budgets=BudgetTracker(roe.budgets),
+        kill_switch=KillSwitch(),
+    )
+
+
+async def _fetch_sentinel_token(
+    *, tenant_id: str, client_id: str, client_secret: str, transport: GatedTransport
+) -> str:
+    """Client-credentials exchange against Entra ID, scoped to Azure
+    Monitor. Raises `IntegrationError` rather than returning a sentinel on
+    failure: an unobtainable token means this attempt cannot proceed, the
+    same as any other configuration problem `_deliver_once_raw` catches."""
+    import json
+    from urllib.parse import urlencode
+
+    body = urlencode(
+        {
+            "grant_type": "client_credentials",
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "scope": SENTINEL_TOKEN_SCOPE,
+        }
+    ).encode("ascii")
+    ctx = _single_host_context(SENTINEL_TOKEN_HOST)
+    try:
+        observation = await transport.send(
+            ctx,
+            method="POST",
+            url=f"https://{SENTINEL_TOKEN_HOST}/{tenant_id}/oauth2/v2.0/token",
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            content=body,
+            timeout_seconds=15.0,
+        )
+    except ScopeBlockedError as exc:
+        raise IntegrationError(
+            f"token request refused by scope engine: {exc.decision.reason}"
+        ) from exc
+    if observation.status_code != 200:
+        raise IntegrationError(f"Entra ID token endpoint returned HTTP {observation.status_code}")
+    try:
+        parsed = json.loads(observation.body)
+        token = parsed["access_token"]
+    except (ValueError, KeyError) as exc:
+        raise IntegrationError(f"Entra ID token response had no access_token: {exc}") from exc
+    if not isinstance(token, str) or not token:
+        raise IntegrationError("Entra ID token response had an empty access_token")
+    return token
+
+
+async def send_sentinel(
+    destination: Destination,
+    message: RenderedMessage,
+    *,
+    tenant_id: str,
+    client_id: str,
+    client_secret: str,
+    dcr_immutable_id: str,
+    stream_name: str,
+    transport: GatedTransport | None = None,
+) -> DeliveryResult:
+    """Exchange for a bearer token, then POST the rendered record array to
+    the Data Collection Endpoint's ingestion URL for this DCR/stream.
+
+    Two network calls, two distinct single-host scope contexts — the token
+    endpoint is never folded into the same allowlist as the DCE, so a bug in
+    one context's construction cannot widen the other.
+    """
+    client = transport or GatedTransport()
+    try:
+        token = await _fetch_sentinel_token(
+            tenant_id=tenant_id, client_id=client_id, client_secret=client_secret, transport=client
+        )
+    except IntegrationError as exc:
+        return DeliveryResult(delivered=False, detail=str(exc), retryable=False)
+
+    url = (
+        f"{destination.url}/dataCollectionRules/{dcr_immutable_id}/streams/{stream_name}"
+        f"?api-version={SENTINEL_API_VERSION}"
+    )
+    ctx = notification_egress_context(destination)
+    try:
+        observation = await client.send(
+            ctx,
+            method="POST",
+            url=url,
+            headers={"Content-Type": message.content_type, "Authorization": f"Bearer {token}"},
+            content=message.body,
+            timeout_seconds=15.0,
+        )
+    except ScopeBlockedError as exc:
+        return DeliveryResult(
+            delivered=False,
+            detail=f"refused by scope engine: {exc.decision.reason}",
+            retryable=False,
+        )
+    except Exception as exc:  # noqa: BLE001 - a transport fault is retryable
+        return DeliveryResult(
+            delivered=False, detail=f"{type(exc).__name__}: {exc}"[:400], retryable=True
+        )
+
+    status = observation.status_code
+    # The Logs Ingestion API answers a successful batch with 204, not 200/201
+    # — Microsoft's own documented response for this endpoint.
+    if status == 204:
+        return DeliveryResult(delivered=True, status_code=status, detail="delivered")
+    return DeliveryResult(
+        delivered=False,
+        status_code=status,
         detail=f"destination returned HTTP {status}",
         retryable=status in _RETRYABLE_STATUS,
     )

@@ -44,12 +44,13 @@ from app.core.integrations.egress import notification_egress_context
 from app.core.integrations.policy import (
     redact_url,
     resolve_secret,
+    resolve_sentinel_destination,
     resolve_smtp_host,
     resolve_webhook_destination,
     valid_env_var_name,
 )
 from app.core.integrations.render import MAX_SUMMARY_CHARS, render
-from app.core.integrations.send import send_webhook
+from app.core.integrations.send import send_sentinel, send_webhook
 from app.core.integrations.signing import (
     SIGNATURE_HEADER,
     TIMESTAMP_HEADER,
@@ -766,3 +767,219 @@ async def test_an_smtp_relay_resolving_to_the_metadata_service_is_refused() -> N
     assert not result.delivered
     assert "refused by scope engine" in result.detail
     assert result.retryable is False
+
+
+# --- SIEM: Splunk HEC, Sentinel, generic CEF ---------------------------------
+
+
+def test_splunk_hec_needs_an_operator_sanctioned_host() -> None:
+    """Almost always self-hosted, so it carries no built-in vendor host."""
+    with pytest.raises(IntegrationError, match="KERVY_NOTIFY_ALLOWED_WEBHOOK_HOSTS"):
+        resolve_webhook_destination(
+            ChannelKind.SIEM_SPLUNK_HEC,
+            "VAR",
+            environ={"VAR": "https://splunk.internal.test:8088/x"},
+        )
+    destination = resolve_webhook_destination(
+        ChannelKind.SIEM_SPLUNK_HEC,
+        "VAR",
+        operator_hosts=["splunk.internal.test"],
+        environ={"VAR": "https://splunk.internal.test:8088/services/collector/event"},
+    )
+    assert destination.host == "splunk.internal.test"
+
+
+async def test_splunk_hec_refuses_to_send_with_no_token() -> None:
+    destination = resolve_webhook_destination(
+        ChannelKind.SIEM_SPLUNK_HEC,
+        "VAR",
+        operator_hosts=["splunk.test"],
+        environ={"VAR": "https://splunk.test:8088/services/collector/event"},
+    )
+    message = render(ChannelKind.SIEM_SPLUNK_HEC, make_event())
+    with pytest.raises(IntegrationError, match="auth_token_env_var"):
+        await send_webhook(destination, message, event_type="x", auth_token=None)
+
+
+async def test_splunk_hec_sends_the_documented_authorization_scheme() -> None:
+    destination = resolve_webhook_destination(
+        ChannelKind.SIEM_SPLUNK_HEC,
+        "VAR",
+        operator_hosts=["splunk.test"],
+        environ={"VAR": "https://splunk.test:8088/services/collector/event"},
+    )
+    message = render(ChannelKind.SIEM_SPLUNK_HEC, make_event())
+    transport = RecordingTransport()
+    result = await send_webhook(
+        destination,
+        message,
+        event_type="finding.critical",
+        auth_token="hec-token-123",
+        transport=transport,  # type: ignore[arg-type]
+    )
+    assert result.delivered
+    headers = transport.calls[0]["headers"]
+    assert isinstance(headers, dict)
+    # HEC's own documented scheme — not Bearer, not Basic.
+    assert headers["Authorization"] == "Splunk hec-token-123"
+
+
+def test_splunk_hec_event_envelope_carries_time_sourcetype_and_event() -> None:
+    import json
+
+    message = render(ChannelKind.SIEM_SPLUNK_HEC, make_event())
+    payload = json.loads(message.body)
+    assert payload["sourcetype"] == "kervy:security_event"
+    assert isinstance(payload["time"], float)
+    assert payload["event"]["title"] == make_event().title
+    assert payload["event"]["severity"] == "CRITICAL"
+
+
+async def test_generic_cef_needs_signing_like_the_generic_webhook() -> None:
+    destination = resolve_webhook_destination(
+        ChannelKind.SIEM_GENERIC_CEF,
+        "VAR",
+        operator_hosts=["siem.test"],
+        environ={"VAR": "https://siem.test/cef"},
+    )
+    message = render(ChannelKind.SIEM_GENERIC_CEF, make_event())
+    with pytest.raises(IntegrationError, match="must be signed"):
+        await send_webhook(destination, message, event_type="x", signing_secret=None)
+
+
+def test_cef_payload_has_the_documented_header_shape() -> None:
+    message = render(ChannelKind.SIEM_GENERIC_CEF, make_event())
+    line = message.body.decode("utf-8")
+    assert line.startswith("CEF:0|Kervy|SecurityTestingPlatform|1.0|")
+    # CRITICAL maps to the top of this platform's CEF severity scale.
+    fields = line.split("|")
+    assert fields[6] == "10"
+    assert "cs1Label=OrganizationId" in line
+
+
+def test_cef_header_fields_are_pipe_escaped() -> None:
+    """A finding title is free text; it must never be able to inject a CEF
+    field boundary."""
+    event = make_event(title="Injected|Field|Boundary")
+    message = render(ChannelKind.SIEM_GENERIC_CEF, event)
+    line = message.body.decode("utf-8")
+    assert "Injected\\|Field\\|Boundary" in line
+
+
+def test_sentinel_endpoint_needs_the_ingest_monitor_azure_com_domain() -> None:
+    with pytest.raises(IntegrationError, match="not permitted"):
+        resolve_sentinel_destination("https://attacker.test/x")
+    destination = resolve_sentinel_destination(
+        "https://my-dce-1234.eastus-1.ingest.monitor.azure.com"
+    )
+    assert destination.host == "my-dce-1234.eastus-1.ingest.monitor.azure.com"
+
+
+def test_sentinel_endpoint_must_be_https() -> None:
+    with pytest.raises(IntegrationError, match="must be https"):
+        resolve_sentinel_destination("http://my-dce.eastus-1.ingest.monitor.azure.com")
+
+
+class SentinelTransport:
+    """Two distinct calls, two distinct responses — the token exchange, then
+    the ingestion POST — matched by the request URL rather than call order,
+    so a bug that skipped the token call would fail loudly instead of
+    silently reading the wrong fixture."""
+
+    def __init__(self, *, token_status: int = 200, data_status: int = 204) -> None:
+        self.token_status = token_status
+        self.data_status = data_status
+        self.calls: list[dict[str, object]] = []
+
+    async def send(self, ctx: object, **kwargs: object) -> Observation:
+        self.calls.append(kwargs)
+        url = str(kwargs.get("url"))
+        if "login.microsoftonline.com" in url:
+            import json
+
+            return Observation(
+                method="POST",
+                url=url,
+                status_code=self.token_status,
+                headers={},
+                elapsed_ms=1.0,
+                body=json.dumps({"access_token": "fake-bearer-token"}).encode("utf-8"),
+            )
+        return Observation(
+            method="POST", url=url, status_code=self.data_status, headers={}, elapsed_ms=1.0
+        )
+
+
+async def test_sentinel_exchanges_a_token_then_posts_to_the_dcr_stream_url() -> None:
+    destination = resolve_sentinel_destination("https://my-dce.eastus-1.ingest.monitor.azure.com")
+    message = render(ChannelKind.SIEM_SENTINEL, make_event())
+    transport = SentinelTransport()
+    result = await send_sentinel(
+        destination,
+        message,
+        tenant_id="tenant-1",
+        client_id="client-1",
+        client_secret="shh",
+        dcr_immutable_id="dcr-abc",
+        stream_name="Custom-KervySecurityEvent",
+        transport=transport,  # type: ignore[arg-type]
+    )
+    assert result.delivered
+    assert result.status_code == 204
+    assert len(transport.calls) == 2
+    token_call, data_call = transport.calls
+    assert "login.microsoftonline.com/tenant-1" in str(token_call["url"])
+    assert "dataCollectionRules/dcr-abc/streams/Custom-KervySecurityEvent" in str(data_call["url"])
+    data_headers = data_call["headers"]
+    assert isinstance(data_headers, dict)
+    assert data_headers["Authorization"] == "Bearer fake-bearer-token"
+
+
+async def test_sentinel_a_non_204_data_response_is_not_delivered() -> None:
+    destination = resolve_sentinel_destination("https://my-dce.eastus-1.ingest.monitor.azure.com")
+    message = render(ChannelKind.SIEM_SENTINEL, make_event())
+    transport = SentinelTransport(data_status=400)
+    result = await send_sentinel(
+        destination,
+        message,
+        tenant_id="tenant-1",
+        client_id="client-1",
+        client_secret="shh",
+        dcr_immutable_id="dcr-abc",
+        stream_name="Custom-KervySecurityEvent",
+        transport=transport,  # type: ignore[arg-type]
+    )
+    assert not result.delivered
+    assert result.status_code == 400
+
+
+async def test_sentinel_a_failed_token_exchange_never_reaches_the_dce() -> None:
+    destination = resolve_sentinel_destination("https://my-dce.eastus-1.ingest.monitor.azure.com")
+    message = render(ChannelKind.SIEM_SENTINEL, make_event())
+    transport = SentinelTransport(token_status=401)
+    result = await send_sentinel(
+        destination,
+        message,
+        tenant_id="tenant-1",
+        client_id="client-1",
+        client_secret="wrong",
+        dcr_immutable_id="dcr-abc",
+        stream_name="Custom-KervySecurityEvent",
+        transport=transport,  # type: ignore[arg-type]
+    )
+    assert not result.delivered
+    assert result.retryable is False
+    # One call only: the DCE is never touched without a token.
+    assert len(transport.calls) == 1
+
+
+def test_sentinel_record_shape_matches_the_custom_table_schema() -> None:
+    import json
+
+    message = render(ChannelKind.SIEM_SENTINEL, make_event())
+    records = json.loads(message.body)
+    assert isinstance(records, list) and len(records) == 1
+    record = records[0]
+    assert record["EventType"] == "finding.critical"
+    assert record["Severity"] == "CRITICAL"
+    assert record["TargetName"] == "acme-api"

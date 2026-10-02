@@ -777,3 +777,121 @@ async def test_a_run_with_no_subscribed_channel_writes_no_delivery_rows(
         .all()
     )
     assert rows == []
+
+
+# --- SIEM: Splunk HEC and Sentinel channels ----------------------------------
+
+
+async def test_a_splunk_hec_channel_without_an_auth_token_is_rejected(
+    client: AsyncClient, strong_password: str
+) -> None:
+    org_id, headers = await _owner(client, strong_password, "h")
+    response = await client.post(
+        f"/api/v1/organizations/{org_id}/notification-channels",
+        json={
+            "name": "splunk",
+            "kind": "siem_splunk_hec",
+            "events": ["finding.critical"],
+            "endpoint_env_var": SLACK_ENV,
+        },
+        headers=headers,
+    )
+    assert response.status_code == 422
+    assert "auth_token_env_var" in response.text
+
+
+async def test_a_splunk_hec_channel_is_created_with_an_operator_sanctioned_host(
+    client: AsyncClient, strong_password: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import json
+
+    monkeypatch.setenv("KERVY_NOTIFY_ALLOWED_WEBHOOK_HOSTS", json.dumps(["splunk.internal.test"]))
+    monkeypatch.setenv(
+        "KERVY_TEST_SPLUNK_HEC", "https://splunk.internal.test:8088/services/collector/event"
+    )
+    get_settings.cache_clear()
+    org_id, headers = await _owner(client, strong_password, "i")
+    response = await client.post(
+        f"/api/v1/organizations/{org_id}/notification-channels",
+        json={
+            "name": "splunk",
+            "kind": "siem_splunk_hec",
+            "events": ["finding.critical"],
+            "endpoint_env_var": "KERVY_TEST_SPLUNK_HEC",
+            "auth_token_env_var": "KERVY_TEST_SPLUNK_TOKEN",
+        },
+        headers=headers,
+    )
+    get_settings.cache_clear()
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["auth_token_env_var"] == "KERVY_TEST_SPLUNK_TOKEN"
+    assert "splunk.internal.test" in body["endpoint_redacted"]
+
+
+async def test_a_sentinel_channel_missing_required_fields_is_rejected(
+    client: AsyncClient, strong_password: str
+) -> None:
+    org_id, headers = await _owner(client, strong_password, "j")
+    response = await client.post(
+        f"/api/v1/organizations/{org_id}/notification-channels",
+        json={
+            "name": "sentinel",
+            "kind": "siem_sentinel",
+            "events": ["finding.critical"],
+            "sentinel_endpoint": "https://my-dce.eastus-1.ingest.monitor.azure.com",
+        },
+        headers=headers,
+    )
+    assert response.status_code == 422
+    assert "azure_tenant_id" in response.text
+
+
+async def test_a_sentinel_channel_pointing_off_the_azure_domain_is_refused(
+    client: AsyncClient, strong_password: str
+) -> None:
+    org_id, headers = await _owner(client, strong_password, "k")
+    response = await client.post(
+        f"/api/v1/organizations/{org_id}/notification-channels",
+        json={
+            "name": "sentinel",
+            "kind": "siem_sentinel",
+            "events": ["finding.critical"],
+            "sentinel_endpoint": "https://attacker.test/x",
+            "azure_tenant_id": "tenant-1",
+            "azure_client_id": "client-1",
+            "azure_client_secret_env_var": "KERVY_TEST_AZURE_SECRET",
+            "sentinel_dcr_immutable_id": "dcr-abc",
+            "sentinel_stream_name": "Custom-KervySecurityEvent",
+        },
+        headers=headers,
+    )
+    assert response.status_code == 422
+    assert "not permitted" in response.text
+
+
+async def test_a_sentinel_channel_is_created_with_identifiers_but_no_secret_value(
+    client: AsyncClient, strong_password: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("KERVY_TEST_AZURE_SECRET", "super-secret-client-secret")
+    org_id, headers = await _owner(client, strong_password, "l")
+    response = await client.post(
+        f"/api/v1/organizations/{org_id}/notification-channels",
+        json={
+            "name": "sentinel",
+            "kind": "siem_sentinel",
+            "events": ["finding.critical"],
+            "sentinel_endpoint": "https://my-dce.eastus-1.ingest.monitor.azure.com",
+            "azure_tenant_id": "tenant-1",
+            "azure_client_id": "client-1",
+            "azure_client_secret_env_var": "KERVY_TEST_AZURE_SECRET",
+            "sentinel_dcr_immutable_id": "dcr-abc",
+            "sentinel_stream_name": "Custom-KervySecurityEvent",
+        },
+        headers=headers,
+    )
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["azure_tenant_id"] == "tenant-1"
+    assert body["azure_client_secret_env_var"] == "KERVY_TEST_AZURE_SECRET"
+    assert "super-secret-client-secret" not in response.text

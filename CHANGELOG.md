@@ -169,6 +169,20 @@ All notable changes to this project are recorded here. The format follows
 
 ### Added
 
+- **SIEM integration: Splunk HEC, Microsoft Sentinel, and generic CEF
+  notification channels.** `ChannelKind.GENERIC_WEBHOOK` was always the
+  extension point for "feed a SIEM," but a generic signed JSON POST isn't
+  what Splunk's HTTP Event Collector or Sentinel's Logs Ingestion API
+  actually expect on the wire. Three new channel kinds
+  (`app/core/integrations/`): `siem_splunk_hec` (HEC-token auth), `siem_sentinel`
+  (Entra ID client-credentials exchange, then a POST to the Data Collection
+  Endpoint — `*.ingest.monitor.azure.com` is the only pinned vendor host),
+  and `siem_generic_cef` (Common Event Format over the existing signed
+  generic-webhook path, for any SIEM with no dedicated adapter). New
+  `NotificationChannel` columns via migration `d4f8e2a91c73`. See
+  `docs/integrations.md`'s "SIEM channels" section and
+  `docs/roadmap.md`'s write-up for the full design and what remains
+  unverified against a real vendor account.
 - **MITRE ATT&CK (Enterprise) mapping for the pentest module's own findings.**
   `docs/frameworks.md` already pinned `mitre_atlas` (AI-specific), but the
   pentest module's engines test conventional infrastructure — exactly
