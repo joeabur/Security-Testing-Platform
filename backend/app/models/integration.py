@@ -71,6 +71,29 @@ class NotificationChannel(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     #: from anyone else's POST.
     signing_secret_env_var: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
+    #: Splunk HEC only: env var holding the HEC token sent as
+    #: `Authorization: Splunk <token>`. By reference like every other
+    #: credential here — see the module docstring.
+    auth_token_env_var: Mapped[str | None] = mapped_column(String(128), nullable=True)
+
+    #: Microsoft Sentinel only (Logs Ingestion API). None of these five are
+    #: secrets by themselves — a Data Collection Endpoint URL carries no
+    #: token in its path (unlike a Slack/Teams webhook), and a tenant id,
+    #: client id and DCR/stream name are identifiers, not credentials — so
+    #: all five are stored directly rather than by env-var reference; only
+    #: the Entra ID app's client *secret* is. Reaching the endpoint still
+    #: requires a bearer token scoped to that specific DCR, obtained via the
+    #: client-credentials exchange below.
+    sentinel_endpoint: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    azure_tenant_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    azure_client_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    azure_client_secret_env_var: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    #: The Data Collection Rule's immutable id and the custom table's stream
+    #: name, together addressing exactly where an event lands —
+    #: `{endpoint}/dataCollectionRules/{dcr_immutable_id}/streams/{stream_name}`.
+    sentinel_dcr_immutable_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    sentinel_stream_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+
     #: Email only. The password is by reference like everything else.
     smtp_host: Mapped[str | None] = mapped_column(String(255), nullable=True)
     smtp_port: Mapped[int | None] = mapped_column(Integer, nullable=True)

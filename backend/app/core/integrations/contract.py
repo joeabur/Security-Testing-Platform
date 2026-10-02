@@ -46,6 +46,20 @@ class ChannelKind(StrEnum):
     MSTEAMS_WEBHOOK = "msteams_webhook"
     GENERIC_WEBHOOK = "generic_webhook"
     EMAIL_SMTP = "email_smtp"
+    #: Splunk's HTTP Event Collector. Almost always self-hosted (a customer's
+    #: own Splunk instance, not a shared vendor host), so it carries no
+    #: built-in `KIND_HOST_POLICY` entry — the operator allowlist is the only
+    #: way in, the same as `GENERIC_WEBHOOK`.
+    SIEM_SPLUNK_HEC = "siem_splunk_hec"
+    #: Microsoft Sentinel's Logs Ingestion API. Pinned to Azure Monitor's own
+    #: ingestion domain, since every deployment's Data Collection Endpoint
+    #: lives under it.
+    SIEM_SENTINEL = "siem_sentinel"
+    #: Vendor-neutral: a CEF-formatted event over a signed webhook POST, for
+    #: a SIEM with no dedicated adapter here (QRadar, Elastic, Sumo Logic,
+    #: Chronicle, …). Shares `GENERIC_WEBHOOK`'s signing and host-allowlist
+    #: rules; only the payload format differs.
+    SIEM_GENERIC_CEF = "siem_generic_cef"
 
 
 class EventType(StrEnum):
@@ -105,6 +119,12 @@ KIND_HOST_POLICY: Mapping[ChannelKind, tuple[str, ...]] = {
     ),
     ChannelKind.GENERIC_WEBHOOK: (),
     ChannelKind.EMAIL_SMTP: (),
+    ChannelKind.SIEM_SPLUNK_HEC: (),
+    # Every Data Collection Endpoint Azure Monitor issues lives under this
+    # domain — https://learn.microsoft.com/azure/azure-monitor/data-collection/
+    # data-collection-endpoint-overview.
+    ChannelKind.SIEM_SENTINEL: ("*.ingest.monitor.azure.com",),
+    ChannelKind.SIEM_GENERIC_CEF: (),
 }
 
 

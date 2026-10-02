@@ -647,6 +647,20 @@ def cmd_channels_add(args: argparse.Namespace, profile: Profile) -> ExitCode:
         payload["endpoint_env_var"] = args.endpoint_env_var
     if args.signing_secret_env_var:
         payload["signing_secret_env_var"] = args.signing_secret_env_var
+    if args.auth_token_env_var:
+        payload["auth_token_env_var"] = args.auth_token_env_var
+    if args.sentinel_endpoint:
+        payload["sentinel_endpoint"] = args.sentinel_endpoint
+    if args.azure_tenant_id:
+        payload["azure_tenant_id"] = args.azure_tenant_id
+    if args.azure_client_id:
+        payload["azure_client_id"] = args.azure_client_id
+    if args.azure_client_secret_env_var:
+        payload["azure_client_secret_env_var"] = args.azure_client_secret_env_var
+    if args.sentinel_dcr_immutable_id:
+        payload["sentinel_dcr_immutable_id"] = args.sentinel_dcr_immutable_id
+    if args.sentinel_stream_name:
+        payload["sentinel_stream_name"] = args.sentinel_stream_name
     if args.min_severity:
         payload["min_severity"] = args.min_severity
     _emit(
@@ -1079,7 +1093,15 @@ def _parser() -> argparse.ArgumentParser:
     ch_add.add_argument(
         "--kind",
         required=True,
-        choices=["slack_webhook", "msteams_webhook", "generic_webhook", "email_smtp"],
+        choices=[
+            "slack_webhook",
+            "msteams_webhook",
+            "generic_webhook",
+            "email_smtp",
+            "siem_splunk_hec",
+            "siem_sentinel",
+            "siem_generic_cef",
+        ],
     )
     ch_add.add_argument(
         "--event", action="append", required=True, help="repeatable; an event type to subscribe to"
@@ -1088,6 +1110,24 @@ def _parser() -> argparse.ArgumentParser:
         "--endpoint-env-var", help="name of the variable holding the webhook URL (not the URL)"
     )
     ch_add.add_argument("--signing-secret-env-var")
+    ch_add.add_argument(
+        "--auth-token-env-var", help="siem_splunk_hec: name of the variable holding the HEC token"
+    )
+    ch_add.add_argument(
+        "--sentinel-endpoint", help="siem_sentinel: the Data Collection Endpoint URL"
+    )
+    ch_add.add_argument("--azure-tenant-id", help="siem_sentinel: Entra ID tenant id")
+    ch_add.add_argument(
+        "--azure-client-id", help="siem_sentinel: Entra ID app registration client id"
+    )
+    ch_add.add_argument(
+        "--azure-client-secret-env-var",
+        help="siem_sentinel: name of the variable holding the app registration's client secret",
+    )
+    ch_add.add_argument("--sentinel-dcr-immutable-id", help="siem_sentinel: the DCR's immutable id")
+    ch_add.add_argument(
+        "--sentinel-stream-name", help="siem_sentinel: the custom table's stream name"
+    )
     ch_add.add_argument("--min-severity")
     ch_add.set_defaults(handler=cmd_channels_add)
     ch_test = channels.add_parser("test")
