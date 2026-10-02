@@ -15,6 +15,7 @@ layer at all, something upstream is broken and should be noticed.
 from __future__ import annotations
 
 import json
+import time
 from collections.abc import Mapping
 
 from app.core.integrations.contract import (
@@ -35,6 +36,18 @@ _SEVERITY_ICON: Mapping[str, str] = {
     "MEDIUM": "\U0001f7e1",
     "LOW": "\U0001f535",
     "INFORMATIONAL": "⚪",
+}
+
+#: CEF's `Severity` extension is an integer 0-10 (ArcSight Common Event
+#: Format spec). The mapping is ours — CEF names no canonical word-to-number
+#: table — chosen so CRITICAL lands in the conventional "very-high" band a
+#: receiving SIEM's default correlation rules already key off of.
+_CEF_SEVERITY: Mapping[str, int] = {
+    "CRITICAL": 10,
+    "HIGH": 7,
+    "MEDIUM": 5,
+    "LOW": 3,
+    "INFORMATIONAL": 1,
 }
 
 
@@ -148,6 +161,128 @@ def _generic(event: IntegrationEvent, base_url: str | None) -> RenderedMessage:
     return RenderedMessage(body=body, content_type="application/json", summary=summary)
 
 
+def _splunk_hec(event: IntegrationEvent, base_url: str | None) -> RenderedMessage:
+    """Splunk's HTTP Event Collector event envelope.
+
+    `time` is Unix epoch seconds, HEC's documented format; `sourcetype` is a
+    fixed, versioned string so a Splunk admin can build one parsing
+    extraction for every event this platform ever sends, rather than one per
+    event type.
+    """
+    summary = _safe("\n".join(summary_lines(event, base_url)))
+    fields = {
+        "event_type": event.event_type.value,
+        "title": event.title,
+        "severity": event.severity,
+        "organization_id": str(event.organization_id),
+        "resource_type": event.resource_type,
+        "resource_id": event.resource_id,
+        "target_name": event.target_name,
+        "run_id": str(event.run_id) if event.run_id else None,
+        "facts": {key: str(value) for key, value in event.facts.items()},
+        "link": link_for(event, base_url),
+    }
+    payload = {
+        "time": time.time(),
+        "sourcetype": "kervy:security_event",
+        "event": fields,
+    }
+    body = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    _safe(body.decode("utf-8"))
+    return RenderedMessage(body=body, content_type="application/json", summary=summary)
+
+
+def _sentinel(event: IntegrationEvent, base_url: str | None) -> RenderedMessage:
+    """One record for the Logs Ingestion API, shaped for a custom table whose
+    schema mirrors `IntegrationEvent`'s own scalar fields.
+
+    The API accepts a JSON *array* of records (one call can batch many); this
+    platform always sends one event per call, so the array always has length
+    one — batching belongs to the dispatcher, not the renderer.
+    """
+    summary = _safe("\n".join(summary_lines(event, base_url)))
+    record = {
+        "TimeGenerated": event.occurred_at_iso,
+        "EventType": event.event_type.value,
+        "Title": event.title,
+        "Severity": event.severity,
+        "OrganizationId": str(event.organization_id),
+        "ResourceType": event.resource_type,
+        "ResourceId": event.resource_id,
+        "TargetName": event.target_name,
+        "RunId": str(event.run_id) if event.run_id else None,
+        "Facts": json.dumps({key: str(value) for key, value in event.facts.items()}),
+        "Link": link_for(event, base_url),
+    }
+    body = json.dumps([record], sort_keys=True, separators=(",", ":")).encode("utf-8")
+    _safe(body.decode("utf-8"))
+    return RenderedMessage(body=body, content_type="application/json", summary=summary)
+
+
+#: CEF header fields a receiver must never see containing a `|`: the spec
+#: escapes it as `\|` in the header, but this platform's own field values
+#: (a finding title, a target name) are free text, so they go through
+#: `_cef_escape` rather than trust that upstream content never contains one.
+def _cef_escape(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("|", "\\|").replace("\n", " ")
+
+
+def _cef_extension_escape(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("=", "\\=").replace("\n", " ")
+
+
+def _cef(event: IntegrationEvent, base_url: str | None) -> RenderedMessage:
+    """Common Event Format (ArcSight CEF), for any SIEM with no dedicated
+    adapter here. One line: `CEF:Version|Vendor|Product|Version|SignatureID
+    |Name|Severity|Extension`, the format most SIEM log collectors (QRadar,
+    Elastic, Sumo Logic, Chronicle, …) already know how to parse.
+    """
+    summary = _safe("\n".join(summary_lines(event, base_url)))
+    severity = _CEF_SEVERITY.get((event.severity or "").upper(), 0)
+    header = "|".join(
+        [
+            "CEF:0",
+            "Kervy",
+            "SecurityTestingPlatform",
+            "1.0",
+            _cef_escape(event.event_type.value),
+            _cef_escape(event.title),
+            str(severity),
+        ]
+    )
+    extension_fields: dict[str, str] = {
+        "cs1Label": "OrganizationId",
+        "cs1": str(event.organization_id),
+    }
+    if event.resource_type:
+        extension_fields["cs2Label"] = "ResourceType"
+        extension_fields["cs2"] = event.resource_type
+    if event.resource_id:
+        extension_fields["cs3Label"] = "ResourceId"
+        extension_fields["cs3"] = event.resource_id
+    if event.target_name:
+        extension_fields["dhost"] = event.target_name
+    link = link_for(event, base_url)
+    if link:
+        extension_fields["cs4Label"] = "Link"
+        extension_fields["cs4"] = link
+    # Not among CEF's fixed, labelled keys (`csN`/`cnN`) — those are spent
+    # above on the fields every event carries. A fact is unbounded (arbitrary
+    # probe-defined keys), so it goes in as its own `fact_<name>` extension
+    # key directly; every mainstream CEF parser (Splunk, QRadar, Elastic)
+    # keeps an unrecognised key as a custom field rather than dropping it.
+    for key, value in event.facts.items():
+        extension_fields[f"fact_{key}"] = str(value)
+    extension = " ".join(
+        f"{key}={_cef_extension_escape(value)}" for key, value in extension_fields.items()
+    )
+    line = f"{header}|{extension}" if extension else header
+    _safe(line)
+    return RenderedMessage(
+        body=line.encode("utf-8"), content_type="text/plain; charset=utf-8", summary=summary
+    )
+
+
 def _email(event: IntegrationEvent, base_url: str | None) -> RenderedMessage:
     summary = _safe("\n".join(summary_lines(event, base_url)))
     subject = _safe(f"[Kervy] {event.severity or event.event_type.value}: {event.title}"[:200])
@@ -224,6 +359,9 @@ _RENDERERS = {
     ChannelKind.MSTEAMS_WEBHOOK: _teams,
     ChannelKind.GENERIC_WEBHOOK: _generic,
     ChannelKind.EMAIL_SMTP: _email,
+    ChannelKind.SIEM_SPLUNK_HEC: _splunk_hec,
+    ChannelKind.SIEM_SENTINEL: _sentinel,
+    ChannelKind.SIEM_GENERIC_CEF: _cef,
     ChannelKind.TICKET_JIRA: _jira,
     ChannelKind.TICKET_SERVICENOW: _servicenow,
 }

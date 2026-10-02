@@ -4839,6 +4839,89 @@ claimed" tests cover the new entry with no changes of their own),
 avoid colliding with the full-suite run already in flight; full backend
 suite confirmed separately.
 
+## SIEM integration: Splunk HEC, Microsoft Sentinel, generic CEF
+
+### Context
+
+`ChannelKind.GENERIC_WEBHOOK`'s own docstring already named itself "the
+extension point: ... what a customer needs to feed a SIEM ... without us
+writing an adapter per vendor" — but a generic signed JSON POST is not what
+a real Splunk HEC collector or Sentinel's Logs Ingestion API actually
+expects on the wire. This closes that gap with real, production-grade
+vendor adapters rather than another layer of the existing generic shape —
+real HTTP calls through the same `GatedTransport` every other outbound
+request in this platform uses, not a mock.
+
+### Design
+
+Three new `ChannelKind` values, each following the exact "credential held
+by reference, host checked against policy before anything is sent" pattern
+Slack/Teams/the generic webhook already established:
+
+- **`siem_splunk_hec`**: a webhook-shaped channel (like `generic_webhook`)
+  whose auth is `Authorization: Splunk <token>` rather than HMAC signing.
+  Carries no built-in vendor host — almost every HEC collector is
+  self-hosted — so the operator allowlist is the only way in, same as
+  `generic_webhook` and SMTP.
+- **`siem_sentinel`**: structurally different from every other channel
+  kind, because its destination (a Data Collection Endpoint URL) carries no
+  token in its path and its auth is a client-credentials OAuth2 exchange
+  against Entra ID rather than a header this platform derives itself. Two
+  network calls per delivery, each under its own single-host scope
+  context: the token exchange against `login.microsoftonline.com`
+  (Microsoft's fixed identity-platform host, not tenant-specific), then
+  the record POST to `{endpoint}/dataCollectionRules/{dcr}/streams/{stream}`
+  with the fetched bearer token. `*.ingest.monitor.azure.com` is pinned as
+  the one built-in vendor host, verified against Microsoft's own Logs
+  Ingestion API documentation (DCE hostname pattern, token scope
+  `https://monitor.azure.com/.default`, and that a successful upload
+  answers `204` specifically) rather than assumed.
+- **`siem_generic_cef`**: Common Event Format over the existing signed
+  generic-webhook path, for any SIEM with no dedicated adapter here
+  (QRadar, Elastic, Sumo Logic, Chronicle, …) — shares
+  `GENERIC_WEBHOOK`'s signing and host-allowlist rules; only the payload
+  renderer differs.
+
+`NotificationChannel` gained seven new nullable columns (migration
+`d4f8e2a91c73`): `auth_token_env_var` (Splunk HEC) and six for Sentinel —
+five stored directly (`sentinel_endpoint`, `azure_tenant_id`,
+`azure_client_id`, `sentinel_dcr_immutable_id`, `sentinel_stream_name`,
+none of which is itself a credential) plus
+`azure_client_secret_env_var`, by reference like every other secret here.
+`ChannelCreate`'s validator rejects a channel that could never deliver at
+creation time, the same "fail at configuration time, not during the
+incident" rule the existing kinds already follow.
+
+### What this does not do
+
+No real vendor account was used to verify delivery end to end — that
+needs real Splunk HEC and Sentinel credentials this deployment does not
+have. What is verified: every HTTP call this platform makes is
+spec-correct (authentication header, URL shape, request/response
+contract) against each vendor's own published API documentation, and the
+full control-flow (host policy, signing/auth-token resolution, the
+two-call Sentinel token-then-data sequence, retry/refusal classification)
+is exercised with a fake transport the same way Slack/Teams delivery
+already is. No UI for configuring a channel — API and CLI only, matching
+this platform's own "dashboard is a later phase" precedent for every
+other API-first feature.
+
+### Verified
+
+`ruff check`/`mypy` clean. Migration round-trips (`upgrade head`,
+`downgrade -1`, `upgrade head` again) clean against a real Postgres. New
+tests in `tests/test_integrations.py` (host policy per kind, Splunk's
+`Authorization: Splunk` header and event envelope shape, CEF's header
+format/severity mapping/pipe-escaping, Sentinel's two-call token-then-data
+sequence including a failed token exchange never reaching the DCE and a
+non-204 data response not being marked delivered) and
+`tests/test_integrations_api.py` (schema validation for each new kind's
+required fields, a Sentinel channel pointed off the Azure ingestion domain
+refused at creation, a created channel's response never carrying the
+client secret's value). Full `test_integrations.py` (70) and
+`test_integrations_api.py` combined with it (93 total) pass against an
+isolated database. Full backend suite (2093 passed, 3 skipped) confirmed
+separately against the same migrated database.
 ## External ticketing: Jira Cloud, ServiceNow
 
 ### Context

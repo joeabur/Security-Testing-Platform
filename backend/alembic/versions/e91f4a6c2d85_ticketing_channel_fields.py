@@ -1,7 +1,7 @@
 """ticketing channel fields
 
 Revision ID: e91f4a6c2d85  # pragma: allowlist secret
-Revises: a7c3f91e5d20  # pragma: allowlist secret
+Revises: d4f8e2a91c73  # pragma: allowlist secret
 Create Date: 2026-10-02
 
 Adds the columns `notification_channels` needs for two new `ChannelKind`
@@ -33,7 +33,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "e91f4a6c2d85"  # pragma: allowlist secret
-down_revision: str | None = "a7c3f91e5d20"  # pragma: allowlist secret
+down_revision: str | None = "d4f8e2a91c73"  # pragma: allowlist secret
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

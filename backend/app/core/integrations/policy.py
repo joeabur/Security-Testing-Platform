@@ -38,8 +38,21 @@ from app.core.integrations.contract import (
     host_permitted,
 )
 
+#: Every kind whose destination is "a URL held by env-var reference, checked
+#: against `KIND_HOST_POLICY`" — Splunk HEC and the generic-CEF SIEM kind
+#: are structurally identical to `GENERIC_WEBHOOK` here; only their payload
+#: format and auth header differ, which `render.py`/`send.py` handle.
+#: `SIEM_SENTINEL` is not in this set: its destination is the plain
+#: `sentinel_endpoint` column, not a secret URL, and its auth is a
+#: client-credentials exchange rather than a header derived here.
 WEBHOOK_KINDS = frozenset(
-    {ChannelKind.SLACK_WEBHOOK, ChannelKind.MSTEAMS_WEBHOOK, ChannelKind.GENERIC_WEBHOOK}
+    {
+        ChannelKind.SLACK_WEBHOOK,
+        ChannelKind.MSTEAMS_WEBHOOK,
+        ChannelKind.GENERIC_WEBHOOK,
+        ChannelKind.SIEM_SPLUNK_HEC,
+        ChannelKind.SIEM_GENERIC_CEF,
+    }
 )
 
 #: Env-var names must look like env-var names. Without this a channel row
@@ -135,6 +148,40 @@ def resolve_webhook_destination(
             + ". Add it to KERVY_NOTIFY_ALLOWED_WEBHOOK_HOSTS to sanction it."
         )
     return Destination(kind=kind, host=host, url=url, redacted=redact_url(url), port=parts.port)
+
+
+def resolve_sentinel_destination(
+    endpoint: str, *, operator_hosts: Sequence[str] = ()
+) -> Destination:
+    """Check a Sentinel Data Collection Endpoint URL against policy.
+
+    Unlike a webhook URL, `endpoint` carries no token in its path — it is
+    read from the plain `sentinel_endpoint` column, not resolved from an
+    env var — but the same https-and-host checks apply before anything is
+    sent to it.
+    """
+    parts = urlsplit(endpoint)
+    if parts.scheme != "https":
+        raise IntegrationError(
+            f"Sentinel endpoint must be https; got {parts.scheme or 'no'} scheme"
+        )
+    host = (parts.hostname or "").lower()
+    if not host:
+        raise IntegrationError("Sentinel channel has no endpoint host")
+
+    permitted = _allowlist(ChannelKind.SIEM_SENTINEL, operator_hosts)
+    if not host_permitted(host, permitted):
+        raise IntegrationError(
+            f"host {host!r} is not permitted for a Sentinel channel. Permitted: "
+            + (", ".join(permitted) if permitted else "none configured")
+        )
+    return Destination(
+        kind=ChannelKind.SIEM_SENTINEL,
+        host=host,
+        url=endpoint.rstrip("/"),
+        redacted=redact_url(endpoint),
+        port=parts.port,
+    )
 
 
 #: Atlassian Cloud site labels and ServiceNow instance names are both DNS
