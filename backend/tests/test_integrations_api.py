@@ -884,7 +884,7 @@ async def test_a_sentinel_channel_is_created_with_identifiers_but_no_secret_valu
             "sentinel_endpoint": "https://my-dce.eastus-1.ingest.monitor.azure.com",
             "azure_tenant_id": "tenant-1",
             "azure_client_id": "client-1",
-            "azure_client_secret_env_var": "KERVY_TEST_AZURE_SECRET",
+            "azure_client_secret_env_var": "KERVY_TEST_AZURE_SECRET",  # pragma: allowlist secret
             "sentinel_dcr_immutable_id": "dcr-abc",
             "sentinel_stream_name": "Custom-KervySecurityEvent",
         },
@@ -893,5 +893,6 @@ async def test_a_sentinel_channel_is_created_with_identifiers_but_no_secret_valu
     assert response.status_code == 201, response.text
     body = response.json()
     assert body["azure_tenant_id"] == "tenant-1"
-    assert body["azure_client_secret_env_var"] == "KERVY_TEST_AZURE_SECRET"
+    env_var_name = "KERVY_TEST_AZURE_SECRET"  # pragma: allowlist secret
+    assert body["azure_client_secret_env_var"] == env_var_name
     assert "super-secret-client-secret" not in response.text
