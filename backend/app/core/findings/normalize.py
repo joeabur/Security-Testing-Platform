@@ -114,6 +114,7 @@ def group_mappings(frameworks: tuple[str, ...]) -> dict[str, list[str]]:
         "OWASP-API-2023:": "owasp_api_2023",
         "OWASP-ASVS:": "owasp_asvs",
         "MITRE-ATLAS:": "mitre_atlas",
+        "MITRE-ATTACK:": "mitre_attack",
         "NIST-AI-RMF:": "nist_ai_rmf",
         "NIST-SSDF:": "nist_ssdf",
         "CWE-": "cwe",

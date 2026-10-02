@@ -18,8 +18,15 @@ string may come from.
 | `owasp_api_2023` | 2023 | 2026-09-17 | owasp.org/API-Security/editions/2023 |
 | `owasp_asvs` | 5.0.0 | 2026-09-30 | github.com/OWASP/ASVS |
 | `mitre_atlas` | v2026.09 | 2026-09-17 | github.com/mitre-atlas/atlas-data |
+| `mitre_attack` | Enterprise v19.2 | 2026-10-02 | github.com/mitre/cti |
 | `nist_ai_rmf` | AI 100-1 (2023) | 2026-09-17 | nist.gov |
 | `nist_ssdf` | SP 800-218 v1.1 | 2026-09-17 | csrc.nist.gov |
+
+**`mitre_attack` is Enterprise ATT&CK, not ATLAS.** ATLAS is specific to attacks
+against AI systems; the pentest module's engines (`app/core/pentest/engine.py`)
+test conventional network infrastructure — service enumeration, default
+credentials, a live-fired exploit — which is ATT&CK's domain, not ATLAS's. The
+two frameworks cover disjoint findings and a finding never carries both.
 
 **CWE is deliberately unversioned.** CWE identifiers are stable across MITRE's
 releases in a way the others are not, and pinning a "CWE version" would imply a

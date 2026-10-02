@@ -57,6 +57,32 @@ additionally cannot be demoted or removed at all — refused with `409`, not
 merely discouraged — because doing so would leave the organization with no one
 able to perform an owner-only action, including undoing the mistake.
 
+## Above the ladder: the platform owner
+
+Everything above is scoped to one organization — even `Role.OWNER` is a
+ceiling *within* the organization that granted it, not authority over the
+deployment. `User.platform_role` (`app/models/user.py`) is the thing above
+that: it governs actions with no organization in scope at all, today just
+`GET/POST /platform/owners` and `DELETE /platform/owners/{user_id}`
+(`app/api/v1/routers/platform.py`) — listing, granting and revoking platform-
+owner authority itself. **Founding an organization, and so holding its
+`Role.OWNER`, grants nothing here**; the two are unrelated columns on
+unrelated tables, checked by unrelated dependencies
+(`require_membership` reads an `organization_id` path parameter,
+`require_platform_owner` reads none).
+
+A fresh deployment has zero platform owners. The first is granted by
+`backend/scripts/bootstrap_platform_owner.py`, run once by whoever operates
+the deployment, against an account that has already registered normally —
+reading `KERVY_PLATFORM_OWNER_BOOTSTRAP_EMAIL` exactly once and never again;
+no request-handling code compares anything against that setting. Every owner
+after the first is granted by an existing one through `POST /platform/owners`
+(by email, same "must already be registered" shape as `invite_member`), and
+the platform's last remaining owner can never be revoked — `409`, the same
+protection an organization's last owner gets, for the same reason: it would
+leave nobody able to perform a platform-owner-only action, including undoing
+the mistake.
+
 ## Dual control on firing a real exploit
 
 Starting a real exploit (the pentest module's "fire" step, as opposed to the

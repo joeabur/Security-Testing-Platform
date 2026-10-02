@@ -98,6 +98,17 @@ class Settings(BaseSettings):
         default_factory=list, alias="KERVY_EXPLOITATION_ALLOWED_NSE_SCRIPTS"
     )
 
+    # Read by exactly one place — `backend/scripts/bootstrap_platform_owner.py`
+    # — and never by any request-handling code. The script uses it once, to
+    # find the *first* platform owner's already-registered account; every
+    # owner after that is granted by an existing owner through
+    # `POST /platform/owners` (app/api/v1/routers/platform.py), not by this
+    # setting. Absent by default: a fresh deployment has no platform owner
+    # until an operator deliberately runs the bootstrap script.
+    platform_owner_bootstrap_email: str | None = Field(
+        default=None, alias="KERVY_PLATFORM_OWNER_BOOTSTRAP_EMAIL"
+    )
+
     # Base URL used to build links back into the platform in a notification.
     # Absent means notifications carry no link rather than a guessed one.
     public_base_url: str | None = Field(default=None, alias="KERVY_PUBLIC_BASE_URL")

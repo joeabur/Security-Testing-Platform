@@ -1,13 +1,30 @@
+import enum
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, LargeBinary, String
+from sqlalchemy import Boolean, DateTime, Enum, LargeBinary, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
 
 if TYPE_CHECKING:
     from app.models.organization import Membership
+
+
+class PlatformRole(enum.StrEnum):
+    """Authority above every organization's own `Role.OWNER` — a platform
+    owner manages the deployment itself (other platform owners, platform-wide
+    integration defaults, and anything else no single organization is the
+    right scope for), not any one organization's data.
+
+    Deliberately a single member today. The hierarchy this models (per
+    docs/roadmap.md's platform-owner write-up) allows a lower platform
+    "administrator" tier later without a schema change — this column stays
+    nullable and this enum only grows — but nothing issues one yet, so it is
+    not named here until something actually distinguishes it from OWNER.
+    """
+
+    OWNER = "owner"
 
 
 class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -44,6 +61,17 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     #: factor is required. Flips to `True` only after `POST /auth/2fa/enable`
     #: verifies a real code against the stored secret — never at `setup` time.
     totp_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    #: Null for every ordinary user — platform authority is opt-in, never
+    #: inferred from an organization role. Set only by `backend/scripts/
+    #: bootstrap_platform_owner.py` (once, at deployment setup) or by an
+    #: existing platform owner granting another through `POST
+    #: /platform/owners` (app/api/v1/routers/platform.py). Never derived
+    #: from `email` at request time — see that router's module docstring
+    #: for why a hard-coded address in authorization logic is exactly the
+    #: bug this column exists to avoid.
+    platform_role: Mapped[PlatformRole | None] = mapped_column(
+        Enum(PlatformRole, name="platform_role_enum"), nullable=True
+    )
 
     memberships: Mapped[list["Membership"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"

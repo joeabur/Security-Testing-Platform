@@ -67,6 +67,15 @@ FRAMEWORKS: Mapping[str, FrameworkVersion] = MappingProxyType(
             retrieved="2026-09-17",
             source="github.com/mitre-atlas/atlas-data",
         ),
+        # Enterprise ATT&CK, not ATLAS: the pentest module's own engines
+        # (network service enumeration, credential validation, exploitation)
+        # test infrastructure, which is exactly ATT&CK's domain — ATLAS is
+        # AI-system-specific and does not cover a live `nmap` exploit.
+        "mitre_attack": FrameworkVersion(
+            version="Enterprise v19.2",
+            retrieved="2026-10-02",
+            source="github.com/mitre/cti",
+        ),
         "nist_ai_rmf": FrameworkVersion(
             version="AI 100-1 (2023)",
             retrieved="2026-09-17",
