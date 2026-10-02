@@ -12,6 +12,7 @@ from __future__ import annotations
 import ipaddress
 import uuid
 from datetime import UTC, datetime, timedelta
+from urllib.parse import urlparse
 
 import pytest
 
@@ -894,7 +895,7 @@ class SentinelTransport:
     async def send(self, ctx: object, **kwargs: object) -> Observation:
         self.calls.append(kwargs)
         url = str(kwargs.get("url"))
-        if "login.microsoftonline.com" in url:
+        if urlparse(url).hostname == "login.microsoftonline.com":
             import json
 
             return Observation(
