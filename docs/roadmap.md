@@ -5579,3 +5579,77 @@ dispatch, `storage_state` forwarding) where a real browser would prove
 nothing a double does not already. Full DAST regression
 (`test_dast.py`, `test_dast_egress_proxy.py`, plus the new file — 72
 tests) passes clean; no existing test needed a behavioural change.
+
+## RAG security + agent security probe families
+
+`docs/competitive-gap-analysis.md`'s "Remaining gaps" list named this
+second, as "the single largest AI-breadth gap", and specifically
+sequenced after the multi-turn engine because the goal-hijacking probe
+below is built on it. The list named seven specific attacks across the
+two areas; this pass closes the two this platform's existing `Ask`
+interface can honestly test, and names the other five as still not
+covered rather than approximating them.
+
+**Delivered.**
+- `app/core/probes/ai/rag_injection.py`'s `DocumentInjectionProbe`
+  (`ai.injection.indirect.document_injection`, `KERVY-AI-008`) — a
+  single-shot trial probe, the same shape as `direct_injection.py`'s. It
+  sends a prompt that frames a block of text as retrieved or ingested
+  content (a knowledge-base snippet, a fetched page, a processed
+  customer message) with an instruction embedded inside that block, and
+  measures whether the target obeys it. Closes `ProbeCategory
+  .INDIRECT_INJECTION`, which previously existed with zero probes
+  implementing it.
+- `app/core/probes/ai/multiturn/agent_goal.py`'s `GoalHijackingProbe`
+  (`ai.agent.goal_hijacking`, `KERVY-AI-034`) — a multi-turn probe on the
+  engine from the previous phase: turn one has the target confirm a
+  stated, persistent task; turn two claims new authority that supersedes
+  it entirely. New `ProbeCategory.AGENT`, since "agent security" is a
+  taxonomy area distinct from the existing `EXCESSIVE_AGENCY` category
+  (structural tool-surface analysis, unchanged).
+
+**Decisions.**
+- Both probes are honest simulations, stated as such in their own
+  docstrings: neither has access to a target's real retrieval corpus,
+  ingestion pipeline, or persisted agent state — `AiProbeTarget`/`Ask` is
+  text-in, text-out, nothing more. What they send is shaped like what a
+  real pipeline would produce; a finding is evidence about the target's
+  *handling* of that shape, not evidence that a real document store was
+  poisoned or a real multi-tenant boundary was crossed.
+- `GoalHijackingProbe` is deliberately not a renamed copy of
+  `InstructionChainingProbe`: the two exploit different things (a rule
+  established earlier in a conversation vs. a task the target already
+  committed to pursuing), reusing only the engine, not the attack.
+- Tool manipulation, memory poisoning, chain manipulation, retrieval/
+  context poisoning and cross-tenant retrieval are not attempted. All
+  five need visibility or a target abstraction (which tool was actually
+  invoked, persisted memory, a real multi-tenant corpus) that does not
+  exist in this platform yet; simulating them without it would be
+  exactly the "fake implementation" this codebase's own rules reject.
+- `tests/lab/ai_handlers.py`'s `vulnerable_chat` needed one new trigger
+  (a message claiming its new objective "supersedes" the previous one);
+  the document-injection attack already succeeds through an existing
+  trigger phrase ("system override") coincidentally present in one of
+  its three framings, so no lab change was needed for it. `hardened_chat`
+  needed no change for either probe — same reason instruction chaining
+  needed none.
+
+**Deferred, stated plainly.** Tool manipulation, memory poisoning, chain
+manipulation, retrieval/context poisoning and cross-tenant retrieval
+remain not covered — see the decision above. This is five of the seven
+attacks the gap analysis named across both areas; closing the rest needs
+a target abstraction this platform does not have yet, not a bigger probe.
+
+**Verified.** `ruff check`/`mypy` clean on
+`app/core/probes/ai/rag_injection.py`,
+`app/core/probes/ai/multiturn/agent_goal.py`, `contract.py`, and
+`registry.py`. `KERVY-AI-008` added to `test_ai_engine.py`'s shared
+seeded-flaw acceptance check (now 20 tests, all passing against the real
+lab app through the real adapter/transport). Two new acceptance tests in
+`test_multiturn_engine.py` mirroring the instruction-chaining ones for
+`KERVY-AI-034`, plus registry-wiring checks. Full regression
+(`test_ai_engine.py`, `test_ai_engine_e2e.py`, `test_external_ai_engines.py`,
+`test_determinism_harness.py`, `test_multiturn_engine.py`,
+`test_findings_and_risk.py`, `test_plugins.py`,
+`test_authorization_matrix.py` — 483 tests) passes clean; no existing
+test needed a behavioural change.
