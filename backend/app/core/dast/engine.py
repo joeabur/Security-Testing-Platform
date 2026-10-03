@@ -19,6 +19,7 @@ from __future__ import annotations
 from app.core.appsec.contract import Pillar, tool_unavailable
 from app.core.dast.contract import CrawlOutcome, CrawlResult, DastTarget
 from app.core.dast.crawl import ScopedCrawler, refused_hosts, state_changing_forms
+from app.core.dast.egress_proxy import EgressGateway
 from app.core.dast.nuclei import META as NUCLEI_META
 from app.core.dast.nuclei import run_nuclei
 from app.core.dast.policy import ToolPolicy, tool_policy
@@ -189,8 +190,23 @@ class DastEngine:
             return findings
 
         rate = max(1, int(ctx.roe.budgets.requests_per_second))
-        findings.extend(await run_nuclei(list(result.urls), policy, rate=rate))
-        findings.extend(
-            await run_zap(target.seed_url, policy, allowed_domains=ctx.roe.allowed_domains)
-        )
+        # Nuclei and ZAP are subprocesses that open their own sockets, outside
+        # GatedTransport's view. Every connection either one makes is pointed
+        # at this run's own scope-checking proxy instead, so a destination
+        # that rebinds to a private IP or the metadata endpoint between crawl
+        # time and tool invocation is still refused. docs/egress-security.md
+        # has the full model, including what this gateway cannot see inside
+        # an HTTPS tunnel.
+        async with EgressGateway(ctx) as gateway:
+            findings.extend(
+                await run_nuclei(list(result.urls), policy, rate=rate, proxy_url=gateway.proxy_url)
+            )
+            findings.extend(
+                await run_zap(
+                    target.seed_url,
+                    policy,
+                    allowed_domains=ctx.roe.allowed_domains,
+                    proxy_url=gateway.proxy_url,
+                )
+            )
         return findings

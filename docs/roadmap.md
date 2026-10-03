@@ -5294,3 +5294,158 @@ test_cli.py` gains three tests for `--report`: a JSON write packaging the
 same decision, a Markdown write by extension, and an unrecognised
 extension refused with the documented configuration-error exit code
 rather than a guess. Full backend suite confirmed separately.
+
+## Competitive-hardening pass: gap analysis and the DAST egress gateway
+
+### Context
+
+A direct repository audit against garak/PyRIT/promptfoo/DeepTeam/ZAP/
+Nuclei/Semgrep/Snyk/Aikido, requested to find out how this platform
+actually compares — not how its own docs claimed it compared, some of
+which (`docs/limitations.md`) had gone stale after later phases shipped
+dashboard write-actions. Five parallel audits covered DAST/egress,
+dashboard/CLI coverage, the AI probe taxonomy, finding lifecycle/evidence/
+audit/vulnerability-intelligence, and Docker/CI/RBAC/a repo-wide TODO
+sweep, each required to cite file:line for every claim.
+
+### Design
+
+`docs/competitive-gap-analysis.md` is the audit's output: a capability
+table per area, each row backed by a citation, with an honest priority
+column distinguishing a real security-boundary gap (P0) from a coverage
+gap with no workaround (P1) from a coverage gap with a working CLI/API
+path today (P2) from "already solid, audited and confirmed."
+
+Every audit converged independently on the same P0: Nuclei and ZAP run as
+OS subprocesses (`app/core/appsec/tooling.py`) and open their own sockets,
+entirely outside `GatedTransport`'s view — a DNS-rebinding host that was
+clean when the crawler checked it at crawl time could resolve to a
+private IP or the metadata endpoint by the time the scanner actually
+connected, and nothing stopped it. That gap is closed this pass by
+`app/core/dast/egress_proxy.py::EgressGateway` — see
+`docs/egress-security.md` for the full design, and the "Competitive-
+hardening pass" section of `docs/security-review.md` for what it closes
+and what it still cannot see inside an HTTPS tunnel.
+
+The analysis also found one clear "the API exists, nothing calls it" gap:
+`api_keys.py`'s create/list/revoke routes had no CLI or dashboard surface
+at all. `kervy-ai apikey create`/`list`/`revoke` now cover it, mirroring
+the existing `findings`/`workflow` command groups' shape exactly —
+`docs/cicd.md` is corrected too, since it previously (incorrectly) said
+key creation was available "from the UI."
+
+The audit also found a real, bounded gap in the audit trail itself:
+`execute_assessment_run` (`app/workers/tasks.py`) wrote only to the
+operational `RunEvent` feed — a run's own start, completion, and
+pre-start failure never reached `AuditEvent` at all, only the human-
+initiated API actions around it did. New `_audit_run_event()` closes it
+for the worker-owned transitions: `run.start` when a run moves to
+`RUNNING`, `run.{completed,failed,cancelled,expired}` at the terminal
+transition, and `run.failed` for the context-build failure path that
+never reaches `RUNNING` at all. `record_event()` only flushes — it does
+not commit — so each call site needed its own trailing `db.commit()`;
+missing that is exactly how the first version of this change silently
+dropped the terminal event, caught by the new assertion below rather
+than shipped.
+
+The dashboard/CLI audit also found `docs/limitations.md` overstating its
+own gap: its "the dashboard is read-only... starting a run, changing a
+finding's status... is API or CLI only" was written about the separate,
+deliberately-read-only `/app` server-rendered view (`docs/dashboard.md`'s
+own words), not the Next.js frontend, which already had most of that
+wired through the API. The two genuinely-missing pieces this pass adds —
+`CancelRunButton` on the run detail page, `RetestFindingButton` on a
+finding's detail page — are small, following `ScanRepositoryButton`'s and
+`StartRunForm`'s existing shape exactly (loading state, inline error,
+`router.refresh()`/`router.push()` on success). `docs/limitations.md` is
+corrected to name the `/app` view specifically rather than "the dashboard."
+
+The gap analysis's AI-taxonomy audit also asked for a garak/PyRIT adapter
+architecture — explicitly not an actual integration, since
+`docs/BUILD_SPEC.md` §28 rejects a thin wrapper and the audit judged
+driving either tool for real a separate, larger increment than this
+pass's P0. New `app/core/probes/ai/external/`: `ExternalAttackEngine`
+(`contract.py`) is a one-method protocol (`run(target, ask, canary)`)
+handed nothing but `Ask` — the same scope-gated callable
+`AiSecurityCheck` already builds from a `ConversationalAdapter` for
+every native probe — so an engine has no path to the network except the
+one already enforced. Deliberately not shaped like `AiProbe`'s
+`plan()`/`detect()` split, which assumes no prompt depends on an earlier
+response; PyRIT's orchestrators are explicitly adaptive and multi-turn,
+so `run()` instead lets an engine drive its own loop over `ask` and build
+its own `ScanResult`s. `registry.py`'s `external_engines()` returns `()`
+today — the boundary is real and typed before an adapter is, not after.
+
+### What this does not do
+
+The gap analysis surfaced a long list of real, scoped P1/P2 items — RAG
+and agent-security AI probes, a multi-turn attack orchestration engine, a
+`kervy test ai` regression CLI, direct OSV/NVD/GHSA integration, code
+reachability analysis, a handful of dashboard convenience gaps (API key
+management, run cancel, retest trigger, remediation assignment,
+evidence-list UI), and more — each deliberately left for a later,
+separately-validated increment rather than shipped thin in the same pass
+as a security fix. `docs/competitive-gap-analysis.md`'s own "Remaining
+gaps" section has the full, prioritized list.
+
+### Verified
+
+`ruff check`/`mypy` clean on `app/core/dast/`. New
+`backend/tests/test_dast_egress_proxy.py` (13 tests) drives
+`EgressGateway` as a real local TCP server: an allowlisted, resolvable
+host is tunneled and relays real bytes; a non-allowlisted domain, a
+private-IP resolution, and the metadata endpoint under a wide-open IP
+allowlist are each refused with the upstream connection never attempted;
+the same host checked twice with a different DNS answer the second time
+is refused on the second check (no gateway-level cache papering over a
+rebind); a second host in the same run is checked independently; a halted
+run or tripped kill switch refuses immediately; the exact Nuclei/ZAP
+proxy command-line flags are pinned; and `DastEngine.run()` is confirmed
+to start one gateway per run and hand the same `proxy_url` to both tools.
+Existing `tests/test_dast.py`, `tests/test_dast_e2e.py`, and
+`tests/security/test_scope_controls.py` (126 tests combined with the new
+file) pass unchanged. `ruff check`/`mypy` clean on `kervy_cli/`. Four new
+`tests/test_cli.py` tests for `apikey`: create posts name/scopes and
+prints the one-time token, create with `--expires` puts it in the request
+body, list hits the collection route, revoke posts to the revoke route —
+51 tests in the file pass, including the existing structural check that
+the CLI still imports nothing beyond `app.core.gate`/
+`app.core.probes.models`. `ruff check`/`mypy` clean on
+`app/workers/tasks.py`. `tests/test_runs_api.py::test_worker_executes_a_queued_run_end_to_end`
+extended to query `AuditEvent` directly and assert both `("run.start",
+"allow")` and `("run.completed", "allow")` are present for the run's own
+`resource_id` — the full 19-test file passes, plus the broader
+`execute_assessment_run`-exercising suites
+(`test_ai_engine_e2e.py`, `test_lab_e2e.py`, `test_remediation_and_retest.py`,
+`test_api_engine_e2e.py`, `test_findings_api.py`, `test_reports_api.py`,
+`test_assistant_api.py`, `test_code_scan_e2e.py`) confirmed unaffected.
+`eslint`, `tsc --noEmit`, `next build` and the existing `vitest` suite (25
+tests, unchanged — this platform does not unit-test simple presentational
+action buttons like `ScanRepositoryButton`, and the two new ones follow
+that same convention rather than introducing a new one) all pass clean on
+the frontend changes. `ruff check`/`mypy` clean on
+`app/core/probes/ai/external/`. New
+`tests/test_external_ai_engines.py` (4 tests): a structural grep proving
+no transport primitive is named anywhere under `external/`; a lock-in
+that `external_engines()` returns nothing yet; a fake engine driven
+through `ask` against an in-scope target producing a finding normally;
+and the same engine pointed at an out-of-scope host raising
+`ScopeBlockedError` before any request reaches the network. Full AI/
+plugin regression (`test_ai_engine.py`, `test_ai_engine_e2e.py`,
+`test_external_ai_engines.py`, `test_plugins.py` — 61 tests) and the
+heavier DB-backed `test_findings_api.py` (16 tests, ~3 minutes — this
+run was interrupted twice by container restarts unrelated to the code
+change, confirmed by Postgres/Redis/Docker all going down and back up
+mid-run; re-run clean once services were back) both pass.
+
+A first full-suite run surfaced 31 failures across
+`test_agent_api.py`/`test_integrations_api.py`/`test_invitations.py`/
+`test_workflow.py` — none of them files this branch touches. Diagnosed
+as a stale `kervy_test` database in this worktree, two migrations
+behind head (`alembic current` showed `d4f8e2a91c73`; `alembic heads`
+showed `b4d7f29a6e81`), missing the `organization_invitations` table
+and the ticketing-channel columns entirely — a pre-existing gap in this
+worktree's own database state, not a regression in this branch's code.
+`alembic upgrade head` fixed it; all 31 passed on re-run, and the full
+backend suite confirmed clean: **2167 passed, 3 skipped, 0 failed** in
+19m06s.

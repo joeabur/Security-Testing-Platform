@@ -169,6 +169,60 @@ All notable changes to this project are recorded here. The format follows
 
 ### Added
 
+- **A clean adapter boundary for external AI attack engines (garak,
+  PyRIT) — no engine wired in yet.** New `app/core/probes/ai/external/`:
+  `ExternalAttackEngine`, a one-method protocol handed nothing but `Ask`
+  (the same scope-gated callable native probes use), so an engine cannot
+  reach the network except through the path already enforced elsewhere.
+  Deliberately not shaped like the native `AiProbe` contract, since
+  PyRIT's orchestrators are adaptive/multi-turn and a `plan`/`detect`
+  split would misrepresent that. `registry.py` is empty on purpose —
+  actually driving garak or PyRIT is a separate, larger increment than
+  this pass's P0, and `docs/BUILD_SPEC.md` explicitly rejects shipping a
+  thin wrapper. See `docs/ai-security-testing.md`.
+- **Run cancel and finding-retest buttons in the Next.js dashboard.**
+  `POST .../runs/{id}/cancel` and `POST .../retests` existed only as CLI
+  commands; `CancelRunButton` (shown on a live run's detail page) and
+  `RetestFindingButton` (shown on a finding's detail page when it has a
+  target) now call the same routes. `docs/limitations.md`'s blanket "the
+  dashboard is read-only" statement is corrected — it described the
+  separate, deliberately-read-only `/app` server-rendered view, not the
+  Next.js frontend, which already wrote through the API for most actions
+  before this change.
+- **The run's worker-side lifecycle is now in the append-only audit log.**
+  `execute_assessment_run` (`app/workers/tasks.py`) previously wrote only
+  to the operational `RunEvent` feed; start, completion, and the
+  context-build failure path now also call `app.audit.service.record_event`
+  (`run.start`, `run.{completed,failed,cancelled,expired}`,
+  `run.failed` for the pre-start failure), closing a gap
+  `docs/security-review.md` names explicitly: only human-initiated API
+  actions reached the audit log before this, never the worker's own run
+  lifecycle.
+- **CLI `apikey create`/`list`/`revoke` commands.** `POST`/`GET
+  /organizations/{id}/api-keys` and `POST .../revoke` existed only as raw
+  HTTP endpoints — no UI, no CLI, the one clear "API exists, no client"
+  gap the competitive gap analysis found. `kervy-ai apikey` now covers all
+  three, mirroring the existing `findings`/`workflow` command groups'
+  shape. `docs/cicd.md` updated (it previously, incorrectly, said key
+  creation was available "from the UI" — no such UI exists).
+- **A scope-checking egress gateway for Nuclei and ZAP.** Both DAST
+  scanners are subprocesses that open their own sockets, invisible to
+  `GatedTransport`. New `app/core/dast/egress_proxy.py::EgressGateway` is a
+  local forward proxy, started per run, that both tools are now pointed at
+  (`-proxy` for Nuclei, `network.connection.httpProxy.*` for ZAP): every
+  `CONNECT`/request either tool sends re-resolves DNS and re-checks the
+  destination's host and IP against the run's rules of engagement
+  immediately before a connection is allowed, closing the DNS-rebinding/
+  SSRF gap that existed when neither tool's own connections were checked
+  at all. Does not see inside an established HTTPS tunnel (method/path/
+  headers) — see `docs/egress-security.md` for the full model and its
+  limits.
+- **A competitive gap analysis.** `docs/competitive-gap-analysis.md`, built
+  from a direct repository audit rather than assumptions, comparing this
+  platform's actual current state against garak/PyRIT/promptfoo/DeepTeam/
+  ZAP/Nuclei/Semgrep/Snyk/Aikido across DAST egress, dashboard/CLI
+  coverage, the AI probe taxonomy, finding lifecycle/evidence/audit, and
+  Docker/CI/RBAC — with file:line citations for every row.
 - **P0-P4 prioritization and a packaged quality-gate report.** New
   `app/core/gate/priority.py` relabels the risk model's own severity bands
   as `P0`-`P4`, the ticket-tracker vocabulary a remediation plan already

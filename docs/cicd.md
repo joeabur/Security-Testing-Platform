@@ -96,7 +96,18 @@ Notes that have bitten people:
 
 ## API keys
 
-Create one per pipeline, from the UI or the API, as an admin:
+Create one per pipeline from the API or the CLI, as an admin. There is no
+dashboard UI for this yet — API and CLI only, same as several other
+admin-only actions in this platform.
+
+```bash
+kervy-ai apikey create --name ci-staging --scope read --scope scan \
+  --expires 2027-01-01T00:00:00Z                                        # admin
+kervy-ai apikey list                                                     # admin
+kervy-ai apikey revoke "$KEY_ID"                                         # admin
+```
+
+or, equivalently:
 
 ```bash
 curl -X POST "$KERVY_BASE_URL/organizations/$ORG/api-keys" \

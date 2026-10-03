@@ -120,6 +120,36 @@ async def _record_event(
     await db.commit()
 
 
+async def _audit_run_event(
+    db: AsyncSession,
+    run: AssessmentRun,
+    *,
+    action: str,
+    result: str,
+    metadata: dict[str, Any] | None = None,
+) -> None:
+    """The run's own lifecycle, in the append-only audit log — not only the
+    operational `RunEvent` log `_record_event` above writes.
+
+    `RunEvent` is this run's own progress feed (what a status-polling caller
+    sees); it was never meant to answer "who ran what, when, with what
+    result" across the whole organization, which is the audit log's job
+    and what `docs/security-review.md` names as a real gap: a run's
+    worker-side start/completion/failure never reached `AuditEvent` at
+    all, only the human-initiated API actions around it did.
+    """
+    await record_event(
+        db,
+        action=action,
+        resource_type="assessment_run",
+        resource_id=str(run.id),
+        result=result,
+        organization_id=run.organization_id,
+        user_id=run.created_by_user_id,
+        metadata=metadata,
+    )
+
+
 async def _load_run(db: AsyncSession, run_id: uuid.UUID) -> AssessmentRun | None:
     result = await db.execute(
         select(AssessmentRun)
@@ -249,6 +279,10 @@ async def execute_assessment_run(
             run.finished_at = datetime.now(UTC)
             await db.commit()
             await _record_event(db, run.id, RunEventKind.FAILED, str(exc), {})
+            await _audit_run_event(
+                db, run, action="run.failed", result="deny", metadata={"reason": str(exc)}
+            )
+            await db.commit()
             return RunStatus.FAILED
 
         # The switch latches, so a cancellation requested at any point stops
@@ -524,6 +558,10 @@ async def execute_assessment_run(
             }
         )
         await db.commit()
+        await _audit_run_event(
+            db, run, action="run.start", result="allow", metadata={"checks_total": run.checks_total}
+        )
+        await db.commit()
 
         async def emit(event: RunEventPayload) -> None:
             await _record_event(
@@ -675,6 +713,19 @@ async def execute_assessment_run(
                 not_tested=sum(1 for v in verdicts if v.verdict is RetestVerdict.NOT_TESTED),
             )
 
+        await db.commit()
+        await _audit_run_event(
+            db,
+            run,
+            action=f"run.{run.status.value}",
+            result="allow" if run.status is RunStatus.COMPLETED else "deny",
+            metadata={
+                "findings_reported": run.findings_reported,
+                "checks_completed": run.checks_completed,
+                "checks_total": run.checks_total,
+                "halted_reason": run.halted_reason,
+            },
+        )
         await db.commit()
 
         logger.info(

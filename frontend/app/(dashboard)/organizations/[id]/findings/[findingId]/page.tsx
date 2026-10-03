@@ -4,6 +4,7 @@ import { ArrowLeft } from "lucide-react";
 
 import { FindingDuplicateForm } from "@/components/findings/finding-duplicate-form";
 import { FindingStatusForm } from "@/components/findings/finding-status-form";
+import { RetestFindingButton } from "@/components/findings/retest-finding-button";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { serverApiFetch } from "@/lib/api-server";
@@ -150,6 +151,24 @@ export default async function FindingDetailPage({
               <FindingStatusForm organizationId={id} finding={finding} />
             </CardContent>
           </Card>
+
+          {finding.target_id && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Retest</CardTitle>
+                <CardDescription>
+                  Re-run the attack that produced this finding and compare the evidence.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <RetestFindingButton
+                  organizationId={id}
+                  findingId={finding.id}
+                  targetId={finding.target_id}
+                />
+              </CardContent>
+            </Card>
+          )}
 
           <Card>
             <CardHeader>

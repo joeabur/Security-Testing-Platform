@@ -158,7 +158,7 @@ Stated plainly, because a review that lists only strengths is marketing.
 | Rate limiting fails open when Redis is unavailable | Guessing is then bounded only by Argon2's cost; logged at error level, alert on it |
 | Evidence encryption at rest is opt-in, not the default | `KERVY_EVIDENCE_ENCRYPTION_KEY` unset (the out-of-the-box state) means a bundle is protected only by filesystem permissions and redaction, same as before this existed |
 | No signature verification for plugins | The allowlist and an optional hash are the controls |
-| DAST scanners are not gated at the socket | Nuclei and ZAP open their own connections — see the Phase 15 section below |
+| DAST scanners' HTTPS traffic is not inspectable at the method/path level | Nuclei and ZAP now connect through a scope-checking proxy (domain allowlist, DNS re-resolved and re-checked per connection), but it cannot see inside an established TLS tunnel — see the Phase 15 and "Competitive-hardening pass" sections below |
 | Advisory lookup off by default | SCA reports what is installed, not what is vulnerable, unless enabled |
 | No inbound webhook endpoint | Workflows and PR publishing are driven by CI, never by an event from a code host |
 | No release has been cut | `release.yml` is written and structurally asserted, but has never run end to end |
@@ -259,7 +259,9 @@ ZAP open their own connections. This is the weakest point in the phase.
 
 If this platform grows a requirement that *all* outbound traffic be observable,
 these two adapters are what would have to change — most likely by running them
-behind a local proxy this platform controls, which is not built.
+behind a local proxy this platform controls. **Update:** that proxy now
+exists — see "Competitive-hardening pass: the DAST egress gateway" below for
+what it closes and what it still cannot see.
 
 ## Phase 17 additions: workflows and the dashboard
 
@@ -945,4 +947,64 @@ is refused, both two-level-only directions are refused, a viewer is refused
 and an analyst is not, and a linked duplicate is excluded from a run's own
 JSON report with the finding count dropping by one. Both new routes are in
 `tests/security/test_authorization_matrix.py`'s pinned table.
+
+## Competitive-hardening pass: the DAST egress gateway
+
+The Phase 15 gap above — Nuclei and ZAP open their own sockets, invisible to
+the scope engine — is narrowed, not fully closed. Both tools are now pointed
+at `app.core.dast.egress_proxy.EgressGateway`, a local forward proxy started
+for the lifetime of one DAST run. Every `CONNECT` (and every absolute-URI
+plain-HTTP request) either tool sends is held at the proxy while it
+re-resolves DNS for the destination host and re-checks the result against
+*this run's* `RulesOfEngagement` — the domain allowlist, the excluded-domains
+list, and the private/loopback/link-local/metadata/CIDR IP-blocking rules —
+before the connection is allowed through. `docs/egress-security.md` has the
+full design; `docs/dast.md` has the adapter-level summary.
+
+**What this closes.** The scenario the old gap table named directly: a host
+that was clean when the crawler checked it at crawl time, then rebound to a
+private IP or the cloud metadata endpoint by the time the scanner actually
+connected minutes later. That host is now re-checked at the moment of
+connection, with DNS re-resolved fresh (never cached), exactly like
+`GatedTransport` already does for every `httpx` call. A redirect or a
+spider-discovered link to a different host gets its own independent check,
+so neither tool can pivot to an unauthorized host mid-scan.
+
+**What this does not close, stated as plainly as the gap it replaces.** For
+an HTTPS target — the overwhelming majority of real DAST targets — the proxy
+validates the destination at `CONNECT` time and then relays opaque encrypted
+bytes end to end. It cannot see the method, path, or headers inside the
+established TLS tunnel without intercepting the connection, which this
+platform does not do (that would need a locally-trusted CA and a per-target
+certificate — a materially larger and riskier change than closing the
+socket-level gap). So `allowed_paths`/`excluded_paths`/`allowed_methods`/
+`forbidden_headers` do not apply to HTTPS traffic through this gateway, only
+to the plain-HTTP path and to the crawler's own requests as before. Budget
+reservation is not performed by the gateway either — Nuclei's `-rate-limit`
+and ZAP's own scan-window flags already bound these tools' own request
+volume, and `BudgetTracker` was designed around one request at a time, not
+an opaque third-party tool's full traffic.
+
+ZAP's existing "exactly one concrete host" restriction (`single_allowed_host`
+in `app/core/dast/zap.py`) is kept, not relaxed, even though the gateway's
+domain-allowlist check now also constrains where ZAP can connect while
+spidering: the two controls check different things — which single host an
+engagement named, versus whether any one connection resolves somewhere it
+shouldn't — and loosening a tested security control in the same change that
+adds a new one is exactly the kind of coupling worth avoiding.
+
+Verified: `backend/tests/test_dast_egress_proxy.py` drives the gateway as a
+real local TCP server (not mocked) — an allowlisted, resolvable host is
+tunneled and relays real bytes; a non-allowlisted domain, a host that
+resolves to a private IP, and the metadata endpoint (even under a wide-open
+`allowed_ip_ranges`) are each refused before any upstream connection is
+attempted; the same host checked twice with a different DNS answer the
+second time proves there is no per-run cache papering over a rebind; a
+second, different host in the same run is checked independently; a halted
+run or a tripped kill switch refuses every connection immediately. Separate
+tests pin the exact `-proxy`/`network.connection.httpProxy.*` flags on the
+Nuclei and ZAP command lines, and that `DastEngine.run()` starts one gateway
+per run and hands the same `proxy_url` to both tools. Full suite and the
+existing `tests/test_dast.py`/`tests/security/test_scope_controls.py`
+regression coverage both pass unchanged.
 

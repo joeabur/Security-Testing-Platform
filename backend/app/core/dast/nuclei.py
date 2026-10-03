@@ -18,12 +18,18 @@ Four flags are load-bearing:
 * `-duc` / rate limiting comes from the rules of engagement's budget, so a
   scanner cannot outrun the request rate the target's owner agreed to.
 
-**Nuclei is not routed through `GatedTransport`.** It opens its own sockets, and
-that is stated rather than glossed over: the URLs it is given have every one
-been through the scope engine at crawl time, and it is invoked with `-target`
-entries rather than being allowed to discover more. That is a weaker guarantee
-than the crawler's and is recorded in `docs/dast.md` and
-`docs/security-review.md`.
+**Nuclei is not routed through `GatedTransport`** — `GatedTransport` only
+wraps `httpx`, and nuclei is a subprocess that opens its own sockets. Instead
+it is pointed at `app.core.dast.egress_proxy.EgressGateway` via `-proxy`,
+which re-resolves DNS and re-checks each destination's host and IP against
+this run's rules of engagement immediately before nuclei is allowed to
+connect — closing the DNS-rebinding/SSRF gap that existed when nuclei's
+connections were invisible to the scope engine entirely. See
+`docs/egress-security.md` for exactly what that gateway does and does not
+see (it cannot inspect method/path/headers inside an HTTPS tunnel). The
+URLs nuclei is given have also already been through the scope engine at
+crawl time, and it is invoked with `-target` entries rather than being
+allowed to discover more.
 """
 
 from __future__ import annotations
@@ -67,7 +73,9 @@ META = EngineMeta(
 )
 
 
-def command_for(policy: ToolPolicy, targets: Sequence[str], *, rate: int) -> tuple[str, ...]:
+def command_for(
+    policy: ToolPolicy, targets: Sequence[str], *, rate: int, proxy_url: str | None = None
+) -> tuple[str, ...]:
     """The exact command line, so a test can assert on it.
 
     Extracted rather than built inline because this command *is* the control: a
@@ -94,6 +102,10 @@ def command_for(policy: ToolPolicy, targets: Sequence[str], *, rate: int) -> tup
         "-rate-limit",
         str(max(1, rate)),
     ]
+    if proxy_url:
+        # Every connection nuclei makes now goes through the scope-checking
+        # egress gateway instead of straight to the network.
+        command.extend(["-proxy", proxy_url])
     for target in targets[:MAX_TARGETS]:
         command.extend(["-target", target])
     return tuple(command)
@@ -163,15 +175,26 @@ def _finding(entry: dict[str, Any], policy: ToolPolicy) -> ScanResult | None:
 
 
 async def run_nuclei(
-    targets: Sequence[str], policy: ToolPolicy, *, rate: int = 10
+    targets: Sequence[str],
+    policy: ToolPolicy,
+    *,
+    rate: int = 10,
+    proxy_url: str | None = None,
 ) -> list[ScanResult]:
-    """Run nuclei over already-cleared URLs, or report that it did not run."""
+    """Run nuclei over already-cleared URLs, or report that it did not run.
+
+    `proxy_url` is the local address of this run's
+    `app.core.dast.egress_proxy.EgressGateway`. Passed by the caller rather
+    than constructed here, so this function stays a pure "build the command,
+    run it, parse the output" adapter and does not itself own the gateway's
+    lifecycle.
+    """
     if not targets:
         return []
 
     result = await run_tool(
         ToolInvocation(
-            command=command_for(policy, targets, rate=rate),
+            command=command_for(policy, targets, rate=rate, proxy_url=proxy_url),
             cwd=None,
             network=NetworkUse.DECLARED_SERVICE,
             timeout_seconds=NUCLEI_TIMEOUT_SECONDS,
