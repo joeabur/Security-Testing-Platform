@@ -481,6 +481,122 @@ def test_broken_evidence_is_a_failure_not_information(profile: Profile) -> None:
     assert cli.main(["evidence", "verify", "--run", RUN]) == int(ExitCode.GATE_FAILED)
 
 
+# --- API keys ---------------------------------------------------------------
+
+
+@respx.mock
+def test_apikey_create_posts_name_and_scopes(
+    profile: Profile, capsys: pytest.CaptureFixture[str]
+) -> None:
+    route = respx.post(f"{BASE_URL}/organizations/{ORG}/api-keys").mock(
+        return_value=httpx.Response(
+            201,
+            json={
+                "id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+                "name": "ci-pipeline",
+                "key_id": "00112233",
+                "scopes": ["read", "scan"],
+                "role": "SECURITY_ENGINEER",
+                "created_at": "2026-01-01T00:00:00Z",
+                "expires_at": None,
+                "last_used_at": None,
+                "revoked_at": None,
+                "token": "kervy_00112233_secret",  # pragma: allowlist secret
+            },
+        )
+    )
+
+    code = cli.main(
+        ["apikey", "create", "--name", "ci-pipeline", "--scope", "read", "--scope", "scan"]
+    )
+
+    assert code == 0
+    assert json.loads(route.calls.last.request.content) == {
+        "name": "ci-pipeline",
+        "scopes": ["read", "scan"],
+    }
+    # The one response that ever carries the token, printed so the caller can
+    # save it before it is gone.
+    captured = capsys.readouterr()
+    assert "kervy_00112233_secret" in captured.out
+
+
+@respx.mock
+def test_apikey_create_with_expiry_puts_it_in_the_body(profile: Profile) -> None:
+    route = respx.post(f"{BASE_URL}/organizations/{ORG}/api-keys").mock(
+        return_value=httpx.Response(
+            201,
+            json={
+                "id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+                "name": "ci-pipeline",
+                "key_id": "00112233",
+                "scopes": ["read"],
+                "role": "VIEWER",
+                "created_at": "2026-01-01T00:00:00Z",
+                "expires_at": "2026-02-01T00:00:00Z",
+                "last_used_at": None,
+                "revoked_at": None,
+                "token": "kervy_00112233_secret",  # pragma: allowlist secret
+            },
+        )
+    )
+
+    code = cli.main(
+        [
+            "apikey",
+            "create",
+            "--name",
+            "ci-pipeline",
+            "--scope",
+            "read",
+            "--expires",
+            "2026-02-01T00:00:00Z",
+        ]
+    )
+
+    assert code == 0
+    assert json.loads(route.calls.last.request.content) == {
+        "name": "ci-pipeline",
+        "scopes": ["read"],
+        "expires_at": "2026-02-01T00:00:00Z",
+    }
+
+
+@respx.mock
+def test_apikey_list_gets_the_collection(profile: Profile) -> None:
+    respx.get(f"{BASE_URL}/organizations/{ORG}/api-keys").mock(
+        return_value=httpx.Response(200, json=[])
+    )
+
+    assert cli.main(["apikey", "list"]) == 0
+
+
+@respx.mock
+def test_apikey_revoke_posts_to_the_revoke_route(profile: Profile) -> None:
+    key_id = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    route = respx.post(f"{BASE_URL}/organizations/{ORG}/api-keys/{key_id}/revoke").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "id": key_id,
+                "name": "ci-pipeline",
+                "key_id": "00112233",
+                "scopes": ["read"],
+                "role": "VIEWER",
+                "created_at": "2026-01-01T00:00:00Z",
+                "expires_at": None,
+                "last_used_at": None,
+                "revoked_at": "2026-01-02T00:00:00Z",
+            },
+        )
+    )
+
+    code = cli.main(["apikey", "revoke", key_id])
+
+    assert code == 0
+    assert route.calls.last.request.method == "POST"
+
+
 # --- assistant drafts -------------------------------------------------------
 
 

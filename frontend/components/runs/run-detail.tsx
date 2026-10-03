@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 
+import { CancelRunButton } from "@/components/runs/cancel-run-button";
 import { ExploitationFires } from "@/components/runs/exploitation-fires";
 import { ReportDownload } from "@/components/runs/report-download";
 import { Alert } from "@/components/ui/alert";
@@ -89,9 +90,12 @@ export function RunDetail({
         <CardHeader>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <CardTitle>Run status</CardTitle>
-            <Badge tone={STATUS_TONE[run.status] ?? "neutral"} dot>
-              {run.status}
-            </Badge>
+            <div className="flex items-center gap-3">
+              <Badge tone={STATUS_TONE[run.status] ?? "neutral"} dot>
+                {run.status}
+              </Badge>
+              {isLive && <CancelRunButton organizationId={organizationId} runId={runId} />}
+            </div>
           </div>
         </CardHeader>
         <CardContent>

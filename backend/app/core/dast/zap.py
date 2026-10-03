@@ -16,12 +16,23 @@ which is nicer — but it also means a long-lived process holding the target's
 cookies, and a second HTTP client inside the worker talking to it. The one-shot
 script keeps the surface small. `docs/dast.md` records the trade.
 
-**ZAP is not routed through `GatedTransport`** — it opens its own sockets and
-spiders on its own. It is given one in-scope seed URL and `-I` is *not* passed,
-so a failure is a failure; but nothing here can stop ZAP following a link out of
-the seed's host. That is a materially weaker guarantee than the crawler's, so
-the engine only runs ZAP when the rules of engagement allow exactly one host,
-and says so in the finding. Recorded in `docs/security-review.md`.
+**ZAP is not routed through `GatedTransport`** — `GatedTransport` only wraps
+`httpx`, and ZAP is a subprocess that opens its own sockets and spiders on its
+own. Every connection it makes is now pointed at
+`app.core.dast.egress_proxy.EgressGateway` via ZAP's own
+`network.connection.httpProxy.*` configuration, which re-resolves DNS and
+re-checks each destination's host and IP against this run's rules of
+engagement immediately before ZAP is allowed to connect — including
+connections to pages ZAP discovers on its own while spidering, not only the
+seed. See `docs/egress-security.md` for exactly what that gateway does and
+does not see (it cannot inspect method/path/headers inside an HTTPS tunnel,
+so path/header-level rules of engagement still do not apply to ZAP's
+traffic). The engine still only runs ZAP when the rules of engagement allow
+exactly one host, and says so in the finding — kept as an independent,
+second safeguard rather than relaxed now that the gateway exists, since the
+two controls check different things (which *host* ZAP may reach as a
+single named engagement, versus whether *any* individual connection it
+makes resolves to somewhere it shouldn't).
 """
 
 from __future__ import annotations
@@ -70,8 +81,21 @@ def binary_for(policy: ToolPolicy) -> str:
     return "zap-full-scan.py" if zap_scan_mode(policy) == "full" else "zap-baseline.py"
 
 
-def command_for(policy: ToolPolicy, seed: str, report_path: str) -> tuple[str, ...]:
+def command_for(
+    policy: ToolPolicy, seed: str, report_path: str, *, proxy_url: str | None = None
+) -> tuple[str, ...]:
     """The exact command line, extracted so a test can assert on it."""
+    zap_config = "-config api.disablekey=true"
+    if proxy_url:
+        # Every connection ZAP makes — the seed, and anything it spiders to
+        # on its own — now goes through the scope-checking egress gateway
+        # instead of straight to the network.
+        proxy = urlsplit(proxy_url)
+        zap_config += (
+            f" -config network.connection.httpProxy.host={proxy.hostname}"
+            f" -config network.connection.httpProxy.port={proxy.port}"
+            " -config network.connection.httpProxy.enabled=true"
+        )
     return (
         binary_for(policy),
         "-t",
@@ -85,7 +109,7 @@ def command_for(policy: ToolPolicy, seed: str, report_path: str) -> tuple[str, .
         # No automatic framework/technology add-on installation: the scan must
         # use the rule set that was reviewed.
         "-z",
-        "-config api.disablekey=true",
+        zap_config,
     )
 
 
@@ -175,9 +199,20 @@ def parse_report(payload: dict[str, Any], policy: ToolPolicy, seed: str) -> list
 
 
 async def run_zap(
-    seed: str, policy: ToolPolicy, *, allowed_domains: tuple[str, ...]
+    seed: str,
+    policy: ToolPolicy,
+    *,
+    allowed_domains: tuple[str, ...],
+    proxy_url: str | None = None,
 ) -> list[ScanResult]:
-    """Run ZAP against one seed, or report why it did not run."""
+    """Run ZAP against one seed, or report why it did not run.
+
+    `proxy_url` is the local address of this run's
+    `app.core.dast.egress_proxy.EgressGateway`. Passed by the caller rather
+    than constructed here, so this function stays a pure "build the command,
+    run it, parse the output" adapter and does not itself own the gateway's
+    lifecycle.
+    """
     host = single_allowed_host(allowed_domains)
     if host is None:
         return [
@@ -207,7 +242,7 @@ async def run_zap(
         report = Path(workdir) / "zap.json"
         result = await run_tool(
             ToolInvocation(
-                command=command_for(policy, seed, str(report)),
+                command=command_for(policy, seed, str(report), proxy_url=proxy_url),
                 cwd=Path(workdir),
                 network=NetworkUse.DECLARED_SERVICE,
                 timeout_seconds=ZAP_TIMEOUT_SECONDS,

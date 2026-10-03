@@ -98,12 +98,19 @@ to skim past in a long report.
   heuristic here was rejected as worse than the honest gap.
 - No per-channel notification rate limiting: a run that promotes fifty new
   criticals sends fifty messages.
-- The web dashboard (`docs/dashboard.md`) is read-only — overview, findings,
-  runs, workflows and targets — by scope decision, not by section missing.
-  It has no pagination-free cap left either: findings and runs both page
-  past their first 50 rows. Starting a run, changing a finding's status and
-  everything else that writes is API or CLI only; the dashboard shows the
-  disabled action and the call that does it.
+- The server-rendered dashboard at `/app` (`docs/dashboard.md`) is read-only
+  — overview, findings, runs, workflows and targets — by scope decision,
+  not by section missing. It has no pagination-free cap left either:
+  findings and runs both page past their first 50 rows. Starting a run,
+  changing a finding's status and everything else that writes is API or
+  CLI only there; the dashboard shows the disabled action and the call
+  that does it. This is deliberately **not** true of the Next.js frontend
+  (`frontend/`), the primary product UI, which writes through the API for
+  most of this already — creating/starting/cancelling a run, changing a
+  finding's status, linking a duplicate, triggering a retest, granting
+  exploitation authorization, generating a report. What that UI still
+  lacks is enumerated precisely in `docs/competitive-gap-analysis.md`
+  rather than summarized here as a blanket "read-only."
 - `docker compose up --build` is written but unverified — see
   `docs/installation.md`.
 

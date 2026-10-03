@@ -469,6 +469,31 @@ def cmd_evidence_verify(args: argparse.Namespace, profile: Profile) -> ExitCode:
     return ExitCode.PASS if result.get("ok") else ExitCode.GATE_FAILED
 
 
+def cmd_apikey_create(args: argparse.Namespace, profile: Profile) -> ExitCode:
+    org = _org(args, profile)
+    payload: dict[str, object] = {"name": args.name, "scopes": args.scope}
+    if args.expires:
+        payload["expires_at"] = args.expires
+    result = _client(profile).request("POST", f"/organizations/{org}/api-keys", json_body=payload)
+    # The API returns the token only in this one response — no endpoint
+    # returns it again, and no log line carries it — so it is emitted like
+    # the rest of the payload rather than withheld.
+    _emit(result)
+    return ExitCode.PASS
+
+
+def cmd_apikey_list(args: argparse.Namespace, profile: Profile) -> ExitCode:
+    org = _org(args, profile)
+    _emit(_client(profile).request("GET", f"/organizations/{org}/api-keys"))
+    return ExitCode.PASS
+
+
+def cmd_apikey_revoke(args: argparse.Namespace, profile: Profile) -> ExitCode:
+    org = _org(args, profile)
+    _emit(_client(profile).request("POST", f"/organizations/{org}/api-keys/{args.id}/revoke"))
+    return ExitCode.PASS
+
+
 def cmd_assist_status(args: argparse.Namespace, profile: Profile) -> ExitCode:
     org = _org(args, profile)
     _emit(_client(profile).request("GET", f"/organizations/{org}/assistant/status"))
@@ -1045,6 +1070,25 @@ def _parser() -> argparse.ArgumentParser:
     ev_verify = evidence.add_parser("verify")
     ev_verify.add_argument("--run", required=True)
     ev_verify.set_defaults(handler=cmd_evidence_verify)
+
+    apikey = subparsers.add_parser("apikey", help="API keys for CI/CD").add_subparsers(
+        dest="action"
+    )
+    ak_create = apikey.add_parser("create")
+    ak_create.add_argument("--name", required=True)
+    ak_create.add_argument(
+        "--scope",
+        action="append",
+        required=True,
+        choices=["read", "triage", "scan"],
+        help="repeatable; at least one required",
+    )
+    ak_create.add_argument("--expires", help="ISO 8601 timestamp; omit for no expiry")
+    ak_create.set_defaults(handler=cmd_apikey_create)
+    apikey.add_parser("list").set_defaults(handler=cmd_apikey_list)
+    ak_revoke = apikey.add_parser("revoke")
+    ak_revoke.add_argument("id")
+    ak_revoke.set_defaults(handler=cmd_apikey_revoke)
 
     assist = subparsers.add_parser("assist", help="AI-drafted text").add_subparsers(dest="action")
     assist.add_parser("status").set_defaults(handler=cmd_assist_status)

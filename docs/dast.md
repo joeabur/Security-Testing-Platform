@@ -99,18 +99,31 @@ point of failure.
 
 ## The tool adapters, and their honest limits
 
-**Neither Nuclei nor ZAP is routed through `GatedTransport`.** They open their
-own sockets. This is a materially weaker guarantee than the crawler's and is
-recorded here and in `docs/security-review.md` rather than glossed over.
+**Neither Nuclei nor ZAP is routed through `GatedTransport`** — it only wraps
+`httpx`, and both tools are subprocesses that open their own sockets. Both are
+instead pointed at a per-run `EgressGateway`
+(`app/core/dast/egress_proxy.py`), a local proxy that re-resolves DNS and
+re-checks every destination either tool connects to against this run's rules
+of engagement immediately before the connection is allowed. `docs/egress-security.md`
+has the full model, including what the gateway cannot see inside an
+established HTTPS tunnel (method, path, headers) — only the domain
+allowlist and the private/loopback/link-local/metadata/CIDR IP-blocking
+rules apply there. This closes the DNS-rebinding/SSRF gap that existed when
+neither tool's own connections were checked at all; it is still a narrower
+guarantee than the crawler's full request-shape check, and that narrowing is
+recorded rather than glossed over.
 
 *Nuclei* is given explicit `-target` entries — URLs that have each already been
 through the scope engine at crawl time — rather than being allowed to discover
 more. It runs with `-disable-update-check` (offline, so the scan uses the
 template set that was reviewed) and a `-rate-limit` taken from the RoE budget.
 
-*ZAP* spiders on its own, and nothing here can stop it following a link off the
-seed's host. So it runs **only when the rules of engagement name exactly one
-concrete host**, and declines with a visible `not tested` marker otherwise. Its
+*ZAP* spiders on its own; every connection it makes while doing so, not only
+the seed, now goes through the egress gateway. As an independent, second
+safeguard it still runs **only when the rules of engagement name exactly one
+concrete host**, and declines with a visible `not tested` marker otherwise —
+kept rather than relaxed, since the gateway's HTTPS path cannot see the
+method or path ZAP sends inside the tunnel, only the host it connects to. Its
 JSON report is written to a temporary directory and removed: the report contains
 response excerpts from the target, and leaving it on the worker would put
 unredacted target data somewhere nothing manages.

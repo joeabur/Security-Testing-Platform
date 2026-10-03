@@ -119,3 +119,69 @@ cannot:
 An import-linter rule confirms nothing in `core` outside `assistant/` imports
 it, so with no provider configured the entire suite passes unchanged — which is
 the practical proof that the platform does not depend on it.
+
+## How this compares to garak and PyRIT, honestly
+
+`docs/comparison.md` already says garak has more probes and PyRIT has
+genuine multi-turn, adaptive attack orchestration; this section names
+*which* categories, from a direct repository audit rather than a general
+impression (`docs/competitive-gap-analysis.md` has the full citations).
+
+| Taxonomy area | Status |
+|---|---|
+| Direct injection (override, role, delimiter, hierarchy, encoding, language-switch) | Covered — see Coverage above |
+| Indirect injection | Not covered — `ProbeCategory.INDIRECT_INJECTION` exists; no probe implements it |
+| Multi-turn / adaptive attacks of any kind | Not covered — every probe here is single-turn; `driver.py` calls `ask(prompt)` once per trial with no conversation-state object |
+| Jailbreak: encoding, obfuscation, translation | Covered — see Coverage above |
+| Jailbreak: instruction chaining | Not covered |
+| Data leakage: system prompt / secret / sensitive-info extraction | Covered — see Coverage above |
+| Cross-user leakage | Not covered — no multi-session/multi-user target abstraction exists |
+| Excessive agency: live unauthorized tool invocation | Partial — the permission-graph probe flags unconfirmed/irreversible tools structurally; nothing attempts a live unauthorized call (deliberately conservative — see `docs/detection-methodology.md`) |
+| RAG security (document injection, retrieval/context poisoning, cross-tenant retrieval) | Not covered — zero probes |
+| Agent security (goal hijacking, tool manipulation, memory poisoning, chain manipulation) | Not covered — zero probes beyond the overlap with excessive agency above |
+| Output security: XSS, SQL injection | Covered — see Coverage above |
+| Output security: command injection sink | Not covered — four sinks exist (html/markdown-image/template/sql); no shell sink |
+
+None of these are security-boundary gaps the way the DAST egress hole was
+(`docs/egress-security.md`) — they are coverage/breadth gaps, exactly
+where `docs/comparison.md` already and correctly concedes ground to
+garak and PyRIT. They are real next increments, not urgent fixes.
+
+## External attack engines (garak, PyRIT): a clean adapter boundary
+
+`docs/BUILD_SPEC.md` §28 is explicit: "Do not build a thin wrapper around
+garak or promptfoo and call it a platform." So when the coverage gaps
+above suggested integrating one, the brief's own fallback applied
+instead: "If direct integration is unsafe or impractical, implement a
+clean adapter architecture and document it."
+
+`app/core/probes/ai/external/` is that architecture:
+
+- `contract.py`'s `ExternalAttackEngine` protocol — one method, `run(target,
+  ask, canary)`, handed nothing but `Ask`, the same scope-gated callable a
+  native probe's driver already uses. No transport, URL, hostname, or
+  credential is passed in. An engine that needs to resolve a hostname or
+  open its own socket cannot be wired in through this protocol — the same
+  reasoning the plugin system's "a plugin cannot bypass the scope engine"
+  guarantee rests on (`docs/plugin-development.md`) and the DAST egress
+  gateway closes for Nuclei/ZAP (`docs/egress-security.md`).
+- It is deliberately **not** shaped like `AiProbe` (`plan()`/`detect()`,
+  every prompt decided up front): PyRIT's orchestrators are adaptive and
+  multi-turn by design, so forcing them into a split that assumes no
+  prompt ever depends on an earlier response would misrepresent what the
+  tool does. `run()` lets an engine drive its own loop over `ask`,
+  however many turns that takes, and build its own `ScanResult`s.
+- `registry.py` is where an adapter would register — empty today,
+  on purpose. Actually shelling out to garak or driving PyRIT's
+  orchestrators is a separate, larger increment than closing the DAST
+  egress gap this pass added, and shipping it thin (untested against the
+  real tool) would be exactly the "fake implementation" this codebase's
+  own rules reject.
+
+Verified in `tests/test_external_ai_engines.py`: a structural check that
+no transport primitive is named anywhere in the module; a test locking in
+that `external_engines()` returns nothing yet; and a behavioural pair
+proving the boundary — a fake engine driven through `ask` against an
+in-scope target produces a finding normally, and the same engine pointed
+at an out-of-scope host raises `ScopeBlockedError` before any request is
+sent, because `ask` is the only door and it was already locked.

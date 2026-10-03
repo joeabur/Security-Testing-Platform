@@ -12,7 +12,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 import respx
 from httpx import AsyncClient, Response
-from sqlalchemy import delete, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -20,6 +20,7 @@ from app.core.csrf import anon as csrf_anon
 from app.core.csrf.enforce import HEADER_NAME
 from app.core.scope.engine import ScopeEngine
 from app.core.scope.transport import GatedTransport
+from app.models.audit import AuditEvent
 from app.models.authorization import Authorization
 from app.models.rules_of_engagement import RulesOfEngagementRecord
 from app.workers import tasks as worker_tasks
@@ -320,7 +321,7 @@ async def test_cancelling_a_queued_run_stops_it_before_it_starts(
 
 
 async def test_worker_executes_a_queued_run_end_to_end(
-    client: AsyncClient, strong_password: str
+    client: AsyncClient, strong_password: str, db_session: AsyncSession
 ) -> None:
     org_id, target_id, header = await _ready_target(client, strong_password, "h")
     headers = {"Authorization": header}
@@ -359,6 +360,19 @@ async def test_worker_executes_a_queued_run_end_to_end(
     assert kinds[-1] == "completed"
     assert kinds.count("check_started") == kinds.count("check_completed") == 2
     assert [event["seq"] for event in events] == sorted(event["seq"] for event in events)
+
+    # The run's own lifecycle is in the append-only audit log too, not only
+    # the operational RunEvent feed just checked above.
+    audited = (
+        await db_session.execute(
+            select(AuditEvent.action, AuditEvent.result).where(
+                AuditEvent.resource_type == "assessment_run",
+                AuditEvent.resource_id == run_id,
+            )
+        )
+    ).all()
+    assert ("run.start", "allow") in audited
+    assert ("run.completed", "allow") in audited
 
 
 async def test_cancellation_flag_stops_a_run_already_in_a_worker(
