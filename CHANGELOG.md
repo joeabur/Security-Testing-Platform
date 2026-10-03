@@ -169,6 +169,25 @@ All notable changes to this project are recorded here. The format follows
 
 ### Added
 
+- **Direct OSV.dev integration, closing npm's zero SCA coverage.**
+  `docs/competitive-gap-analysis.md` named this precisely: SCA was fully
+  delegated to pip-audit/Trivy/Checkov's own embedded advisory data, with
+  zero direct calls to osv.dev, nvd.nist.gov or GHSA's API anywhere in the
+  codebase — and Node/npm dependencies had no SCA coverage at all, direct
+  or delegated. New `app/core/appsec/osv/` parses an npm `package-lock.json`
+  itself and queries `osv.dev`'s batch API directly through the platform's
+  own `GatedTransport`, rather than wrapping the `osv-scanner` binary
+  (which `docs/BUILD_SPEC.md` names but which would just be a fourth
+  subprocess doing its own unobserved advisory lookup, the same shape the
+  gap critiques). This also makes OSV's own network reach strictly more
+  constrained than every existing SCA/container engine's: their declared
+  network use is consent, not an enforced gate, since a subprocess's own
+  sockets are outside a Python-level check — this client's calls go
+  through the real `ScopeEngine`, proven by a test that refuses every host
+  but `api.osv.dev` with no mock involved. Behind the same disclosure-
+  consent gate `pip-audit`'s engine already requires. NVD and GHSA direct
+  clients, and non-npm ecosystems, remain explicitly not integrated —
+  `docs/roadmap.md` states why each is deferred rather than approximated.
 - **`kervy-ai test ai [--ci]`: a developer-loop regression check comparing
   AI probe attack success rates across runs.** `docs/competitive-gap-
   analysis.md` named two related gaps: no regression CLI (`cmd_retest`
