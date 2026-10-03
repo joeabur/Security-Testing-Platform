@@ -238,6 +238,11 @@ def _findings(ref: ImageRef, payload: dict[str, Any]) -> list[ScanResult]:
                     probe_id=ENGINE_ID,
                     probe_version=ENGINE_VERSION,
                     frameworks=(
+                        # trivy actively scanning the pulled image for known
+                        # vulnerabilities is this engine's own instance of
+                        # the same reconnaissance technique nmap's vuln-
+                        # category scripts cite in app/core/pentest/engine.py.
+                        "MITRE-ATTACK:T1595.002",
                         *advisories,
                         *(
                             str(value)

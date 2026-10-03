@@ -160,6 +160,7 @@ def _subdomain_discovery_finding(root_domain: str, items: list[DiscoveredSubdoma
         ),
         probe_id=ENGINE_ID,
         probe_version=ENGINE_VERSION,
+        frameworks=("MITRE-ATTACK:T1590.002",),
     )
 
 
@@ -202,6 +203,7 @@ def _missing_headers_finding(hostname: str, missing: list[str]) -> ScanResult:
         probe_id=ENGINE_ID,
         probe_version=ENGINE_VERSION,
         reproduction=(f"GET https://{hostname}/",),
+        frameworks=("MITRE-ATTACK:T1595.002",),
     )
 
 
@@ -239,4 +241,5 @@ def _tls_finding(hostname: str, cert: TlsCertificateInfo) -> ScanResult | None:
         remediation="Renew the certificate and/or disable protocol versions below TLS 1.2.",
         probe_id=ENGINE_ID,
         probe_version=ENGINE_VERSION,
+        frameworks=("MITRE-ATTACK:T1595.002",),
     )
