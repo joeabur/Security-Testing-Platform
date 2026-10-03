@@ -5158,3 +5158,70 @@ file. Targeted: `test_domain_engine.py`, `test_container_engine.py`,
 `frameworks` tuple on every affected finding, not just that it is
 non-empty), `test_findings_and_risk.py`, `test_framework_drift.py`. Full
 backend suite confirmed separately.
+
+## Threat-intel correlation: a design-only abstraction
+
+### Context
+
+Every CVE/GHSA advisory this platform ever reports (container-engine
+`trivy` findings, SCA's `pip-audit` findings) carries nothing about
+whether that advisory is actually being exploited anywhere, only that the
+vulnerable code/package is present. That is a real gap — "present" and
+"actively exploited in the wild" are very different signals a reader
+making a remediation decision needs — but closing it for real means a
+live feed (CISA's Known Exploited Vulnerabilities catalog, FIRST's EPSS
+score, or a commercial feed) this deployment has no account for. The same
+"no real vendor account to verify against" reasoning `app/core/
+cloud/engine.py` already states for Azure/GCP, and this phase's own SIEM/
+ticketing write-ups state for a live Splunk/Jira/ServiceNow account,
+applies here: shipping an untested live correlation would be an
+unverified claim, which this codebase's own discipline refuses to make.
+
+### Design
+
+`app/core/threat_intel/contract.py` (new) defines the shape a provider
+would have, so it is reviewed now rather than invented ad hoc whenever a
+real feed is actually wired up — the contract ships; a live connector
+does not:
+
+- `ThreatIntelContext` — `known_exploited: bool | None`, `epss_score:
+  float | None` (FIRST's probability score, validated into `[0.0, 1.0]`),
+  `source`, `retrieved_at`. Every field independently optional — a
+  provider with no opinion on one leaves it `None` rather than a borrowed
+  default a reader could mistake for a real answer — except that a
+  populated score field requires `retrieved_at`: a correlation claim with
+  no timestamp cannot be re-checked or expired, the same reason
+  `frameworks.py` pins a retrieval date on every framework version.
+- `ThreatIntelProvider` — a `Protocol`, not a base class: the only
+  contract is one async `correlate(advisories) -> dict[str,
+  ThreatIntelContext]` method, so nothing here constrains how a future
+  provider gets its data.
+- `NullThreatIntelProvider` — the only implementation this phase ships.
+  It answers every advisory with an unpopulated `ThreatIntelContext`
+  (visibly "not assessed") rather than omitting it or raising, the same
+  role `tool_unavailable()` plays for a missing SAST/IaC binary and
+  `CloudEngine`'s `_PROVIDERS` mapping plays for `azure`/`gcp`: a named,
+  deliberate "not yet," not an absent code path.
+
+Nothing calls this contract. `app/core/findings/normalize.py::
+build_finding` is named in the module's own docstring as the one future
+call site — the single place a `Finding` is created from a `ScanResult`,
+where `verified_advisories()`'s already-verified identifiers would be the
+correlation key — but wiring it in now, with only the null provider to
+call, would just be dead code with extra steps.
+
+### What this does not do
+
+No live feed, no API key, no configuration setting, no call site. No
+change to `Finding`, `ScanResult`, or any report renderer. This is
+exactly, and only, the interface.
+
+### Verified
+
+`ruff check`/`mypy app` clean. `tests/test_threat_intel_contract.py` (new,
+7 tests): the null provider answers every advisory it is asked about and
+nothing it is not, satisfies the `Protocol` at runtime
+(`isinstance(..., ThreatIntelProvider)`), and `ThreatIntelContext`'s own
+validation (a populated score needs a timestamp; an unpopulated one needs
+none; `epss_score` is rejected outside `[0.0, 1.0]`). Full backend suite
+confirmed separately.
