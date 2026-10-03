@@ -237,6 +237,7 @@ async def test_engine_discovers_subdomains_but_only_probes_allowed_patterns(
     assert "hidden.example.test" in discovery.evidence
     assert "www.example.test" in discovery.evidence
     assert discovery.severity is Severity.INFORMATIONAL
+    assert discovery.frameworks == ("MITRE-ATTACK:T1590.002",)
 
     # example.test: missing every security header.
     missing_headers = [
@@ -246,6 +247,7 @@ async def test_engine_discovers_subdomains_but_only_probes_allowed_patterns(
     ]
     assert len(missing_headers) == 1
     assert missing_headers[0].severity is Severity.LOW
+    assert missing_headers[0].frameworks == ("MITRE-ATTACK:T1595.002",)
 
     # www.example.test sent every header — no finding for it.
     assert not [
@@ -257,6 +259,7 @@ async def test_engine_discovers_subdomains_but_only_probes_allowed_patterns(
     # example.test: expired certificate -> HIGH. www: fine -> no finding.
     tls_findings = {item.endpoint: item for item in findings if item.id == "KERVY-DOMAIN-003"}
     assert tls_findings[f"domain/{ROOT}"].severity is Severity.HIGH
+    assert tls_findings[f"domain/{ROOT}"].frameworks == ("MITRE-ATTACK:T1595.002",)
     assert "domain/www.example.test" not in tls_findings
 
 

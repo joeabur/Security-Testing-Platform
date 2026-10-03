@@ -122,6 +122,7 @@ def _findings(target: CloudTarget, exposures: list[BucketExposure]) -> list[Scan
                 + hashlib.sha256(
                     f"{target.provider}|{target.account_ref}|{exposure.name}".encode()
                 ).hexdigest(),
+                frameworks=("MITRE-ATTACK:T1619",),
             )
         )
     return results
@@ -153,6 +154,7 @@ def _inventory_finding(target: CloudTarget, exposures: list[BucketExposure]) -> 
         remediation="Review the list for anything unexpected.",
         probe_id=ENGINE_ID,
         probe_version=ENGINE_VERSION,
+        frameworks=("MITRE-ATTACK:T1580",),
     )
 
 

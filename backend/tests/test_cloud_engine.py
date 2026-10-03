@@ -72,6 +72,7 @@ async def test_a_clean_run_still_emits_an_inventory_finding() -> None:
     assert len(findings) == 1
     assert findings[0].id == "KERVY-CLOUD-001"
     assert "No storage buckets were found" in findings[0].description
+    assert findings[0].frameworks == ("MITRE-ATTACK:T1580",)
 
 
 async def test_public_buckets_produce_high_severity_findings_alongside_the_inventory() -> None:
@@ -97,9 +98,11 @@ async def test_public_buckets_produce_high_severity_findings_alongside_the_inven
     assert "public-bucket" in public_finding.title
     assert public_finding.severity.value == "HIGH"
     assert public_finding.fingerprint is not None
+    assert public_finding.frameworks == ("MITRE-ATTACK:T1619",)
 
     inventory = next(item for item in findings if item.id == "KERVY-CLOUD-001")
     assert "1 of 2" in inventory.description
+    assert inventory.frameworks == ("MITRE-ATTACK:T1580",)
 
 
 async def test_environ_is_read_from_os_environ_by_default(monkeypatch) -> None:

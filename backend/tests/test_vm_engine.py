@@ -120,6 +120,7 @@ async def test_a_clean_scan_still_emits_an_inventory_finding() -> None:
     assert len(findings) == 1
     assert findings[0].id == "KERVY-VM-001"
     assert "None of the 2 declared port(s)" in findings[0].description
+    assert findings[0].frameworks == ("MITRE-ATTACK:T1046",)
     assert len(invocations) == 1
     assert invocations[0].tool_name == "nmap"
 
@@ -144,7 +145,9 @@ async def test_open_ports_produce_an_inventory_and_noteworthy_port_findings() ->
     assert "6379" in noteworthy.title
     assert noteworthy.severity.value == "MEDIUM"
     assert noteworthy.fingerprint is not None
+    assert noteworthy.frameworks == ("MITRE-ATTACK:T1046",)
 
     inventory = next(item for item in findings if item.id == "KERVY-VM-001")
     assert "3 of 3" in inventory.description
+    assert inventory.frameworks == ("MITRE-ATTACK:T1046",)
     assert len(invocations) == 1

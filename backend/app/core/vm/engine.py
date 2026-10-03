@@ -152,6 +152,7 @@ def _inventory_finding(target: VmTarget, open_ports: list[OpenPort]) -> ScanResu
         remediation="Review the list for anything unexpected.",
         probe_id=ENGINE_ID,
         probe_version=ENGINE_VERSION,
+        frameworks=("MITRE-ATTACK:T1046",),
     )
 
 
@@ -190,6 +191,7 @@ def _noteworthy_port_finding(target: VmTarget, item: OpenPort, reason: str) -> S
         reproduction=(f"nmap -Pn -sV -p {item.port} {target.host}",),
         fingerprint="sha256:"
         + hashlib.sha256(f"{target.host}|{item.port}".encode()).hexdigest(),
+        frameworks=("MITRE-ATTACK:T1046",),
     )
 
 
