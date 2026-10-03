@@ -34,13 +34,19 @@ past them.
 |---|---|---|---|---|
 | Scope engine core (DNS rebinding, private/loopback/link-local/CIDR blocking, metadata-endpoint blocking, redirect re-validation, IDN homograph defense, budgets, kill switch) | **Already solid.** `backend/app/core/scope/` — `transport.py` is the sole `httpx.AsyncClient` construction site, enforced by a static test (`tests/security/test_scope_controls.py:541-562`) that greps all of `app/` for stray client construction. DNS is re-resolved per check, never cached (`dns.py:13-31`, `engine.py:154-182`). Metadata endpoints (`169.254.169.254`, `fd00:ec2::254`) are blocked **unconditionally**, not overridable by any allowlist (`hostmatch.py:33-38,85-87`). Redirects are not followed by the client; a 3xx `Location` is re-validated through the same scope check (`transport.py:100`, `engine.py:244-252`). | None found. | — | No action. |
 | **Nuclei / ZAP egress containment** | **Gap, confirmed by code.** Both tools are launched as OS subprocesses (`backend/app/core/appsec/tooling.py:89-144`, `asyncio.create_subprocess_exec`). Once the binary starts, it performs its own DNS resolution and opens its own sockets — entirely outside `GatedTransport`'s visibility. Nuclei (`nuclei.py:70-99`) and ZAP (`zap.py:73-89`) module docstrings state this plainly: "not routed through `GatedTransport`." ZAP additionally spiders autonomously from a single seed URL — nothing re-validates pages it discovers mid-crawl. No DNS pinning, proxy injection, network namespace, or firewall rule constrains either tool today (confirmed absent by direct inspection of `tooling.py`). | A DNS-rebinding host that was clean when the crawler checked it minutes earlier can resolve to a private IP / the metadata endpoint by the time Nuclei or ZAP actually connects, and both tools would follow it with no re-check. | **P0** | Implemented this pass — see "DAST egress gateway" below. |
-| Browser-based DAST | **Not present.** Confirmed zero hits for `playwright`/`selenium`/`puppeteer` in application code (`docs/dast.md` already states this is the largest gap). | No JS execution, no SPA crawling, no authenticated browser sessions. | P1 | Not implemented this pass — correctly sequenced after the egress gateway, since a browser engine would inherit the exact same socket-bypass problem if added before the containment mechanism exists. Deferred; see Remaining Gaps. |
+| Browser-based DAST | **Not present at audit time.** Confirmed zero hits for `playwright`/`selenium`/`puppeteer` in application code (`docs/dast.md` already stated this as the largest gap). | No JS execution, no SPA crawling, no authenticated browser sessions. | P1 | Implemented in a later pass, correctly sequenced after the egress gateway above — see "Browser-based DAST (Playwright)" below. |
 
 ### DAST egress gateway — what was implemented
 
 The smallest safe fix that reuses the existing engine rather than re-implementing scope logic in a second place: a local forward proxy process, started per-run, that intercepts every CONNECT/request Nuclei or ZAP makes and runs it through the *same* `ScopeEngine`/DNS-re-resolution logic `GatedTransport` already uses, before allowing the TCP connection to proceed. Both tools support pointing at a proxy (Nuclei: `-proxy`; ZAP: `-config network.connection.httpProxy.*` / `http_proxy` env for the baseline/full-scan wrapper scripts), so this closes the gap without patching either binary.
 
 See `backend/app/core/dast/egress_proxy.py` (new) and the wiring in `nuclei.py`/`zap.py`/`tooling.py`. Full detail in `docs/egress-security.md`.
+
+### Browser-based DAST (Playwright) — what was implemented
+
+An opt-in alternative crawler (`DastTarget.use_browser`), not a replacement for the regex-based one: `backend/app/core/dast/browser.py`'s `BrowserCrawler` drives a real, headless Chromium through Playwright and reads the *rendered* DOM, so a link a client-side router injects after load is found — the concrete case the regex crawler cannot see. Launched with its traffic pointed at the same `EgressGateway` Nuclei and ZAP use, exactly the ordering this row called for: the browser engine never runs outside this run's own scope-checking proxy. "Authenticated browser session" support is scoped honestly to one thing — `DastTarget.storage_state` carries an operator-supplied Playwright storage state through every navigation; it does not drive a login form itself.
+
+See `backend/app/core/dast/browser.py` (new) and the wiring in `engine.py`. Full detail in `docs/dast.md`'s "Browser-based crawl (Playwright)" section. Verified end to end against a real pre-installed Chromium in `tests/test_dast_browser.py`, including a negative control proving the regex crawler genuinely cannot see a script-injected link that the browser crawler does.
 
 ---
 
@@ -184,11 +190,11 @@ task #80 in this project's history). See `docs/ai-security-testing.md`'s
 
 ---
 
-## Remaining gaps (not implemented this pass, in priority order)
+## Remaining gaps (priority order; items struck through are now implemented — see the dated notes)
 
-1. **Browser-based DAST (Playwright)** — correctly sequenced after the egress gateway landed, so a browser engine inherits containment from day one instead of repeating the Nuclei/ZAP mistake.
-2. **RAG security + agent security probe families** — zero coverage today; the single largest AI-breadth gap.
-3. **Multi-turn attack orchestration engine** — needed before indirect/chained/multi-turn injection probes can exist at all.
+1. ~~**Browser-based DAST (Playwright)**~~ — **Implemented** (see "Browser-based DAST (Playwright) — what was implemented" above). Correctly sequenced after the egress gateway landed, so the browser engine inherits containment from day one instead of repeating the Nuclei/ZAP mistake.
+2. **RAG security + agent security probe families** — zero coverage today; the single largest AI-breadth gap. Now unblocked by item 3's conversation-state foundation.
+3. ~~**Multi-turn attack orchestration engine**~~ — **Implemented** (`app/core/probes/ai/multiturn/`, `docs/ai-security-testing.md`'s "Multi-turn attack orchestration" section). Ships one probe, `ai.jailbreak.instruction_chaining`; was needed before indirect/chained/multi-turn injection probes could exist at all.
 4. **`kervy test ai [--ci]` regression command + cross-run/version statistical comparison** — developer-loop feature, not yet started.
 5. **Direct OSV/NVD/GHSA integration** — currently fully delegated to pip-audit/Trivy/Checkov's own embedded data.
 6. **Reachability analysis foundation** — no code exists beyond unrelated network-reachability checks.

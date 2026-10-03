@@ -115,6 +115,15 @@ appsec = [
 cloud = [
     "boto3>=1.35",
 ]
+# Browser-based DAST (docs/dast.md's largest stated gap). Optional for the
+# same reason as `appsec`: the browser crawler reports "not tested" rather
+# than crashing when the package or its browser binary is absent. The binary
+# itself is not pip-installable — a fresh install also needs
+# `playwright install chromium` (CI runs this; docs/installation.md documents
+# it for an operator's own machine).
+browser = [
+    "playwright>=1.47",
+]
 
 [project.scripts]
 kervy-ai = "kervy_cli.main:main"

@@ -21,9 +21,10 @@ That inverts the usual trust relationship, so the contract is written around it:
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
+from typing import Any
 
 
 class CrawlOutcome(StrEnum):
@@ -173,3 +174,14 @@ class DastTarget:
     #: Extra URLs the operator supplied — a login page, a deep link the crawler
     #: would not reach. Checked exactly like a discovered one.
     extra_seeds: Sequence[str] = ()
+    #: Opt in to a real-browser crawl (`browser.py`) instead of the regex-based
+    #: one above. Off by default, the same secure-default idiom
+    #: `allow_state_mutation` uses: a browser engine is a materially larger
+    #: thing to run against a live target, so it is never silently substituted.
+    use_browser: bool = False
+    #: A Playwright storage state (cookies/localStorage) the operator already
+    #: captured from an authenticated session, carried through every
+    #: navigation. The whole of this engine's "authenticated session" support
+    #: — it does not drive a login form itself (`browser.py`'s docstring
+    #: explains why). Ignored unless `use_browser` is set.
+    storage_state: Mapping[str, Any] | None = None

@@ -89,7 +89,11 @@ jobs:
         # -c constraints.lock.txt pins every transitive dependency to
         # uv.lock's resolved version (regenerate both via
         # `python -m scripts.relock`), the same lock ci.yml installs from.
-        run: pip install -c constraints.lock.txt -e ".[dev,appsec,pdf]"
+        run: pip install -c constraints.lock.txt -e ".[dev,appsec,pdf,browser]"
+
+      - name: Install Chromium for the browser-based DAST crawl
+        working-directory: backend
+        run: playwright install --with-deps chromium
 
       - name: Migrate
         working-directory: backend
