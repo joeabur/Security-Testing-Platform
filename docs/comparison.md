@@ -33,8 +33,10 @@ on your own laptop.
 
 **Better than this at:** flexibility and multi-turn attacks. PyRIT is a
 framework — orchestrators, converters, scoring — designed for researchers
-building novel attack chains, including conversational ones. This platform's
-probes are single or few-turn and deliberately fixed.
+building novel attack chains, including conversational ones. This platform
+has a multi-turn orchestration engine now (`docs/ai-security-testing.md`),
+but it ships one fixed, hand-written conversation script; PyRIT lets a
+researcher compose new multi-turn attacks without writing a new engine.
 
 **This is different at:** being a product rather than a toolkit. Multi-tenancy,
 RBAC, run lifecycle, findings lifecycle, retest, reports. PyRIT expects you to

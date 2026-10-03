@@ -10,6 +10,7 @@ from dataclasses import dataclass, replace
 
 from app.core.evidence.bundle import EvidenceBundle, build_bundle
 from app.core.measure.asr import DEFAULT_RULE, Measurement, measure
+from app.core.probes.ai._support import strongest_attempt
 from app.core.probes.ai.contract import (
     AiProbe,
     AiProbeTarget,
@@ -76,7 +77,7 @@ async def run_ai_probe(
     # into "inconclusive" — reporting a reliably exploitable target as
     # clean. Which framing won is recorded, so the finding names the
     # technique that actually worked.
-    best_id, attack_successes, attack_trials = _strongest(per_attempt)
+    best_id, attack_successes, attack_trials = strongest_attempt(per_attempt)
 
     measurement: Measurement = measure(
         attack_successes=attack_successes,
@@ -146,19 +147,6 @@ def _bundle_for(
             "trials": outcome.measurement.attack.trials,
         },
     )
-
-
-def _strongest(per_attempt: dict[str, tuple[int, int]]) -> tuple[str | None, int, int]:
-    """The attempt with the most successes; ties go to the one that spent
-    fewer trials, so a cheaper technique wins an otherwise equal contest."""
-    if not per_attempt:
-        return (None, 0, 0)
-    best_id = max(
-        per_attempt,
-        key=lambda attempt_id: (per_attempt[attempt_id][0], -per_attempt[attempt_id][1]),
-    )
-    successes, trials = per_attempt[best_id]
-    return (best_id, successes, trials)
 
 
 async def _run_each(
