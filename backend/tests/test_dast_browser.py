@@ -16,9 +16,10 @@ Two tiers, like `test_dast_egress_proxy.py` and `test_dast.py` together:
 from __future__ import annotations
 
 import asyncio
+import os
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime, timedelta
-from typing import NoReturn
+from typing import Any, NoReturn
 from urllib.parse import urlsplit
 
 import pytest
@@ -34,14 +35,20 @@ from app.core.scope.models import Budgets, ResolvedAuthorization, RulesOfEngagem
 
 HOST = "127.0.0.1"
 
-# A pre-installed Chromium exists in this sandbox at a revision the pinned
-# `playwright` package's own bundled-revision lookup does not match (the
-# lookup expects whatever revision ships with that exact pip version).
-# Real deployments run `playwright install chromium`, which always fetches a
-# matching revision, so production code never needs this — it is a
-# test-only seam (`BrowserCrawler(launch_kwargs=...)`), not a hardcoded path
-# in anything shipped.
+# Some development sandboxes pre-install a Chromium binary at a fixed path,
+# at a revision the pinned `playwright` package's own bundled-revision
+# lookup may not match (that lookup expects whichever revision ships with
+# that exact pip version). Real deployments — CI included, via `playwright
+# install chromium` — always fetch a matching revision at Playwright's own
+# default location, so production code never needs this, and neither does
+# this test outside that one sandbox shape: the override below is applied
+# only when that fixed path actually exists, and is empty everywhere else,
+# letting `BrowserCrawler`'s default (`launch_kwargs=None`) — Playwright's
+# own standard resolution — run unmodified.
 _SANDBOX_CHROMIUM = "/opt/pw-browsers/chromium"
+_LAUNCH_KWARGS: dict[str, Any] = (
+    {"executable_path": _SANDBOX_CHROMIUM} if os.path.exists(_SANDBOX_CHROMIUM) else {}
+)
 
 
 def _page(body: bytes) -> bytes:
@@ -151,7 +158,7 @@ def _context(*, allowed_domains: tuple[str, ...] = (HOST,)) -> RunContext:
 async def test_a_script_injected_link_is_found_by_the_browser_crawl(lab_server: str) -> None:
     ctx = _context()
     async with EgressGateway(ctx) as gateway:
-        crawler = BrowserCrawler(launch_kwargs={"executable_path": _SANDBOX_CHROMIUM})
+        crawler = BrowserCrawler(launch_kwargs=_LAUNCH_KWARGS)
         result = await crawler.crawl(
             ctx, DastTarget(seed_url=f"{lab_server}/"), proxy_url=gateway.proxy_url
         )
@@ -197,7 +204,7 @@ async def test_a_js_discovered_link_outside_scope_is_refused_before_navigation(
     try:
         ctx = _context()
         async with EgressGateway(ctx) as gateway:
-            crawler = BrowserCrawler(launch_kwargs={"executable_path": _SANDBOX_CHROMIUM})
+            crawler = BrowserCrawler(launch_kwargs=_LAUNCH_KWARGS)
             result = await crawler.crawl(
                 ctx, DastTarget(seed_url=f"{lab_server}/"), proxy_url=gateway.proxy_url
             )
