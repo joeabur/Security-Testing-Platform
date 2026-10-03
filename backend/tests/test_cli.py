@@ -175,6 +175,58 @@ def test_a_bad_gate_config_exits_two_not_zero(profile: Profile, tmp_path: pathli
     assert cli.main(["gate", "--run", RUN, "--config", str(config)]) == int(ExitCode.CONFIG_ERROR)
 
 
+# --- the quality-gate report ------------------------------------------------
+
+
+@respx.mock
+def test_the_report_flag_writes_json_packaging_the_same_decision(
+    profile: Profile, tmp_path: pathlib.Path
+) -> None:
+    respx.get(f"{BASE_URL}/organizations/{ORG}/findings").mock(
+        return_value=httpx.Response(200, json=[_finding()])
+    )
+    report_path = tmp_path / "quality-gate.json"
+
+    code = cli.main(["gate", "--run", RUN, "--report", str(report_path)])
+
+    assert code == int(ExitCode.GATE_FAILED)
+    payload = json.loads(report_path.read_text())
+    assert payload["passed"] is False
+    assert payload["priority_counts"]["P0"] == 1
+    assert payload["blocking"][0]["priority"] == "P0"
+
+
+@respx.mock
+def test_the_report_flag_writes_markdown_by_extension(
+    profile: Profile, tmp_path: pathlib.Path
+) -> None:
+    respx.get(f"{BASE_URL}/organizations/{ORG}/findings").mock(
+        return_value=httpx.Response(200, json=[_finding()])
+    )
+    report_path = tmp_path / "quality-gate.md"
+
+    cli.main(["gate", "--run", RUN, "--report", str(report_path)])
+
+    markdown = report_path.read_text()
+    assert "FAIL" in markdown
+    assert "P0" in markdown
+
+
+@respx.mock
+def test_an_unrecognised_report_extension_is_a_configuration_error(
+    profile: Profile, tmp_path: pathlib.Path
+) -> None:
+    respx.get(f"{BASE_URL}/organizations/{ORG}/findings").mock(
+        return_value=httpx.Response(200, json=[])
+    )
+    report_path = tmp_path / "quality-gate.txt"
+
+    assert cli.main(["gate", "--run", RUN, "--report", str(report_path)]) == int(
+        ExitCode.CONFIG_ERROR
+    )
+    assert not report_path.exists()
+
+
 # --- exit codes for refusals ----------------------------------------------
 
 

@@ -5225,3 +5225,72 @@ nothing it is not, satisfies the `Protocol` at runtime
 validation (a populated score needs a timestamp; an unpopulated one needs
 none; `epss_score` is rejected outside `[0.0, 1.0]`). Full backend suite
 confirmed separately.
+
+## P0-P4 prioritization and the packaged quality-gate report
+
+### Context
+
+The security gate (§23, `app/core/gate/`) has always reached a verdict —
+pass, fail, and which findings counted or were excluded and why — but the
+only place that verdict went was a CI log, via `kervy_cli`'s
+`_print_decision`. That answers "why did this build fail?" for the one
+person watching the job run; it does not answer it for anyone who opens
+the PR later, or for a dashboard that wants the same verdict without
+re-running the gate. Separately, the gate's findings only ever spoke the
+risk model's own severity words (CRITICAL..INFORMATIONAL) — not the P0-P4
+vocabulary an engineering team's own ticket tracker and on-call rotation
+already use, which `docs/BUILD_SPEC.md` §14's "Remediation plan
+(prioritized...)" report section implies without ever defining.
+
+### Design
+
+`app/core/gate/priority.py` (new): `Priority` (`P0`-`P4`) and
+`priority_for(severity) -> Priority`, a published, deliberately simple
+one-to-one relabelling of `Severity`'s own five bands, most severe first.
+No scoring happens here — the risk model (§12) already produced the
+severity a `GateFinding` carries — so this carries no model version of its
+own, just the ladder.
+
+`app/core/gate/report.py` (new): `build_report(decision) ->
+QualityGateReport` repackages a `GateDecision` `evaluate()` already
+reached — generated timestamp, pass/fail, exit code, the reasons, a
+priority-bucketed count, and the blocking/excluded finding lists each
+carrying their own `Priority` alongside their severity. It computes
+nothing `evaluate()` did not already decide; a report that could disagree
+with the gate it describes would be worse than no report. Two renderings:
+`to_markdown()` (headed sections: priority breakdown table, why it failed,
+blocking findings, what was excluded and why) and `as_dict()` (JSON-ready,
+every priority band present even at zero so a consumer never has to treat
+absence as zero itself).
+
+`kervy_cli`'s `gate` and `ci` commands both gain `--report <path>`: `.json`
+writes `as_dict()`, `.md` writes `to_markdown()`, any other extension is a
+configuration error (exit 2) rather than a silent guess at the format
+wanted. This sits beside the existing stdout summary, not instead of it —
+the CI log still gets the same answer it always did.
+
+### What this does not do
+
+No second verdict and no new gating behavior — `fail_on`/`max_high`/
+`max_medium`/confidence/stability rules are exactly `evaluate()`'s own,
+unchanged. No ticket-tracker integration (opening a Jira/ServiceNow ticket
+per P0/P1 finding) — the report publishes the vocabulary a future
+integration would read, the same "contract now, connector later" shape
+`app/core/threat_intel/` already uses, but nothing here calls out to
+either adapter. No dashboard rendering of the report — API/CLI only,
+matching this platform's own "dashboard is a later phase" precedent.
+
+### Verified
+
+`ruff check`/`mypy app kervy_cli mcp_server` clean. New
+`tests/test_gate_priority_report.py` (10 tests): every `Severity` maps to
+exactly one `Priority` and the ladder runs most-to-least severe, the
+report's priority counts always sum to the same total `evaluate()` itself
+counted, the report's `passed`/`exit_code`/`reasons` never disagree with
+the decision they describe, blocking/excluded findings carry their
+priority, both renderings name the verdict and (for Markdown) every
+priority band even when a section would otherwise be empty. `tests/
+test_cli.py` gains three tests for `--report`: a JSON write packaging the
+same decision, a Markdown write by extension, and an unrecognised
+extension refused with the documented configuration-error exit code
+rather than a guess. Full backend suite confirmed separately.
