@@ -50,9 +50,10 @@ There is also an `kervy-ai` CLI and a CI security gate with documented exit
 codes — see [`docs/cicd.md`](docs/cicd.md).
 
 Findings and finished runs can be sent out to Slack, Microsoft Teams, a
-signed generic webhook, or email. A notification channel is not an exception to
-the outbound rule: every delivery goes through the same scope-gated transport,
-under an allowlist derived from the channel's resolved destination, and webhook
+signed generic webhook, or email, or opened as a ticket in Jira Cloud or
+ServiceNow. A notification channel is not an exception to the outbound
+rule: every delivery goes through the same scope-gated transport, under an
+allowlist derived from the channel's resolved destination, and webhook
 credentials are held by environment-variable reference rather than stored — see
 [`docs/integrations.md`](docs/integrations.md).
 
