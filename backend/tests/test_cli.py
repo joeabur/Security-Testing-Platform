@@ -23,6 +23,8 @@ from kervy_cli.config import Profile
 BASE_URL = "http://platform.test/api/v1"
 ORG = "11111111-1111-1111-1111-111111111111"
 RUN = "22222222-2222-2222-2222-222222222222"
+TARGET = "33333333-3333-3333-3333-333333333333"
+BASELINE_RUN = "44444444-4444-4444-4444-444444444444"
 
 
 @pytest.fixture
@@ -57,10 +59,13 @@ def test_the_cli_cannot_reach_the_scope_engine_or_a_probe() -> None:
     rather than a weaker path of its own. The strongest way to guarantee that
     is for the CLI to have no way to reach a target at all except by asking
     the API — so it may import the gate (pure logic over findings the API
-    returned) and the shared enums, and nothing else from `app.core`.
+    returned), the shared enums, and `app.core.measure.regression` (pure
+    statistics over two runs' results the API already returned — the same
+    "no network, no scope engine" shape as the gate), and nothing else from
+    `app.core`.
     """
     root = pathlib.Path(cli.__file__).resolve().parent
-    allowed = {"app.core.gate", "app.core.probes.models"}
+    allowed = {"app.core.gate", "app.core.probes.models", "app.core.measure.regression"}
     pattern = re.compile(r"^\s*(?:from|import)\s+(app\.[\w.]+)", re.MULTILINE)
 
     offenders: list[str] = []
@@ -869,3 +874,202 @@ def test_the_client_refuses_to_send_an_unauthenticated_request() -> None:
     with pytest.raises(CliError) as caught:
         ApiClient(BASE_URL, None).request("GET", "/organizations")
     assert caught.value.exit_code is ExitCode.AUTH_ERROR
+
+
+# --- `test ai`: the regression comparator ----------------------------------
+
+
+def _run(run_id: str, **overrides: object) -> dict[str, object]:
+    base: dict[str, object] = {
+        "id": run_id,
+        "organization_id": ORG,
+        "target_id": TARGET,
+        "status": "completed",
+        "created_at": "2026-01-01T00:00:00Z",
+        "halted_reason": None,
+    }
+    base.update(overrides)
+    return base
+
+
+def _ai_scan_result(
+    *, successes: int, trials: int, rate: float, ci95: tuple[float, float], is_finding: bool
+) -> dict[str, object]:
+    return {
+        "category": "AI_SECURITY",
+        "probe_id": "ai.jailbreak.instruction_override",
+        "title": "Direct prompt injection overrides the system instruction",
+        "fingerprint": "sha256:" + "3" * 64,
+        "endpoint": "POST /api/chat",
+        "measurement": {
+            "attack_success_rate": {
+                "successes": successes,
+                "trials": trials,
+                "rate": rate,
+                "ci95": list(ci95),
+            },
+            "control_success_rate": {
+                "successes": 0,
+                "trials": trials,
+                "rate": 0.0,
+                "ci95": [0.0, 0.3],
+            },
+            "is_finding": is_finding,
+            "stability": "probabilistic",
+            "decision_rule": "...",
+        },
+    }
+
+
+_NO_FINDING = _ai_scan_result(successes=0, trials=5, rate=0.0, ci95=(0.0, 0.43), is_finding=False)
+_CLEAR_FINDING = _ai_scan_result(successes=5, trials=5, rate=1.0, ci95=(0.57, 1.0), is_finding=True)
+
+
+@respx.mock
+def test_test_ai_passes_without_ci_regardless_of_a_regression(profile: Profile) -> None:
+    respx.get(f"{BASE_URL}/organizations/{ORG}/runs/{RUN}").mock(
+        return_value=httpx.Response(200, json=_run(RUN))
+    )
+    respx.get(f"{BASE_URL}/organizations/{ORG}/runs/{BASELINE_RUN}/results").mock(
+        return_value=httpx.Response(200, json=[_NO_FINDING])
+    )
+    respx.get(f"{BASE_URL}/organizations/{ORG}/runs/{RUN}/results").mock(
+        return_value=httpx.Response(200, json=[_CLEAR_FINDING])
+    )
+
+    code = cli.main(
+        ["test", "ai", "--current", RUN, "--baseline", BASELINE_RUN]
+    )
+
+    assert code == int(ExitCode.PASS)
+
+
+@respx.mock
+def test_test_ai_fails_under_ci_on_a_regression(
+    profile: Profile, capsys: pytest.CaptureFixture[str]
+) -> None:
+    respx.get(f"{BASE_URL}/organizations/{ORG}/runs/{RUN}").mock(
+        return_value=httpx.Response(200, json=_run(RUN))
+    )
+    respx.get(f"{BASE_URL}/organizations/{ORG}/runs/{BASELINE_RUN}/results").mock(
+        return_value=httpx.Response(200, json=[_NO_FINDING])
+    )
+    respx.get(f"{BASE_URL}/organizations/{ORG}/runs/{RUN}/results").mock(
+        return_value=httpx.Response(200, json=[_CLEAR_FINDING])
+    )
+
+    code = cli.main(["test", "ai", "--current", RUN, "--baseline", BASELINE_RUN, "--ci"])
+
+    assert code == int(ExitCode.GATE_FAILED)
+    printed = capsys.readouterr().out
+    assert "regressed" in printed
+
+
+@respx.mock
+def test_test_ai_passes_under_ci_with_no_regression(profile: Profile) -> None:
+    respx.get(f"{BASE_URL}/organizations/{ORG}/runs/{RUN}").mock(
+        return_value=httpx.Response(200, json=_run(RUN))
+    )
+    respx.get(f"{BASE_URL}/organizations/{ORG}/runs/{BASELINE_RUN}/results").mock(
+        return_value=httpx.Response(200, json=[_CLEAR_FINDING])
+    )
+    respx.get(f"{BASE_URL}/organizations/{ORG}/runs/{RUN}/results").mock(
+        return_value=httpx.Response(200, json=[_CLEAR_FINDING])
+    )
+
+    code = cli.main(["test", "ai", "--current", RUN, "--baseline", BASELINE_RUN, "--ci"])
+
+    assert code == int(ExitCode.PASS)
+
+
+@respx.mock
+def test_test_ai_defaults_the_baseline_to_the_most_recent_prior_completed_run(
+    profile: Profile,
+) -> None:
+    older_run = "55555555-5555-5555-5555-555555555555"
+    respx.get(f"{BASE_URL}/organizations/{ORG}/runs/{RUN}").mock(
+        return_value=httpx.Response(200, json=_run(RUN, created_at="2026-01-03T00:00:00Z"))
+    )
+    respx.get(f"{BASE_URL}/organizations/{ORG}/runs").mock(
+        return_value=httpx.Response(
+            200,
+            json=[
+                _run(RUN, created_at="2026-01-03T00:00:00Z"),
+                _run(BASELINE_RUN, created_at="2026-01-02T00:00:00Z"),
+                _run(older_run, created_at="2026-01-01T00:00:00Z"),
+                # A different target's run must never be picked as this
+                # target's baseline.
+                _run("66666666-6666-6666-6666-666666666666", target_id="other-target"),
+            ],
+        )
+    )
+    results_route = respx.get(f"{BASE_URL}/organizations/{ORG}/runs/{BASELINE_RUN}/results").mock(
+        return_value=httpx.Response(200, json=[_NO_FINDING])
+    )
+    respx.get(f"{BASE_URL}/organizations/{ORG}/runs/{RUN}/results").mock(
+        return_value=httpx.Response(200, json=[_NO_FINDING])
+    )
+
+    code = cli.main(["test", "ai", "--current", RUN])
+
+    assert code == int(ExitCode.PASS)
+    assert results_route.called
+
+
+@respx.mock
+def test_test_ai_with_no_prior_run_is_a_configuration_error(profile: Profile) -> None:
+    respx.get(f"{BASE_URL}/organizations/{ORG}/runs/{RUN}").mock(
+        return_value=httpx.Response(200, json=_run(RUN))
+    )
+    respx.get(f"{BASE_URL}/organizations/{ORG}/runs").mock(
+        return_value=httpx.Response(200, json=[])
+    )
+
+    code = cli.main(["test", "ai", "--current", RUN])
+
+    assert code == int(ExitCode.CONFIG_ERROR)
+
+
+def test_test_ai_requires_a_target_when_no_current_run_is_given(profile: Profile) -> None:
+    assert cli.main(["test", "ai"]) == int(ExitCode.CONFIG_ERROR)
+
+
+@respx.mock
+def test_test_ai_rejects_a_current_run_that_is_not_completed(profile: Profile) -> None:
+    respx.get(f"{BASE_URL}/organizations/{ORG}/runs/{RUN}").mock(
+        return_value=httpx.Response(200, json=_run(RUN, status="running"))
+    )
+
+    assert cli.main(["test", "ai", "--current", RUN]) == int(ExitCode.CONFIG_ERROR)
+
+
+@respx.mock
+def test_test_ai_report_flag_writes_json(profile: Profile, tmp_path: pathlib.Path) -> None:
+    respx.get(f"{BASE_URL}/organizations/{ORG}/runs/{RUN}").mock(
+        return_value=httpx.Response(200, json=_run(RUN))
+    )
+    respx.get(f"{BASE_URL}/organizations/{ORG}/runs/{BASELINE_RUN}/results").mock(
+        return_value=httpx.Response(200, json=[_NO_FINDING])
+    )
+    respx.get(f"{BASE_URL}/organizations/{ORG}/runs/{RUN}/results").mock(
+        return_value=httpx.Response(200, json=[_CLEAR_FINDING])
+    )
+    report_path = tmp_path / "regression.json"
+
+    cli.main(
+        [
+            "test",
+            "ai",
+            "--current",
+            RUN,
+            "--baseline",
+            BASELINE_RUN,
+            "--report",
+            str(report_path),
+        ]
+    )
+
+    payload = json.loads(report_path.read_text())
+    assert payload["regressed"] == 1
+    assert payload["baseline_run_id"] == BASELINE_RUN
+    assert payload["current_run_id"] == RUN

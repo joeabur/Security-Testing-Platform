@@ -5653,3 +5653,77 @@ lab app through the real adapter/transport). Two new acceptance tests in
 `test_findings_and_risk.py`, `test_plugins.py`,
 `test_authorization_matrix.py` — 483 tests) passes clean; no existing
 test needed a behavioural change.
+
+## `kervy-ai test ai [--ci]` regression command + cross-run statistical comparison
+
+`docs/competitive-gap-analysis.md` named two related gaps together: no
+regression CLI (`cmd_retest` re-runs *known findings*, it is not a
+baseline/regression comparator) and no cross-version/run statistical
+comparison (`RetestResult` is presence/absence by fingerprint, never an
+ASR delta or CI-vs-CI comparison). Both close with the same piece of work,
+since the command's whole job is running that comparison.
+
+**Delivered.**
+- `app/core/measure/regression.py` (new) — a pure, database-free module
+  that takes two runs' `ScanResultRead`-shaped payloads (exactly what
+  `GET .../runs/{id}/results` already returns) and matches them by
+  identity (fingerprint, falling back to `probe_id` + `endpoint` for
+  anything without one). For each matched AI-security probe with a
+  trial-based measurement, it reuses `app.core.measure.asr`'s own
+  Wilson-interval non-overlap rule a second time: `REGRESSED` only when
+  the current run's interval's lower bound exceeds the baseline's upper
+  bound (or a finding appears that the baseline never measured),
+  `IMPROVED` the mirror of that, `UNCHANGED` when the intervals still
+  overlap. Probes that ran in only one of the two runs and were never a
+  finding are reported as `NEW_PROBE`/`REMOVED_PROBE` — coverage changing,
+  not a regression.
+- `kervy-ai test ai` (new CLI command, `kervy_cli/main.py`): `--target`
+  (starts a new `profile=ai` scan and awaits it, the same way `ci` does)
+  or `--current` (reuse an existing completed run); `--baseline` (defaults
+  to the most recent other completed run for the same target — a
+  configuration error if none exists yet, the same fail-closed direction
+  `measure()` itself takes for a zero-trial control); `--ci` (turn the
+  comparison into a build gate — exit 1 if anything regressed); `--report`
+  (write the full per-probe comparison as `.json`/`.md`, mirroring `gate`'s
+  own `--report` convention).
+- `docs/cicd.md` gets a new "Catching an AI regression between versions"
+  section distinguishing this from `gate`/`ci`: those ask whether a single
+  run's findings are bad enough to fail a build; this asks whether a
+  *change* made the model easier to attack than it was last run.
+
+**Decisions.**
+- Built entirely from the existing `GET .../runs/{id}/results` endpoint —
+  no new API route, no new database table. The CLI's own structural test
+  (`test_the_cli_cannot_reach_the_scope_engine_or_a_probe`) already pins
+  down that the CLI reaches a target only through calls the API already
+  exposes; this stays inside that constraint rather than widening it.
+  `app.core.measure.regression` was added to that test's import allowlist
+  for the same reason the gate already is: pure statistics over what the
+  API returned, no network, no scope engine.
+- Matches `fingerprint` first, `probe_id` + `endpoint` second — the same
+  fallback the findings service's own reasoning uses for anything without
+  a stable fingerprint. Two runs of the same probe against the same
+  surface are "the same measurement" whether or not the engine happened to
+  compute a fingerprint for either run.
+- Results without a `measurement` (the permission-graph inventory, the
+  "judge disabled" coverage marker) are excluded rather than treated as a
+  zero-trial baseline, which would have misreported their appearing or
+  disappearing between runs as a rate change that never happened.
+- `--ci` is a flag on `test ai`, not a separate subcommand: without it the
+  command only reports, which is the shape to use the first time it runs
+  against a target (there is no baseline yet) or when a team wants the
+  comparison visible without yet gating on it.
+
+**Verified.** `ruff check .` / `mypy app` clean. New `tests/test_regression.py`
+(11 tests) exercises the comparator directly: an unchanged rate, a
+significant rise, a significant fall, a brand-new finding, a new probe that
+found nothing, a resolved finding, a dropped probe that was never a
+finding, excluded design-review/non-AI results, and fingerprint-less
+fallback matching. 8 new tests in `tests/test_cli.py` cover the command
+end to end against a mocked API: passes without `--ci` despite a
+regression, fails under `--ci` on one, passes under `--ci` with none,
+defaults the baseline correctly (including never picking another target's
+run), the configuration-error paths (no target and no `--current`; no
+prior run to compare against; a non-completed `--current` run), and the
+`--report` flag. Full `tests/test_cli.py` + `tests/test_regression.py`
+(70 tests) passes clean.

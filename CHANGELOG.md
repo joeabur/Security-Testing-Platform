@@ -169,6 +169,23 @@ All notable changes to this project are recorded here. The format follows
 
 ### Added
 
+- **`kervy-ai test ai [--ci]`: a developer-loop regression check comparing
+  AI probe attack success rates across runs.** `docs/competitive-gap-
+  analysis.md` named two related gaps: no regression CLI (`cmd_retest`
+  re-runs known findings, it is not a baseline comparator) and no
+  cross-run statistical comparison (`RetestResult` was presence/absence by
+  fingerprint, never an ASR delta or CI-vs-CI comparison). New
+  `app/core/measure/regression.py` reuses the AI engine's own
+  Wilson-interval non-overlap rule a second time — baseline-vs-current
+  instead of attack-vs-control — so a few points of noise in a stochastic
+  model's rate is never reported as a regression; only non-overlapping
+  intervals are. New `kervy-ai test ai` command: `--target`/`--current`
+  pick the run to check, `--baseline` defaults to the most recent other
+  completed run for the same target, `--ci` turns the comparison into a
+  build gate, `--report` writes the full per-probe comparison. Built
+  entirely on the existing `GET .../runs/{id}/results` endpoint — no new
+  API route or table. See `docs/cicd.md`'s new "Catching an AI regression
+  between versions" section.
 - **RAG security + agent security probe families: indirect document
   injection and agent goal hijacking.** `docs/competitive-gap-analysis.md`
   named these as the single largest remaining AI-breadth gap, across seven
