@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -36,3 +37,21 @@ class MembershipRead(BaseModel):
     email: str
     full_name: str
     role: Role
+
+
+class InvitationRead(BaseModel):
+    """A pending invitation — no `Membership` exists yet, which is why this
+    is a distinct shape from `MembershipRead` rather than one with a null
+    `user_id`: a caller should not have to infer "pending" from an absence."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    email: str
+    role: Role
+    expires_at: datetime
+    created_at: datetime
+
+
+class InvitationAccept(BaseModel):
+    token: str

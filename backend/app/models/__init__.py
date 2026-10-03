@@ -30,6 +30,7 @@ from app.models.integration import (
     NotificationChannel,
     NotificationDelivery,
 )
+from app.models.invitation import OrganizationInvitation
 from app.models.oauth import OAuthIdentity, OAuthProvider
 from app.models.organization import Membership, Organization, Role
 from app.models.password_reset import PasswordResetToken
@@ -61,6 +62,7 @@ __all__ = [
     "DeliveryStatus",
     "NotificationChannel",
     "NotificationDelivery",
+    "OrganizationInvitation",
     "OAuthIdentity",
     "OAuthProvider",
     "PasswordResetToken",

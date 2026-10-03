@@ -210,6 +210,14 @@ All notable changes to this project are recorded here. The format follows
   back as `NotificationDelivery.external_reference`. See
   `docs/integrations.md`'s "Ticketing channels" section and
   `docs/roadmap.md`'s external-ticketing write-up.
+- **Email invitations for a teammate who hasn't registered yet.**
+  `invite_member` previously 404ed on an unregistered email; it now creates
+  a pending `OrganizationInvitation` (`app/models/invitation.py`) and emails
+  an accept link. New `POST /organizations/invitations/accept` (no
+  `{organization_id}` segment — the caller isn't a member yet) and `GET`/
+  `DELETE /organizations/{organization_id}/invitations` to list and revoke.
+  See `docs/roadmap.md`'s "Email invitations for not-yet-registered users"
+  write-up.
 - **MITRE ATT&CK (Enterprise) mapping for the pentest module's own findings.**
   `docs/frameworks.md` already pinned `mitre_atlas` (AI-specific), but the
   pentest module's engines test conventional infrastructure — exactly

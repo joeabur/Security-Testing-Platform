@@ -5023,6 +5023,60 @@ against an isolated database, run from a separate git worktree so as not
 to collide with the SIEM integration's own full-suite run already in
 flight on the shared `kervy_test` database.
 
+## Email invitations for not-yet-registered users
+
+### Context
+
+`invite_member` (`app/api/v1/routers/organizations.py`) already granted a
+`Membership` by email, but only when that email already belonged to a
+registered `User` — anyone else got a 404. Onboarding a new teammate who
+had never signed up meant asking them to register first and separately
+telling them which organization to join afterward, with no record linking
+the two steps.
+
+### Design
+
+`OrganizationInvitation` (`app/models/invitation.py`) mirrors
+`PasswordResetToken`'s shape (`mint_invitation_token()`/`digest_of()`,
+only the digest stored, never the token) but adds a second terminal state:
+`revoked_at` alongside `used_at`, since an admin can withdraw an unused
+invitation that a reset link has no equivalent for. `invite_member` now
+branches on whether the invitee is already registered: a known email gets
+the existing immediate `Membership`; an unknown one gets `_create_invitation`,
+which revokes any prior live invitation for the same `(organization_id,
+email)` pair, mints a token, emails an `accept-invitation?token=...` link
+(`app/core/invitation_email.py`, reusing the platform's fixed SMTP relay —
+the same `with suppress(InvitationEmailNotConfigured)` non-fatal pattern
+password reset already uses), and returns `InvitationRead` — deliberately
+shaped without a `user_id` field rather than a nullable one, so "pending,
+not yet a member" is never inferred from an absence.
+
+`POST /organizations/invitations/accept` takes no `{organization_id}` path
+segment — by definition the caller isn't a member yet, so no minimum role
+can be declared, and the authorization-matrix test that walks every
+`{organization_id}` route would otherwise force one. It looks up
+`OrganizationInvitation.token_digest` (RLS-protected, queried before the
+organization is known — the same pattern `resolve_api_key` already uses
+for `ApiKey.key_id`), validates `usable_at()` and a case-insensitive email
+match against the caller's own account, and returns the same generic `400`
+for both failures to avoid an enumeration oracle. Once the organization is
+known, `set_current_organization(invitation.organization_id)` is called
+before any further RLS-protected query in the handler. `GET`/`DELETE
+.../invitations` (`Role.ADMIN`) let an admin list pending invitations and
+revoke one before it's accepted.
+
+### Verified
+
+`ruff check`, `mypy app kervy_cli mcp_server` clean. Targeted:
+`test_invitations.py` (new, 9 tests — pending-invitation creation,
+revoke-on-reinvite, listing, admin revocation, acceptance granting the
+invited role, email-mismatch and unknown-token rejection, an admin unable
+to invite an `Owner`, and the invitation row surviving even when mail
+isn't configured), `test_organizations.py`, `test_password_reset.py`,
+`test_auth.py`, `tests/security/test_authorization_matrix.py` (updated
+with the two new `{organization_id}`-scoped routes). Full backend suite
+confirmed separately.
+
 ## Extending MITRE ATT&CK mapping to the domain, container, cloud and VM engines
 
 ### Context
