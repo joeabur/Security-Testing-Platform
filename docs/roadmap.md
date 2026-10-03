@@ -5517,3 +5517,65 @@ stability confirmed. Full regression
 `test_determinism_harness.py`, `test_authorization_matrix.py` plus the new
 file — 346 tests) passes clean; no existing test needed a behavioural
 change.
+
+## Browser-based DAST (Playwright)
+
+`docs/competitive-gap-analysis.md`'s "Remaining gaps" list named this
+first, ahead of the RAG/agent probe families and the (already-delivered)
+multi-turn engine, for the same reason the egress gateway itself was
+sequenced before it: "a browser engine would inherit the exact same
+socket-bypass problem if added before the containment mechanism exists."
+With `egress_proxy.py` landed, that ordering constraint was satisfied.
+
+**Delivered.** `app/core/dast/browser.py`: `BrowserCrawler`, an opt-in
+alternative to `crawl.py`'s regex-based `ScopedCrawler`
+(`DastTarget.use_browser`), driven by a real, headless Chromium through
+Playwright. Reads the rendered DOM after a page's own scripts have run, so
+a client-side-router-injected link is found — the one concrete case
+`docs/dast.md` named as the largest DAST gap. Returns the identical
+`CrawlResult` shape `ScopedCrawler` does, so `engine.crawl_findings()`
+reports a browser-driven crawl exactly as it reports the regex-driven one,
+with no new finding codes needed.
+
+**Decisions.**
+- Chromium is launched with its traffic pointed at the run's own
+  `EgressGateway` — the same containment Nuclei and ZAP already get, and
+  the specific ordering `docs/competitive-gap-analysis.md` called for.
+  `DastEngine._run_with_browser` opens the gateway once and shares its
+  `proxy_url` across the browser crawl and the subsequent nuclei/zap pass;
+  `_run_active_tools` was factored out of the existing non-browser path so
+  both share the identical "run the tools, or say why not" logic rather
+  than duplicating it.
+- "Authenticated browser session" support is scoped to exactly one thing,
+  stated plainly in both `browser.py`'s docstring and `docs/dast.md`:
+  `DastTarget.storage_state` carries an operator-supplied Playwright
+  storage state through every navigation. It does not drive a login form
+  itself — typing a password into a page this same run is simultaneously
+  attacking is a materially different trust decision, not attempted here.
+- New `browser` optional extra (`playwright>=1.47`), following the same
+  "optional at runtime, `tool_unavailable` if absent" pattern as `appsec`.
+  `ci.yml` and `release.yml` (which must match it, per that workflow's own
+  comment) both install it and run `playwright install --with-deps
+  chromium`.
+
+**Deferred, stated plainly.** Neither Nuclei nor ZAP drives a real browser
+itself — the browser-based crawl feeds them cleared URLs exactly as the
+regex crawler does, so a target whose *scanner-relevant* behaviour depends
+on JavaScript is still outside what either tool can see on its own. A
+second authentication mode (driving a login form automatically) is not
+built, by design — see the decision above.
+
+**Verified.** `ruff check`/`mypy` clean on `app/core/dast/browser.py` and
+the touched `engine.py`/`contract.py`. New `tests/test_dast_browser.py`
+(8 tests) runs against a real, pre-installed Chromium in this environment
+and a real local HTTP server — not a mock — proving a script-injected link
+is found by the browser crawl and, as a negative control, that the same
+raw response genuinely defeats the regex crawler (the literal string
+`/spa-only` never appears in the HTML `crawl.extract_links` sees). Also
+covers the pre-queue scope check applying to a JS-discovered link exactly
+as it does to one in raw HTML, and three fake-double wiring tests
+(`PlaywrightUnavailable` degrading to `not tested`, `use_browser`
+dispatch, `storage_state` forwarding) where a real browser would prove
+nothing a double does not already. Full DAST regression
+(`test_dast.py`, `test_dast_egress_proxy.py`, plus the new file — 72
+tests) passes clean; no existing test needed a behavioural change.

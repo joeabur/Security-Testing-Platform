@@ -16,7 +16,8 @@ because a reviewer wants to know they exist even when nothing touched them.
 
 from __future__ import annotations
 
-from app.core.appsec.contract import Pillar, tool_unavailable
+from app.core.appsec.contract import EngineMeta, Pillar, tool_unavailable
+from app.core.dast.browser import BrowserCrawler, PlaywrightUnavailable
 from app.core.dast.contract import CrawlOutcome, CrawlResult, DastTarget
 from app.core.dast.crawl import ScopedCrawler, refused_hosts, state_changing_forms
 from app.core.dast.egress_proxy import EgressGateway
@@ -28,6 +29,19 @@ from app.core.dast.zap import run_zap
 from app.core.probes.models import Category, Confidence, ScanResult, Severity
 from app.core.scope.context import RunContext
 from app.core.scope.transport import GatedTransport
+
+BROWSER_META = EngineMeta(
+    id="dast.browser",
+    version="1.0.0",
+    name="Browser-based crawl (Playwright)",
+    pillar=Pillar.DAST,
+    tool="playwright",
+    description=(
+        "Crawls a JS-rendered application with a real, headless browser instead "
+        "of a raw HTTP GET and a regex, so SPA client-side navigation is visible "
+        "to the crawl."
+    ),
+)
 
 ENGINE_ID = "dast.engine"
 ENGINE_VERSION = "1.0.0"
@@ -156,10 +170,16 @@ class DastEngine:
         self,
         *,
         crawler: ScopedCrawler | None = None,
+        browser_crawler: BrowserCrawler | None = None,
         transport: GatedTransport | None = None,
         run_tools: bool = True,
     ) -> None:
         self._crawler = crawler or ScopedCrawler(transport=transport)
+        # Constructed lazily with no arguments when `None` and needed — the
+        # production default launches a real Chromium via Playwright's own
+        # standard resolution, with no proxy decided until `run()` opens this
+        # run's own `EgressGateway`.
+        self._browser_crawler = browser_crawler
         # Off in tests that only exercise the crawl, so a worker without nuclei
         # or zap installed does not produce two "not tested" markers in every
         # unrelated assertion.
@@ -170,24 +190,67 @@ class DastEngine:
             allow_state_mutation=target.allow_state_mutation,
             allowed_methods=ctx.roe.allowed_methods,
         )
+
+        if target.use_browser:
+            return await self._run_with_browser(ctx, target, policy)
+
         result = await self._crawler.crawl(ctx, target)
         findings = crawl_findings(result, policy)
-
         if not self._run_tools:
             return findings
 
+        async with EgressGateway(ctx) as gateway:
+            findings.extend(
+                await self._run_active_tools(ctx, target, policy, result, gateway.proxy_url)
+            )
+        return findings
+
+    async def _run_with_browser(
+        self, ctx: RunContext, target: DastTarget, policy: ToolPolicy
+    ) -> list[ScanResult]:
+        # The browser engine opens its own sockets exactly like Nuclei and
+        # ZAP do, so it is never run outside this run's own scope-checking
+        # proxy either — `browser.py`'s module docstring is explicit that
+        # this is precisely the mistake the egress gateway exists to avoid
+        # repeating for a third tool.
+        async with EgressGateway(ctx) as gateway:
+            crawler = self._browser_crawler or BrowserCrawler()
+            try:
+                result = await crawler.crawl(ctx, target, proxy_url=gateway.proxy_url)
+            except PlaywrightUnavailable as exc:
+                return [
+                    tool_unavailable(BROWSER_META, str(exc)),
+                    tool_unavailable(
+                        NUCLEI_META, "the browser crawl did not run, so nuclei had no targets"
+                    ),
+                    tool_unavailable(ZAP_META, "the browser crawl did not run, so zap was not run"),
+                ]
+
+            findings = crawl_findings(result, policy)
+            if not self._run_tools:
+                return findings
+            findings.extend(
+                await self._run_active_tools(ctx, target, policy, result, gateway.proxy_url)
+            )
+        return findings
+
+    async def _run_active_tools(
+        self,
+        ctx: RunContext,
+        target: DastTarget,
+        policy: ToolPolicy,
+        result: CrawlResult,
+        proxy_url: str,
+    ) -> list[ScanResult]:
         if not result.pages:
             # Nothing was reachable, so the tools have nothing to test. Said
             # explicitly: two silent adapters would read as two clean scans.
-            findings.append(
+            return [
                 tool_unavailable(
                     NUCLEI_META, "the crawl reached no pages, so nuclei had no targets"
-                )
-            )
-            findings.append(
-                tool_unavailable(ZAP_META, "the crawl reached no pages, so zap was not run")
-            )
-            return findings
+                ),
+                tool_unavailable(ZAP_META, "the crawl reached no pages, so zap was not run"),
+            ]
 
         rate = max(1, int(ctx.roe.budgets.requests_per_second))
         # Nuclei and ZAP are subprocesses that open their own sockets, outside
@@ -197,16 +260,14 @@ class DastEngine:
         # time and tool invocation is still refused. docs/egress-security.md
         # has the full model, including what this gateway cannot see inside
         # an HTTPS tunnel.
-        async with EgressGateway(ctx) as gateway:
-            findings.extend(
-                await run_nuclei(list(result.urls), policy, rate=rate, proxy_url=gateway.proxy_url)
+        findings: list[ScanResult] = []
+        findings.extend(await run_nuclei(list(result.urls), policy, rate=rate, proxy_url=proxy_url))
+        findings.extend(
+            await run_zap(
+                target.seed_url,
+                policy,
+                allowed_domains=ctx.roe.allowed_domains,
+                proxy_url=proxy_url,
             )
-            findings.extend(
-                await run_zap(
-                    target.seed_url,
-                    policy,
-                    allowed_domains=ctx.roe.allowed_domains,
-                    proxy_url=gateway.proxy_url,
-                )
-            )
+        )
         return findings

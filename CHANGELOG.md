@@ -169,6 +169,23 @@ All notable changes to this project are recorded here. The format follows
 
 ### Added
 
+- **Browser-based DAST: a Playwright-driven crawler that sees SPA
+  client-side navigation.** `docs/dast.md` named this as the largest DAST
+  gap; new `app/core/dast/browser.py`'s `BrowserCrawler` is an opt-in
+  alternative to the regex-based crawler (`DastTarget.use_browser`) that
+  reads the rendered DOM after a real, headless Chromium has run a page's
+  own scripts — a link a client-side router injects after load is found
+  the same way a real visitor's browser would find it. Inherits
+  containment the same way Nuclei and ZAP already do: Chromium's traffic is
+  pointed at the run's own `EgressGateway`, correctly sequenced only after
+  that gateway existed (`docs/competitive-gap-analysis.md`). Returns the
+  same `CrawlResult` shape the regex crawler does, so no new finding codes
+  were needed. "Authenticated browser session" support is scoped to one
+  thing, stated plainly: `DastTarget.storage_state` carries an
+  operator-supplied session through every navigation; it does not drive a
+  login form itself. New optional `browser` extra (`playwright>=1.47`),
+  following the same graceful-degradation pattern as `appsec`. See
+  `docs/dast.md`.
 - **A multi-turn attack orchestration engine, and the first probe built on
   it: jailbreak instruction chaining.** Every AI probe before this was
   single-shot (`driver.py` calls `ask(prompt)` once per trial); new
