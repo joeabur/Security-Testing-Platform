@@ -259,6 +259,42 @@ that generates its own target URLs:
 kervy-ai scope explain "$TARGET_ID" --url "https://$HOST/api/health"   # exits 4 if refused
 ```
 
+## Catching an AI regression between versions
+
+`kervy-ai gate`/`ci` answer "does this run have findings bad enough to fail
+the build" — a single run's absolute severity. They do not answer "did this
+*change* make the model easier to attack than it was last time", because a
+`RetestResult` is presence/absence by fingerprint, not a rate. `kervy-ai test
+ai` is the developer-loop command for that second question: it compares the
+AI probes' attack success rates between two runs of the same target, using
+the same Wilson-interval non-overlap rule the AI engine itself uses for
+attack-vs-control (`docs/ai-security-testing.md`), applied a second time to
+baseline-vs-current. A few points of difference in a stochastic model's rate
+is not reported as a regression; the two runs' 95% confidence intervals have
+to stop overlapping before it is.
+
+```bash
+# Scans the target, compares the result against the most recent prior
+# completed run for the same target, and fails the build on a regression.
+kervy-ai test ai --target "$TARGET_ID" --ci
+```
+
+```bash
+# Compare two runs that already exist (e.g. a scheduled nightly run against
+# last week's), without starting a new scan.
+kervy-ai test ai --current "$THIS_WEEK_RUN_ID" --baseline "$LAST_WEEK_RUN_ID" --ci
+```
+
+Without `--current`, it starts a new `profile=ai` scan and waits for it the
+same way `ci` does. Without `--baseline`, it picks the most recent other
+completed run for the same target — if none exists yet (the first time this
+runs against a target), it exits 2 rather than silently treating "no
+baseline" as "no regression possible." `--ci` is what turns the comparison
+into a build gate; without it, the command only reports, which is the shape
+to use while first establishing a baseline. `--report report.json` (or
+`.md`) writes the full per-probe comparison, including probes that newly
+appeared, were resolved, or were unchanged — not only the regressions.
+
 ## This repository's own workflows
 
 | Workflow | What it does |

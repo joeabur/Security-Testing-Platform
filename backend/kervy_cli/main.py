@@ -22,6 +22,7 @@ from typing import Any
 from app.core.gate.evaluate import evaluate, load_config
 from app.core.gate.model import ExitCode, GateConfigError, GateDecision, GateFinding
 from app.core.gate.report import build_report
+from app.core.measure.regression import RegressionReport, Verdict, compare_runs
 from kervy_cli.client import ApiClient, CliError
 from kervy_cli.config import Profile
 
@@ -819,6 +820,76 @@ def cmd_ci(args: argparse.Namespace, profile: Profile) -> ExitCode:
     return decision.exit_code
 
 
+def cmd_test_ai(args: argparse.Namespace, profile: Profile) -> ExitCode:
+    """The developer-loop regression check `docs/competitive-gap-analysis.md`
+    named as not present: compare this run's AI probe attack success rates
+    against a baseline run's, rather than only checking whether a known
+    finding's fingerprint still exists. `--ci` is what turns the comparison
+    into something that can fail a build; without it this only reports."""
+    org = _org(args, profile)
+    client = _client(profile)
+
+    if args.current:
+        current_run = dict(client.request("GET", f"/organizations/{org}/runs/{args.current}"))
+        if str(current_run.get("status")) != "completed":
+            raise CliError(
+                f"--current run {args.current} is not completed "
+                f"(status: {current_run.get('status')})",
+                ExitCode.CONFIG_ERROR,
+            )
+    else:
+        if not args.target:
+            raise CliError(
+                "--target is required unless --current names an existing completed run",
+                ExitCode.CONFIG_ERROR,
+            )
+        run = client.request(
+            "POST",
+            f"/organizations/{org}/runs",
+            json_body={
+                "target_id": args.target,
+                "authorization_confirmed": True,
+                "profile": "ai",
+                "safe_mode": not args.unsafe,
+            },
+        )
+        current_run = _await_run(client, org, str(run["id"]), args.timeout)
+        if current_run.get("halted_reason"):
+            print(
+                f"run {current_run['id']} halted: {current_run['halted_reason']}",
+                file=sys.stderr,
+            )
+            return ExitCode.SCOPE_VIOLATION
+
+    baseline_id = args.baseline or _previous_completed_run(
+        client, org, str(current_run["target_id"]), str(current_run["id"])
+    )
+    if baseline_id is None:
+        raise CliError(
+            "no prior completed run exists for this target to compare against; pass "
+            "--baseline explicitly, or run a scan once first to establish one",
+            ExitCode.CONFIG_ERROR,
+        )
+
+    baseline_results = client.request("GET", f"/organizations/{org}/runs/{baseline_id}/results")
+    current_results = client.request(
+        "GET", f"/organizations/{org}/runs/{current_run['id']}/results"
+    )
+    report = compare_runs(
+        list(baseline_results),
+        list(current_results),
+        baseline_run_id=baseline_id,
+        current_run_id=str(current_run["id"]),
+    )
+    _print_regression_report(report)
+    if args.report:
+        _write_regression_report(report, args.report)
+
+    if args.ci and report.regressions:
+        return ExitCode.GATE_FAILED
+    return ExitCode.PASS
+
+
 # --- helpers --------------------------------------------------------------
 
 
@@ -886,6 +957,67 @@ def _write_report(decision: GateDecision, path: str) -> None:
             f"--report must end in .json or .md, got {path!r}", ExitCode.CONFIG_ERROR
         )
     print(f"quality-gate report written to {path}")
+
+
+def _previous_completed_run(
+    client: ApiClient, org: str, target_id: str, exclude_run_id: str
+) -> str | None:
+    """The most recent completed run for this target other than the one
+    just compared against — the default baseline when `--baseline` is not
+    given. Org-wide `GET /runs` has no target filter, so this filters
+    client-side rather than adding one just for this command."""
+    runs = client.request("GET", f"/organizations/{org}/runs")
+    candidates = [
+        run
+        for run in runs
+        if str(run.get("target_id")) == target_id
+        and run.get("status") == "completed"
+        and str(run.get("id")) != exclude_run_id
+    ]
+    if not candidates:
+        return None
+    candidates.sort(key=lambda run: str(run.get("created_at") or ""), reverse=True)
+    return str(candidates[0]["id"])
+
+
+def _print_regression_report(report: RegressionReport) -> None:
+    print(f"AI regression check: baseline={report.baseline_run_id} current={report.current_run_id}")
+    print(
+        f"  compared={len(report.comparisons)} regressed={len(report.regressions)} "
+        f"improved={len(report.improvements)}"
+    )
+    for comparison in report.comparisons:
+        if comparison.verdict in (Verdict.UNCHANGED, Verdict.NEW_PROBE, Verdict.REMOVED_PROBE):
+            continue
+        marker = "!" if comparison.verdict is Verdict.REGRESSED else "+"
+        print(f"  {marker} [{comparison.verdict.value}] {comparison.title}: {comparison.detail}")
+
+
+def _write_regression_report(report: RegressionReport, path: str) -> None:
+    destination = Path(path)
+    suffix = destination.suffix.lower()
+    if suffix == ".json":
+        destination.write_text(json.dumps(report.as_dict(), indent=2) + "\n")
+    elif suffix == ".md":
+        lines = [
+            "# AI regression check",
+            "",
+            f"Baseline run: `{report.baseline_run_id}`  \nCurrent run: `{report.current_run_id}`",
+            "",
+            f"Compared: {len(report.comparisons)}  Regressed: {len(report.regressions)}  "
+            f"Improved: {len(report.improvements)}",
+            "",
+        ]
+        for comparison in report.comparisons:
+            lines.append(
+                f"- **[{comparison.verdict.value}]** {comparison.title}: {comparison.detail}"
+            )
+        destination.write_text("\n".join(lines) + "\n")
+    else:
+        raise CliError(
+            f"--report must end in .json or .md, got {path!r}", ExitCode.CONFIG_ERROR
+        )
+    print(f"regression report written to {path}")
 
 
 # --- argument parsing -----------------------------------------------------
@@ -1262,6 +1394,31 @@ def _parser() -> argparse.ArgumentParser:
         "--report", help="write the quality-gate report here; .json or .md by extension"
     )
     ci.set_defaults(handler=cmd_ci)
+
+    test = subparsers.add_parser("test", help="regression checks").add_subparsers(dest="action")
+    test_ai = test.add_parser(
+        "ai", help="compare AI probe attack success rates against a baseline run"
+    )
+    test_ai.add_argument("--target", help="required unless --current names an existing run")
+    test_ai.add_argument(
+        "--current",
+        help="an existing completed run id to use as 'current'; otherwise a new "
+        "ai-profile scan is started and awaited",
+    )
+    test_ai.add_argument(
+        "--baseline",
+        help="the run id to compare against; defaults to the most recent prior "
+        "completed run for the same target",
+    )
+    test_ai.add_argument("--unsafe", action="store_true")
+    test_ai.add_argument("--timeout", type=float, default=1800.0)
+    test_ai.add_argument(
+        "--ci", action="store_true", help="exit non-zero if any probe regressed"
+    )
+    test_ai.add_argument(
+        "--report", help="write the regression report here; .json or .md by extension"
+    )
+    test_ai.set_defaults(handler=cmd_test_ai)
 
     return parser
 
