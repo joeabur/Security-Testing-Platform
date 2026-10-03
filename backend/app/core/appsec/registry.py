@@ -7,6 +7,7 @@ not deliberately listed here does not run.
 from app.core.appsec.container.trivy_engine import ContainerScanEngine
 from app.core.appsec.contract import AppSecEngine
 from app.core.appsec.iac.checkov_engine import CheckovEngine
+from app.core.appsec.osv.engine import OsvEngine
 from app.core.appsec.sast.bandit_engine import BanditEngine
 from app.core.appsec.sast.semgrep_engine import SemgrepEngine
 from app.core.appsec.sca.pip_audit_engine import PipAuditEngine
@@ -23,6 +24,11 @@ def appsec_engines(*, allow_advisory_lookup: bool = False) -> list[AppSecEngine]
         SemgrepEngine(),
         BanditEngine(),
         PipAuditEngine(allow_advisory_lookup=allow_advisory_lookup),
+        # Same disclosure consent pip-audit's own lookup requires, since this
+        # also sends the resolved dependency list to a third party — but the
+        # party is osv.dev itself, called directly, rather than delegated to
+        # a subprocess's own embedded advisory matching.
+        OsvEngine(allow_advisory_lookup=allow_advisory_lookup),
         SecretScanEngine(),
         # Two secrets engines on purpose: the one above reads the working tree,
         # this one reads the git history. A credential removed in a later commit

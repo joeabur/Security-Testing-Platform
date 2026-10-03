@@ -5727,3 +5727,95 @@ run), the configuration-error paths (no target and no `--current`; no
 prior run to compare against; a non-completed `--current` run), and the
 `--report` flag. Full `tests/test_cli.py` + `tests/test_regression.py`
 (70 tests) passes clean.
+
+## Direct OSV.dev integration (npm)
+
+`docs/competitive-gap-analysis.md` named this gap precisely: SCA was fully
+delegated to `pip-audit`/Trivy/Checkov's own embedded advisory data, with
+zero direct calls to `osv.dev`, `nvd.nist.gov` or GHSA's API anywhere in
+the codebase. `docs/BUILD_SPEC.md`'s own Phase 14 table independently names
+`OSV-Scanner` as part of the intended SCA tool set, and it was never built.
+
+**Delivered.**
+- `app/core/appsec/osv/` (new): `npm_lockfile.py` parses an npm
+  `package-lock.json` (both the `lockfileVersion` 2/3 flat `packages` map
+  and the older recursive `dependencies` tree) into deduplicated
+  `(name, version)` pairs; `client.py`'s `OsvClient` calls `osv.dev`'s
+  `POST /v1/querybatch` (chunked, bounded) and `GET /v1/vulns/{id}`
+  (bounded to `MAX_DETAIL_LOOKUPS`) directly; `egress.py`'s
+  `osv_egress_context()` is the same fixed-host, no-parameter-widens-it
+  pattern `assistant/egress.py` and `vcs/egress.py` already establish, this
+  time with a literal host rather than one derived from configuration,
+  since `osv.dev` is infrastructure the platform itself chose to call, not
+  something an operator configures per target; `engine.py`'s `OsvEngine`
+  registers under `Pillar.SCA` in `registry.py`, behind the same
+  `allow_advisory_lookup` disclosure-consent gate `pip_audit_engine`
+  already requires.
+- Closes real coverage, not a duplicate: Node/npm dependencies previously
+  had zero SCA coverage of any kind (Python is the only language
+  `pip-audit` covers). This is genuinely new breadth, not a second source
+  for what `pip-audit` already checks.
+
+**Decisions.**
+- **Why not wrap the `osv-scanner` binary** (which `docs/BUILD_SPEC.md`
+  itself suggests, and which would have been far less code). `pip-audit`,
+  Trivy and Checkov are exactly the shape the gap analysis critiques: a
+  third-party tool making its own, unobserved call to an advisory
+  database. Wrapping `osv-scanner` as a fourth subprocess would be that
+  same architecture with OSV's name on the binary, not a *direct*
+  integration. Parsing the lockfile and calling `osv.dev` from this
+  codebase's own `GatedTransport` is what actually closes the gap as
+  named — and it is strictly more constrained than every existing SCA/
+  container engine's own network reach, whose declared-service network use
+  (`NetworkUse.DECLARED_SERVICE`) is consent, not an enforced gate, because
+  a subprocess's own sockets are outside what a Python-level check can
+  intercept. This client's calls go through the real `ScopeEngine`, proven
+  in `tests/test_osv_engine.py` by a test that mocks only `httpx`, not the
+  transport, and a companion test that proves the same context refuses
+  every other host.
+- **Why npm only, this pass.** The only existing SCA coverage is Python.
+  Closing that one real "zero coverage" gap earns the client; adding Go,
+  Rust, Java and OSV's other ecosystems is parsing a different lockfile
+  format into the same `PackageQuery` shape, not new client work, and is
+  left for a later increment rather than attempted speculatively.
+- **Why not NVD or GHSA's own API too, stated rather than approximated.**
+  NVD's API is keyed by CVE id, not by package-and-version, so it cannot
+  discover which CVEs apply to a lockfile the way OSV's batch endpoint
+  does, and needs an API key for usable rate limits — useful only for
+  enriching a CVE a finding already names, a separate, smaller feature not
+  attempted here. GHSA's REST/GraphQL API needs a GitHub token; for npm
+  specifically, `osv.dev` already re-serves exactly GHSA's own advisories
+  as the npm ecosystem's native identifier scheme, unauthenticated — so
+  this one client already gets GHSA's npm coverage without a second,
+  authenticated one.
+- Severity is read from the advisory's own `database_specific.severity`
+  where OSV's GHSA-sourced record states one, never computed from a CVSS
+  vector — the same "do not manufacture a CVSS vector" rule
+  `app.core.appsec.contract` already states for other engines, applied to
+  a severity word derived from one too. Falls back to the same
+  fix-availability heuristic `pip_audit_engine` already uses when no
+  stated severity is present.
+
+**Deferred, stated plainly.** NVD and GHSA direct clients, and non-npm
+ecosystems (Go, Rust, Java, …) — see the decisions above for why each is
+not attempted this pass rather than approximated.
+
+**Verified.** `ruff check .` / `mypy app` clean. New `tests/
+test_osv_npm_lockfile.py` (10 tests) covers both lockfile shapes, scoped
+packages, nested version-conflict install paths, missing-version and
+malformed-file handling. New `tests/test_osv_client.py` (7 tests) covers
+batch chunking, mapping a batch result back to its own query, bounded
+detail lookups, and HTTP/JSON error handling, all against a `FakeTransport`
+mirroring the one `tests/test_vcs.py` already uses. New `tests/
+test_osv_engine.py` (11 tests) covers lockfile discovery, the
+disclosure-off informational result, normalization (a matched
+vulnerability becomes a finding with the right severity/fixed-version/
+frameworks, an unverifiable id is dropped, a detail-lookup gap still
+reports the package), a failed query reported as a gap — and, the one
+that actually proves the containment claim, two tests against the real
+`ScopeEngine`/`GatedTransport` (not a stand-in): one with `httpx` mocked
+that shows the real path reaches `api.osv.dev`, and one with no mock at
+all that shows the same context refuses a different host outright. Full
+`tests/test_appsec_engines.py` + the three new OSV test files + `tests/
+security/test_scope_controls.py` (125 tests) passes clean; no existing
+test needed a behavioural change.
