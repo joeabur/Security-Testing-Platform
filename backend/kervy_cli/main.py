@@ -21,6 +21,7 @@ from typing import Any
 
 from app.core.gate.evaluate import evaluate, load_config
 from app.core.gate.model import ExitCode, GateConfigError, GateDecision, GateFinding
+from app.core.gate.report import build_report
 from kervy_cli.client import ApiClient, CliError
 from kervy_cli.config import Profile
 
@@ -746,6 +747,8 @@ def cmd_gate(args: argparse.Namespace, profile: Profile) -> ExitCode:
     payload = client.request("GET", f"/organizations/{org}/findings", params={"run_id": args.run})
     decision = evaluate([GateFinding.from_api(item) for item in payload], config)
     _print_decision(decision)
+    if args.report:
+        _write_report(decision, args.report)
     return decision.exit_code
 
 
@@ -786,6 +789,8 @@ def cmd_ci(args: argparse.Namespace, profile: Profile) -> ExitCode:
     payload = client.request("GET", f"/organizations/{org}/findings", params={"run_id": run["id"]})
     decision = evaluate([GateFinding.from_api(item) for item in payload], config)
     _print_decision(decision)
+    if args.report:
+        _write_report(decision, args.report)
     return decision.exit_code
 
 
@@ -836,6 +841,26 @@ def _print_decision(decision: GateDecision) -> None:
         print(f"not counted ({len(decision.excluded)}):")
         for item in decision.excluded:
             print(f"  - [{item.finding.severity.value}] {item.finding.title}: {item.reason}")
+
+
+def _write_report(decision: GateDecision, path: str) -> None:
+    """Package the same decision `_print_decision` just printed into a file.
+
+    `.json`/`.md` by extension; anything else is a configuration error rather
+    than a silent guess at what the caller wanted.
+    """
+    report = build_report(decision)
+    destination = Path(path)
+    suffix = destination.suffix.lower()
+    if suffix == ".json":
+        destination.write_text(json.dumps(report.as_dict(), indent=2) + "\n")
+    elif suffix == ".md":
+        destination.write_text(report.to_markdown())
+    else:
+        raise CliError(
+            f"--report must end in .json or .md, got {path!r}", ExitCode.CONFIG_ERROR
+        )
+    print(f"quality-gate report written to {path}")
 
 
 # --- argument parsing -----------------------------------------------------
@@ -1177,6 +1202,9 @@ def _parser() -> argparse.ArgumentParser:
     gate = subparsers.add_parser("gate", help="apply a security gate to a finished run")
     gate.add_argument("--run", required=True)
     gate.add_argument("--config", help="security-gate.yaml; defaults apply if omitted")
+    gate.add_argument(
+        "--report", help="write the quality-gate report here; .json or .md by extension"
+    )
     gate.set_defaults(handler=cmd_gate)
 
     ci = subparsers.add_parser("ci", help="scan, wait, and gate in one step")
@@ -1186,6 +1214,9 @@ def _parser() -> argparse.ArgumentParser:
     ci.add_argument("--profile", default="full", choices=["ai", "api", "full", "connectivity"])
     ci.add_argument("--unsafe", action="store_true")
     ci.add_argument("--timeout", type=float, default=1800.0)
+    ci.add_argument(
+        "--report", help="write the quality-gate report here; .json or .md by extension"
+    )
     ci.set_defaults(handler=cmd_ci)
 
     return parser

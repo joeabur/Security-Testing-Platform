@@ -169,6 +169,16 @@ All notable changes to this project are recorded here. The format follows
 
 ### Added
 
+- **P0-P4 prioritization and a packaged quality-gate report.** New
+  `app/core/gate/priority.py` relabels the risk model's own severity bands
+  as `P0`-`P4`, the ticket-tracker vocabulary a remediation plan already
+  implies. New `app/core/gate/report.py::build_report` repackages a
+  `GateDecision` `evaluate()` already reached into a `QualityGateReport`
+  (priority-bucketed counts, blocking/excluded findings each carrying
+  their priority) with `to_markdown()`/`as_dict()` renderings — never a
+  second verdict, only the existing one made shareable. `kervy-ai gate`/
+  `ci` gain `--report <path>`, writing `.json` or `.md` by extension
+  alongside the existing stdout summary. See `docs/roadmap.md`'s write-up.
 - **MITRE ATT&CK mapping extended to the domain, container, cloud and VM
   engines.** The pentest module's own `mitre_attack` mapping covered only
   `app/core/pentest/engine.py`; the four earlier infrastructure engines
