@@ -227,6 +227,8 @@ EXPECTED_ROLES: dict[tuple[str, str], Role] = {
     ("POST", "/organizations/{organization_id}/findings/{finding_id}/duplicate"): Role.ANALYST,
     ("POST", "/organizations/{organization_id}/findings/{finding_id}/status"): Role.ANALYST,
     ("POST", "/organizations/{organization_id}/members"): Role.ADMIN,
+    ("GET", "/organizations/{organization_id}/invitations"): Role.ADMIN,
+    ("DELETE", "/organizations/{organization_id}/invitations/{invitation_id}"): Role.ADMIN,
     ("PATCH", "/organizations/{organization_id}/members/{member_id}"): Role.ADMIN,
     ("DELETE", "/organizations/{organization_id}/members/{member_id}"): Role.ADMIN,
     ("GET", "/organizations/{organization_id}/members/{member_id}/sessions"): Role.ADMIN,

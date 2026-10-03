@@ -663,6 +663,19 @@ def cmd_channels_add(args: argparse.Namespace, profile: Profile) -> ExitCode:
         payload["sentinel_stream_name"] = args.sentinel_stream_name
     if args.min_severity:
         payload["min_severity"] = args.min_severity
+    for field, value in (
+        ("jira_site", args.jira_site),
+        ("jira_email", args.jira_email),
+        ("jira_api_token_env_var", args.jira_api_token_env_var),
+        ("jira_project_key", args.jira_project_key),
+        ("jira_issue_type", args.jira_issue_type),
+        ("servicenow_instance", args.servicenow_instance),
+        ("servicenow_table", args.servicenow_table),
+        ("servicenow_username", args.servicenow_username),
+        ("servicenow_password_env_var", args.servicenow_password_env_var),
+    ):
+        if value:
+            payload[field] = value
     _emit(
         _client(profile).request(
             "POST", f"/organizations/{org}/notification-channels", json_body=payload
@@ -1101,6 +1114,8 @@ def _parser() -> argparse.ArgumentParser:
             "siem_splunk_hec",
             "siem_sentinel",
             "siem_generic_cef",
+            "ticket_jira",
+            "ticket_servicenow",
         ],
     )
     ch_add.add_argument(
@@ -1129,6 +1144,15 @@ def _parser() -> argparse.ArgumentParser:
         "--sentinel-stream-name", help="siem_sentinel: the custom table's stream name"
     )
     ch_add.add_argument("--min-severity")
+    ch_add.add_argument("--jira-site", help="the label before '.atlassian.net'")
+    ch_add.add_argument("--jira-email")
+    ch_add.add_argument("--jira-api-token-env-var")
+    ch_add.add_argument("--jira-project-key")
+    ch_add.add_argument("--jira-issue-type")
+    ch_add.add_argument("--servicenow-instance", help="the label before '.service-now.com'")
+    ch_add.add_argument("--servicenow-table")
+    ch_add.add_argument("--servicenow-username")
+    ch_add.add_argument("--servicenow-password-env-var")
     ch_add.set_defaults(handler=cmd_channels_add)
     ch_test = channels.add_parser("test")
     ch_test.add_argument("--channel", required=True)

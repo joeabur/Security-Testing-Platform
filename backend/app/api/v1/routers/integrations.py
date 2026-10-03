@@ -28,7 +28,9 @@ from app.core.integrations.contract import (
 )
 from app.core.integrations.dispatch import event_snapshot
 from app.core.integrations.policy import (
+    resolve_jira_destination,
     resolve_sentinel_destination,
+    resolve_servicenow_destination,
     resolve_smtp_host,
     resolve_webhook_destination,
 )
@@ -93,6 +95,12 @@ async def create_channel(
                 payload.sentinel_endpoint or "",
                 operator_hosts=settings.notify_allowed_webhook_hosts,
             )
+        elif payload.kind is ChannelKind.TICKET_JIRA:
+            destination = resolve_jira_destination(payload.jira_site or "")
+            redacted = destination.redacted
+        elif payload.kind is ChannelKind.TICKET_SERVICENOW:
+            destination = resolve_servicenow_destination(payload.servicenow_instance or "")
+            redacted = destination.redacted
         else:
             destination = resolve_webhook_destination(
                 payload.kind,
@@ -134,6 +142,15 @@ async def create_channel(
         smtp_password_env_var=payload.smtp_password_env_var,
         from_address=payload.from_address,
         recipients=list(payload.recipients),
+        jira_site=payload.jira_site,
+        jira_email=payload.jira_email,
+        jira_api_token_env_var=payload.jira_api_token_env_var,
+        jira_project_key=payload.jira_project_key,
+        jira_issue_type=payload.jira_issue_type,
+        servicenow_instance=payload.servicenow_instance,
+        servicenow_table=payload.servicenow_table,
+        servicenow_username=payload.servicenow_username,
+        servicenow_password_env_var=payload.servicenow_password_env_var,
         events=[event.value for event in payload.events],
         min_severity=payload.min_severity.value if payload.min_severity else None,
         enabled=payload.enabled,

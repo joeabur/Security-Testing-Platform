@@ -14,7 +14,11 @@ refused for a notification exactly as they are for a target. On top of that,
 generic webhook host must appear in an operator-set allowlist that lives in
 the environment, not in the database. An organization admin can therefore
 choose *which* Slack workspace to notify; they cannot choose to notify
-`169.254.169.254`.
+`169.254.169.254`. `TICKET_JIRA`/`TICKET_SERVICENOW` are pinned the same
+way, to `*.atlassian.net`/`*.service-now.com`; the admin-chosen site or
+instance *label* that builds the rest of the host is itself restricted to a
+DNS-label charset (`schemas/integration.py`), so it cannot smuggle a path
+separator or a second host into the URLs `send.py` builds from it.
 
 **Can a notification leak what the platform redacts?** Evidence bundles are
 redacted before they are written (§13); a notification must not be the hole
@@ -60,6 +64,12 @@ class ChannelKind(StrEnum):
     #: Chronicle, …). Shares `GENERIC_WEBHOOK`'s signing and host-allowlist
     #: rules; only the payload format differs.
     SIEM_GENERIC_CEF = "siem_generic_cef"
+    #: External ticketing. Unlike every kind above, a delivery here *creates*
+    #: a record in someone else's system rather than notifying about one —
+    #: see `send.py`'s `send_jira_ticket`/`send_servicenow_ticket` and
+    #: `DeliveryResult.external_reference`.
+    TICKET_JIRA = "ticket_jira"
+    TICKET_SERVICENOW = "ticket_servicenow"
 
 
 class EventType(StrEnum):
@@ -125,6 +135,13 @@ KIND_HOST_POLICY: Mapping[ChannelKind, tuple[str, ...]] = {
     # data-collection-endpoint-overview.
     ChannelKind.SIEM_SENTINEL: ("*.ingest.monitor.azure.com",),
     ChannelKind.SIEM_GENERIC_CEF: (),
+    #: Jira *Cloud* only (the task this kind exists for): every Cloud site
+    #: lives under this one domain, so a site label is the only thing a
+    #: channel configures — see `policy.resolve_jira_destination`.
+    ChannelKind.TICKET_JIRA: ("*.atlassian.net",),
+    #: Likewise every ServiceNow instance, Cloud or dedicated, is reached
+    #: through this domain.
+    ChannelKind.TICKET_SERVICENOW: ("*.service-now.com",),
 }
 
 
@@ -210,6 +227,13 @@ class DeliveryResult:
     #: API, so it must never carry a token or a response body.
     detail: str = ""
     retryable: bool = False
+    #: The ticket a `TICKET_*` adapter's creation call returned — Jira's
+    #: issue key (`SEC-123`) or ServiceNow's record number (`INC0012345`).
+    #: `None` for every other kind, and for a ticket delivery that was never
+    #: attempted or never reached 2xx. This is what a notification's
+    #: `detail` deliberately is not: an identifier, not prose, so a caller
+    #: can link to the created record without parsing a sentence.
+    external_reference: str | None = None
 
 
 def host_permitted(host: str, patterns: Sequence[str]) -> bool:

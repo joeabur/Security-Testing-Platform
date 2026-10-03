@@ -184,6 +184,70 @@ def resolve_sentinel_destination(
     )
 
 
+#: Atlassian Cloud site labels and ServiceNow instance names are both DNS
+#: labels: lowercase letters, digits and hyphens, chosen by the admin
+#: creating the channel. They are never a full URL — `resolve_jira_destination`
+#: and `resolve_servicenow_destination` build the host from this label
+#: themselves — but a value outside this charset is still refused here rather
+#: than trusted to `schemas/integration.py`'s pattern alone: two independent
+#: checks on the one value that becomes part of a request URL, the same
+#: belt-and-braces `send.py` applies again with `urllib.parse.quote` at the
+#: point of use.
+_SITE_LABEL_OK = frozenset("abcdefghijklmnopqrstuvwxyz0123456789-")
+
+
+def valid_site_label(label: str) -> bool:
+    candidate = label.lower()
+    return bool(candidate) and len(candidate) <= 63 and all(c in _SITE_LABEL_OK for c in candidate)
+
+
+def resolve_jira_destination(site: str, *, operator_hosts: Sequence[str] = ()) -> Destination:
+    """Check a Jira Cloud site label against policy and build its base URL.
+
+    `site` is the label before `.atlassian.net`, e.g. `"mycompany"` for
+    `https://mycompany.atlassian.net`. `send.py` appends `/rest/api/3/issue`
+    to the returned `Destination.url`.
+    """
+    if not valid_site_label(site):
+        raise IntegrationError(
+            f"{site!r} is not a valid Jira site label; use the part before "
+            "'.atlassian.net', e.g. 'mycompany'"
+        )
+    host = f"{site}.atlassian.net"
+    permitted = _allowlist(ChannelKind.TICKET_JIRA, operator_hosts)
+    if not host_permitted(host, permitted):
+        raise IntegrationError(
+            f"host {host!r} is not permitted for a Jira channel. Permitted: "
+            + (", ".join(permitted) if permitted else "none configured")
+        )
+    url = f"https://{host}"
+    return Destination(kind=ChannelKind.TICKET_JIRA, host=host, url=url, redacted=url)
+
+
+def resolve_servicenow_destination(
+    instance: str, *, operator_hosts: Sequence[str] = ()
+) -> Destination:
+    """Check a ServiceNow instance name against policy and build its base URL.
+
+    `instance` is the label before `.service-now.com`. `send.py` appends
+    `/api/now/table/{table}` to the returned `Destination.url`.
+    """
+    if not valid_site_label(instance):
+        raise IntegrationError(
+            f"{instance!r} is not a valid ServiceNow instance name; use the part "
+            "before '.service-now.com', e.g. 'mycompany'"
+        )
+    host = f"{instance}.service-now.com"
+    permitted = _allowlist(ChannelKind.TICKET_SERVICENOW, operator_hosts)
+    if not host_permitted(host, permitted):
+        raise IntegrationError(
+            f"host {host!r} is not permitted for a ServiceNow channel. Permitted: "
+            + (", ".join(permitted) if permitted else "none configured")
+        )
+    url = f"https://{host}"
+    return Destination(kind=ChannelKind.TICKET_SERVICENOW, host=host, url=url, redacted=url)
+
+
 def resolve_smtp_host(smtp_host: str, *, operator_hosts: Sequence[str] = ()) -> str:
     """Check an SMTP host against the operator allowlist.
 

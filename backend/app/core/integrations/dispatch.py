@@ -42,8 +42,10 @@ from app.core.integrations.contract import (
 )
 from app.core.integrations.policy import (
     redact_url,
+    resolve_jira_destination,
     resolve_secret,
     resolve_sentinel_destination,
+    resolve_servicenow_destination,
     resolve_smtp_host,
     resolve_webhook_destination,
 )
@@ -51,7 +53,9 @@ from app.core.integrations.render import render
 from app.core.integrations.send import (
     DEFAULT_SMTP_PORT,
     send_email,
+    send_jira_ticket,
     send_sentinel,
+    send_servicenow_ticket,
     send_webhook,
 )
 from app.core.redaction.secrets import redact
@@ -83,6 +87,8 @@ class ChannelSecrets:
     auth_token: str | None = None
     #: Sentinel only — the Entra ID app's client secret.
     azure_client_secret: str | None = None
+    jira_api_token: str | None = None
+    servicenow_password: str | None = None
 
 
 def subscribes(channel: NotificationChannel, event: IntegrationEvent) -> bool:
@@ -210,6 +216,37 @@ async def _deliver_once_raw(
                 recipients=list(channel.recipients or []),
                 username=channel.smtp_username,
                 password=password,
+            )
+
+        if kind is ChannelKind.TICKET_JIRA:
+            destination = resolve_jira_destination(channel.jira_site or "")
+            api_token = resolved.jira_api_token
+            if api_token is None and channel.jira_api_token_env_var:
+                api_token = resolve_secret(channel.jira_api_token_env_var, environ)
+            if not api_token:
+                raise IntegrationError("Jira channel has no API token")
+            return await send_jira_ticket(
+                destination,
+                message,
+                email=channel.jira_email or "",
+                api_token=api_token,
+                project_key=channel.jira_project_key or "",
+                issue_type=channel.jira_issue_type or "",
+            )
+
+        if kind is ChannelKind.TICKET_SERVICENOW:
+            destination = resolve_servicenow_destination(channel.servicenow_instance or "")
+            password = resolved.servicenow_password
+            if password is None and channel.servicenow_password_env_var:
+                password = resolve_secret(channel.servicenow_password_env_var, environ)
+            if not password:
+                raise IntegrationError("ServiceNow channel has no password")
+            return await send_servicenow_ticket(
+                destination,
+                message,
+                username=channel.servicenow_username or "",
+                password=password,
+                table=channel.servicenow_table or "",
             )
 
         if not channel.endpoint_env_var:
