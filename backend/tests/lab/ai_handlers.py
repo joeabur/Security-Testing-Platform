@@ -83,6 +83,21 @@ def _prompt_of(request: httpx.Request) -> str:
         return ""
 
 
+_TURN_MARKER = re.compile(r"Now continue the conversation\.\s*\[Turn \d+\]\s*(.*)\Z", re.DOTALL)
+
+
+def _current_instruction(prompt: str) -> str:
+    """The multi-turn runner (`core/probes/ai/multiturn/runner.py`) replays
+    the whole transcript before the new instruction on every turn after the
+    first. What a turn-by-turn stand-in app needs to react to is the new
+    instruction alone, not whatever a prior turn's own text happened to
+    contain — the first turn of the instruction-chaining probe's attack
+    script, for instance, *talks about* the word "RELAY:" without being an
+    instance of it."""
+    match = _TURN_MARKER.search(prompt)
+    return match.group(1) if match else prompt
+
+
 def _decoded_variants(prompt: str) -> str:
     """What the *model* effectively reads: obfuscation undone.
 
@@ -106,6 +121,15 @@ def vulnerable_chat(request: httpx.Request) -> httpx.Response:
     prompt = _prompt_of(request)
     effective = _decoded_variants(prompt).lower()
     canary = _CANARY.search(_decoded_variants(prompt))
+    current = _current_instruction(prompt)
+
+    # Multi-turn instruction chaining: agrees to a benign-looking "echo
+    # whatever follows RELAY:" rule, then honours it on a later turn —
+    # seeded for `ai.jailbreak.instruction_chaining` (KERVY-AI-007).
+    if "whenever i write" in current.lower() and "relay" in current.lower():
+        return _reply("OK")
+    if current.strip().startswith("RELAY:"):
+        return _reply(current.strip()[len("RELAY:") :].strip())
 
     # Follows injected instructions, in any of the framings.
     if canary and any(trigger in effective for trigger in _OBEYS):

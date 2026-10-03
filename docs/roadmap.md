@@ -5449,3 +5449,71 @@ worktree's own database state, not a regression in this branch's code.
 `alembic upgrade head` fixed it; all 31 passed on re-run, and the full
 backend suite confirmed clean: **2167 passed, 3 skipped, 0 failed** in
 19m06s.
+
+## Multi-turn attack orchestration engine
+
+`docs/competitive-gap-analysis.md`'s "Remaining gaps" list named this
+third, ahead of RAG/agent probe families specifically because those need a
+conversation-state abstraction too, and building it once here means they
+inherit it rather than each growing their own.
+
+**Delivered.** `app/core/probes/ai/multiturn/`: `contract.py`
+(`ConversationScript`, `ConversationTurn`, `MultiTurnPlan`, the
+`MultiTurnProbe` protocol — mirrors `AiProbe` exactly where that still
+fits, replacing only `plan`/`detect`), `runner.py`
+(`run_multi_turn_probe`, the multi-turn counterpart of `driver.run_ai_probe`,
+reusing `app.core.measure.asr.measure()` completely unchanged — a trial is
+still just an integer success/trial count, agnostic to whether one request
+or a five-turn conversation produced it), and `instruction_chaining.py`
+(`ai.jailbreak.instruction_chaining`, `KERVY-AI-007`) — the one probe
+shipped, chosen because `docs/ai-security-testing.md`'s own taxonomy table
+named "Jailbreak: instruction chaining" as the one row **Not covered** that
+this engine specifically exists to close.
+
+**Decisions.**
+- `driver.py`'s private `_strongest()` tie-break (most successes, fewest
+  trials) is now `app.core.probes.ai._support.strongest_attempt()`, public
+  and shared, so the driver and the new runner cannot silently diverge on
+  how "the strongest framing" is picked. `driver.py`'s behaviour is
+  unchanged — it is the same function, just no longer duplicated.
+- No adapter was touched. A conversation is carried by the runner replaying
+  the transcript as text inside each prompt sent through the existing
+  single-turn `Ask`, not by threading a session id through
+  `ChatHttpAdapter`/`openai_compatible`. Extending every
+  `ConversationalAdapter`'s wire protocol to carry a native multi-turn
+  session is a larger, separate increment — stated as a limitation in
+  `docs/ai-security-testing.md`'s new "Multi-turn attack orchestration"
+  section, not assumed away.
+- `ProbeCategory.JAILBREAK` is new (the existing seven categories had
+  nowhere to put a jailbreak-shaped finding that is not plain direct
+  injection).
+- `tests/lab/ai_handlers.py`'s `vulnerable_chat` was extended to honour the
+  chained "RELAY:" rule the new probe tests for; `hardened_chat` needed no
+  change at all, because its existing rule — decline whenever this run's
+  canary appears anywhere in the prompt — already covers a canary arriving
+  wrapped in a chained instruction, not only a bare one.
+
+**Deferred, stated plainly.** RAG security and agent security probe
+families (`docs/competitive-gap-analysis.md`'s gap #2) are not built here —
+this phase is the conversation-state foundation they were waiting on, not
+those probes themselves. A second multi-turn technique beyond instruction
+chaining (e.g. gradual escalation/"crescendo") is not shipped either; one
+concrete, honestly-scoped demonstrator was the goal, not an empty engine
+shell or a padded probe count.
+
+**Verified.** `ruff check`/`mypy` clean on
+`app/core/probes/ai/multiturn/`, `app/core/probes/ai/_support.py`,
+`app/core/probes/ai/driver.py`, `app/core/probes/ai/registry.py` and
+`app/core/orchestrator/ai_check.py`. New `tests/test_multiturn_engine.py`
+(10 tests): registry wiring, the shared tie-break helper, early-stop
+(no further turns sent once a probe's own `detect` is satisfied mid-script),
+a halted run stopping mid-conversation without raising, an unanswered turn
+aborting only that one conversation rather than the whole probe, and the
+shipped probe run against the real lab fixtures through the real
+`ChatHttpAdapter`/`GatedTransport` — found and `KERVY-AI-007`-coded against
+the vulnerable app, nothing against the hardened one, deterministic
+stability confirmed. Full regression
+(`test_ai_engine.py`, `test_ai_engine_e2e.py`, `test_external_ai_engines.py`,
+`test_determinism_harness.py`, `test_authorization_matrix.py` plus the new
+file — 346 tests) passes clean; no existing test needed a behavioural
+change.

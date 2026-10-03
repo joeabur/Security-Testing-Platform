@@ -169,6 +169,25 @@ All notable changes to this project are recorded here. The format follows
 
 ### Added
 
+- **A multi-turn attack orchestration engine, and the first probe built on
+  it: jailbreak instruction chaining.** Every AI probe before this was
+  single-shot (`driver.py` calls `ask(prompt)` once per trial); new
+  `app/core/probes/ai/multiturn/` orchestrates whole conversations instead
+  — `contract.py`'s `MultiTurnProbe` mirrors `AiProbe` everywhere that
+  still fits (same `ProbeMeta`, `Detection`, `AiProbeTarget`, `Ask`,
+  `report()`), swapping only `plan`/`detect` for a transcript-aware shape;
+  `runner.py` reuses `app.core.measure.asr.measure()` completely
+  unchanged — one full conversation is one trial, exactly as one request
+  is one trial for the single-shot driver. No adapter was modified: the
+  runner carries conversation context by replaying the transcript as text
+  inside each prompt sent through the existing single-turn `Ask`, stated
+  as a limitation rather than assumed away (`docs/ai-security-testing.md`).
+  Ships one probe, `ai.jailbreak.instruction_chaining` (`KERVY-AI-007`),
+  closing the one row `docs/ai-security-testing.md`'s own taxonomy table
+  named **Not covered**: a benign-looking rule established over early
+  turns, invoked on a later turn to displace the application's
+  instructions, measured against a same-length control that never
+  established the rule.
 - **A clean adapter boundary for external AI attack engines (garak,
   PyRIT) — no engine wired in yet.** New `app/core/probes/ai/external/`:
   `ExternalAttackEngine`, a one-method protocol handed nothing but `Ask`

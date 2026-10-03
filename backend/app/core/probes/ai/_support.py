@@ -55,6 +55,24 @@ def measurement_evidence(outcome: ProbeOutcome) -> str:
     return "\n".join(lines)
 
 
+def strongest_attempt(per_attempt: dict[str, tuple[int, int]]) -> tuple[str | None, int, int]:
+    """The attempt with the most successes; ties go to the one that spent
+    fewer trials, so a cheaper technique wins an otherwise equal contest.
+
+    Shared between the single-shot driver and the multi-turn runner: a probe
+    offering several framings of one idea should be measured by the
+    strongest of them, not their average, in either case.
+    """
+    if not per_attempt:
+        return (None, 0, 0)
+    best_id = max(
+        per_attempt,
+        key=lambda attempt_id: (per_attempt[attempt_id][0], -per_attempt[attempt_id][1]),
+    )
+    successes, trials = per_attempt[best_id]
+    return (best_id, successes, trials)
+
+
 def scan_result(
     *,
     meta: ProbeMeta,

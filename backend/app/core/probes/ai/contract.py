@@ -48,6 +48,7 @@ class ProbeCategory(StrEnum):
     OUTPUT_HANDLING = "output_handling"
     EXCESSIVE_AGENCY = "excessive_agency"
     CONSUMPTION = "consumption"
+    JAILBREAK = "jailbreak"
 
 
 @dataclass(frozen=True)

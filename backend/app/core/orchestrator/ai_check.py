@@ -14,7 +14,13 @@ from app.core.orchestrator.checks import CheckResult
 from app.core.probes.ai.contract import AiProbeTarget, new_canary
 from app.core.probes.ai.driver import run_ai_probe
 from app.core.probes.ai.judge import DISABLED_JUDGE, JudgeConfig
-from app.core.probes.ai.registry import agency_probe, consumption_probe, trial_probes
+from app.core.probes.ai.multiturn.runner import run_multi_turn_probe
+from app.core.probes.ai.registry import (
+    agency_probe,
+    consumption_probe,
+    multi_turn_probes,
+    trial_probes,
+)
 from app.core.probes.models import Category, Confidence, ScanResult, Severity
 from app.core.scope.context import RunContext
 from app.core.scope.transport import GatedTransport
@@ -54,6 +60,24 @@ class AiSecurityCheck:
                     probe.meta.id,
                     probe.meta.name,
                     partial(run_ai_probe, probe, self.probe_target, ctx, ask, canary=canary),
+                )
+            )
+
+        for conversation_probe in multi_turn_probes():
+            if ctx.halted or ctx.kill_switch.tripped:
+                break
+            results.append(
+                await self._guard(
+                    conversation_probe.meta.id,
+                    conversation_probe.meta.name,
+                    partial(
+                        run_multi_turn_probe,
+                        conversation_probe,
+                        self.probe_target,
+                        ctx,
+                        ask,
+                        canary=canary,
+                    ),
                 )
             )
 
