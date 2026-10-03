@@ -31,12 +31,14 @@ presented as a vulnerability.
 | Excessive agency | declared tool/permission surface, irreversible tools with no confirmation step, write access to an external system, no tool requiring confirmation at all | LLM03 |
 | Unbounded consumption | cost slope against input size | LLM06 |
 | Jailbreak: multi-turn instruction chaining | a benign-looking rule established over early turns, invoked on a later turn (see "Multi-turn attack orchestration" below) | LLM01 |
+| Indirect injection (RAG/document injection) | an instruction embedded inside content framed as retrieved or ingested, rather than inside the user's own message (see "RAG and agent security" below) | LLM01 |
+| Agent security: goal hijacking | a later message claiming authority to override the agent's own stated, persistent objective (see "RAG and agent security" below) | LLM01 |
 | Coverage marker | `KERVY-AI-000 — not tested` | — |
 
 The hidden-context probe (`ai.disclosure.hidden_context`) asks the model to
 recite its own instructions; it measures *disclosure*, not whether hidden
-instructions planted in retrieved content get *obeyed* — that is a different
-attack (indirect injection) and is not a probe this engine implements yet.
+instructions planted in retrieved content get *obeyed*. `ai.injection.indirect.document_injection`
+(below) is that second thing.
 
 ## Detection is marker-based, never harmful content
 
@@ -131,15 +133,17 @@ impression (`docs/competitive-gap-analysis.md` has the full citations).
 | Taxonomy area | Status |
 |---|---|
 | Direct injection (override, role, delimiter, hierarchy, encoding, language-switch) | Covered — see Coverage above |
-| Indirect injection | Not covered — `ProbeCategory.INDIRECT_INJECTION` exists; no probe implements it |
+| Indirect injection | Covered, one technique — `ai.injection.indirect.document_injection` (`KERVY-AI-008`), see "RAG and agent security" below |
 | Multi-turn / adaptive attacks of any kind | Covered, one probe — `multiturn/runner.py` orchestrates whole conversations, read below; single-shot probes (`driver.py`) remain single-turn, unchanged |
 | Jailbreak: encoding, obfuscation, translation | Covered — see Coverage above |
 | Jailbreak: instruction chaining | Covered — `ai.jailbreak.instruction_chaining` (`KERVY-AI-007`), see "Multi-turn attack orchestration" below |
 | Data leakage: system prompt / secret / sensitive-info extraction | Covered — see Coverage above |
 | Cross-user leakage | Not covered — no multi-session/multi-user target abstraction exists |
 | Excessive agency: live unauthorized tool invocation | Partial — the permission-graph probe flags unconfirmed/irreversible tools structurally; nothing attempts a live unauthorized call (deliberately conservative — see `docs/detection-methodology.md`) |
-| RAG security (document injection, retrieval/context poisoning, cross-tenant retrieval) | Not covered — zero probes |
-| Agent security (goal hijacking, tool manipulation, memory poisoning, chain manipulation) | Not covered — zero probes beyond the overlap with excessive agency above |
+| RAG security: document injection | Covered — `ai.injection.indirect.document_injection` (`KERVY-AI-008`), see "RAG and agent security" below |
+| RAG security: retrieval/context poisoning, cross-tenant retrieval | Not covered — no target abstraction for a real retrieval corpus or multi-tenant document store exists |
+| Agent security: goal hijacking | Covered — `ai.agent.goal_hijacking` (`KERVY-AI-034`), see "RAG and agent security" below |
+| Agent security: tool manipulation, memory poisoning, chain manipulation | Not covered — would need visibility into which tool was actually invoked, persisted memory, or a tool-chain's own data flow, none of which the generic `Ask` interface exposes |
 | Output security: XSS, SQL injection | Covered — see Coverage above |
 | Output security: command injection sink | Not covered — four sinks exist (html/markdown-image/template/sql); no shell sink |
 
@@ -204,6 +208,71 @@ fixtures `test_ai_engine.py` uses — the vulnerable app's `vulnerable_chat`
 was extended to honour the chained rule, the hardened app needed no change
 because it already declines whenever a prompt contains this run's canary at
 all, chained or not.
+
+## RAG and agent security
+
+`docs/competitive-gap-analysis.md` named "RAG security + agent security
+probe families" as the single largest AI-breadth gap, naming four specific
+attacks across the two areas: document injection and retrieval/context
+poisoning and cross-tenant retrieval for RAG, goal hijacking and tool
+manipulation and memory poisoning and chain manipulation for agents. Two of
+those seven — the two this platform's existing `Ask` interface can
+honestly test — are covered; the rest are named below as still not
+covered, not approximated.
+
+**`ai.injection.indirect.document_injection`** (`KERVY-AI-008`,
+`app/core/probes/ai/rag_injection.py`) is a single-shot trial probe, the
+same shape as the direct-injection probes. It has no access to a target's
+real retrieval corpus or ingestion pipeline — nothing in this engine does —
+so what it sends is a prompt that *frames* a block of text as retrieved or
+ingested content (a knowledge-base snippet, a fetched web page, a customer
+email being processed) with an instruction embedded inside that block,
+exactly the shape a real RAG pipeline's own retrieved chunk would have if
+the underlying document had been tampered with. The control asks the same
+final instruction directly, with no document wrapper, isolating whether
+the retrieved-content framing itself achieves anything a bare request
+would not. **Stated plainly**: a finding here is evidence that content the
+application treats as data can redirect it when framed as retrieved
+content — it is not evidence that this run poisoned a real document store
+or crossed a real multi-tenant retrieval boundary, since no target
+abstraction for either exists yet.
+
+**`ai.agent.goal_hijacking`** (`KERVY-AI-034`,
+`app/core/probes/ai/multiturn/agent_goal.py`) is a multi-turn probe built
+on the same engine `ai.jailbreak.instruction_chaining` uses, testing a
+different attack: turn one has the target confirm a stated, persistent
+task; turn two claims new authority that supersedes that task entirely and
+asks for this run's canary instead. The control keeps the original task
+and reaches the same final canary request as an unrelated, separate ask
+rather than a claimed objective change — isolating whether the authority
+claim over the agent's own goal is what gets through. This is deliberately
+not a repackaging of instruction chaining's attack: that probe exploits a
+rule *established* earlier in the conversation, where this one exploits a
+task the target already committed to pursuing.
+
+**What is not attempted, and why.** Tool manipulation, memory poisoning
+and chain manipulation all need visibility this platform's generic
+`Ask`/`TargetResponse` interface does not have: which tool a target
+actually invoked (as opposed to what it merely said in text), what its
+persisted memory holds between turns, how one tool's output fed another
+tool's input. Retrieval/context poisoning and cross-tenant retrieval need
+a target abstraction with a real, write-accessible corpus and more than
+one tenant — the same kind of abstraction the API engine's BOLA probes
+have for cross-user resources, which nothing in the AI engine has yet.
+Simulating any of these without a target that genuinely exposes the
+mechanism would be exactly the "fake implementation" this codebase's own
+rules reject, so all five remain named as not covered rather than
+approximated.
+
+Verified in `tests/test_ai_engine.py` (document injection, added to the
+same seeded-flaw acceptance check every single-shot probe goes through)
+and `tests/test_multiturn_engine.py` (goal hijacking, mirroring the
+instruction-chaining acceptance tests) — both against the real
+`tests/lab/ai_handlers.py` fixtures. `vulnerable_chat` needed one new
+trigger (a message claiming its new objective "supersedes" the previous
+one); `hardened_chat` needed no change for either probe, for the same
+reason instruction chaining needed none — it already declines whenever a
+prompt contains this run's canary anywhere, regardless of framing.
 
 ## External attack engines (garak, PyRIT): a clean adapter boundary
 

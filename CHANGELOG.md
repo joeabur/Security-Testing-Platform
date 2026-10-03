@@ -169,6 +169,30 @@ All notable changes to this project are recorded here. The format follows
 
 ### Added
 
+- **RAG security + agent security probe families: indirect document
+  injection and agent goal hijacking.** `docs/competitive-gap-analysis.md`
+  named these as the single largest remaining AI-breadth gap, across seven
+  named attacks; this closes the two this platform's existing text-in/
+  text-out `Ask` interface can honestly test. New
+  `app/core/probes/ai/rag_injection.py`'s `DocumentInjectionProbe`
+  (`ai.injection.indirect.document_injection`, `KERVY-AI-008`) sends a
+  prompt framing a block of text as retrieved or ingested content (a
+  knowledge-base snippet, a fetched page, a processed customer message)
+  with an instruction embedded inside it, closing `ProbeCategory
+  .INDIRECT_INJECTION`, which previously had zero probes. New
+  `app/core/probes/ai/multiturn/agent_goal.py`'s `GoalHijackingProbe`
+  (`ai.agent.goal_hijacking`, `KERVY-AI-034`) runs on the multi-turn
+  engine: turn one has the target confirm a stated, persistent task; turn
+  two claims new authority that supersedes it entirely. New
+  `ProbeCategory.AGENT`, distinct from the existing `EXCESSIVE_AGENCY`
+  category (structural tool-surface analysis, unchanged). Both probes are
+  stated as honest simulations in their own docstrings — neither has
+  access to a target's real retrieval corpus, ingestion pipeline, or
+  persisted agent state. Tool manipulation, memory poisoning, chain
+  manipulation, retrieval/context poisoning and cross-tenant retrieval
+  remain explicitly not covered: they need visibility or a target
+  abstraction this platform does not have yet. See
+  `docs/ai-security-testing.md`.
 - **Browser-based DAST: a Playwright-driven crawler that sees SPA
   client-side navigation.** `docs/dast.md` named this as the largest DAST
   gap; new `app/core/dast/browser.py`'s `BrowserCrawler` is an opt-in

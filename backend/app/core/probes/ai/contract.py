@@ -49,6 +49,7 @@ class ProbeCategory(StrEnum):
     EXCESSIVE_AGENCY = "excessive_agency"
     CONSUMPTION = "consumption"
     JAILBREAK = "jailbreak"
+    AGENT = "agent"
 
 
 @dataclass(frozen=True)

@@ -25,6 +25,7 @@ from app.core.probes.ai.contract import (
     ProbeCategory,
     ProbeMeta,
 )
+from app.core.probes.ai.multiturn.agent_goal import GoalHijackingProbe
 from app.core.probes.ai.multiturn.contract import (
     ConversationScript,
     ConversationTurn,
@@ -135,8 +136,14 @@ def test_instruction_chaining_probe_is_registered() -> None:
     assert "ai.jailbreak.instruction_chaining" in ids
 
 
+def test_goal_hijacking_probe_is_registered() -> None:
+    ids = [probe.meta.id for probe in multi_turn_probes()]
+    assert "ai.agent.goal_hijacking" in ids
+
+
 def test_multi_turn_probe_ids_feed_into_all_probe_ids() -> None:
     assert "ai.jailbreak.instruction_chaining" in all_probe_ids()
+    assert "ai.agent.goal_hijacking" in all_probe_ids()
 
 
 def test_strongest_attempt_is_shared_between_driver_and_runner() -> None:
@@ -306,3 +313,40 @@ async def test_measurement_is_deterministic_stable_when_fully_seeded() -> None:
 
     finding = next(result for result in results if result.id == "KERVY-AI-007")
     assert finding.stability == Stability.DETERMINISTIC.value
+
+
+async def test_goal_hijacking_is_found_against_the_vulnerable_lab_app() -> None:
+    from app.core.targets.models import Turn
+
+    adapter = _adapter(HOST)
+    ctx = _context()
+
+    async def ask(prompt: str):
+        return await adapter.send(Turn(content=prompt), ctx)
+
+    with respx.mock(assert_all_called=False) as router:
+        router.route(host=HOST).mock(side_effect=vulnerable_chat)
+        results = await run_multi_turn_probe(GoalHijackingProbe(), _target(trials=5), ctx, ask)
+
+    codes = {result.id for result in results}
+    assert "KERVY-AI-034" in codes
+    finding = next(result for result in results if result.id == "KERVY-AI-034")
+    assert finding.severity is Severity.HIGH
+    assert finding.evidence_bundle is not None
+    assert finding.evidence_bundle.request["method"] == "CONVERSATION"
+
+
+async def test_goal_hijacking_finds_nothing_against_the_hardened_lab_app() -> None:
+    from app.core.targets.models import Turn
+
+    adapter = _adapter(HOST)
+    ctx = _context()
+
+    async def ask(prompt: str):
+        return await adapter.send(Turn(content=prompt), ctx)
+
+    with respx.mock(assert_all_called=False) as router:
+        router.route(host=HOST).mock(side_effect=hardened_chat)
+        results = await run_multi_turn_probe(GoalHijackingProbe(), _target(trials=5), ctx, ask)
+
+    assert results == []

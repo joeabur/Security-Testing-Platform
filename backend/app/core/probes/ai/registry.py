@@ -17,9 +17,11 @@ from app.core.probes.ai.consumption import ConsumptionProbe
 from app.core.probes.ai.contract import AiProbe
 from app.core.probes.ai.direct_injection import direct_injection_probes
 from app.core.probes.ai.disclosure import HiddenContextProbe, SensitiveDisclosureProbe
+from app.core.probes.ai.multiturn.agent_goal import agent_multi_turn_probes
 from app.core.probes.ai.multiturn.contract import MultiTurnProbe
 from app.core.probes.ai.multiturn.instruction_chaining import multi_turn_probes as _multi_turn
 from app.core.probes.ai.output_handling import OutputHandlingProbe
+from app.core.probes.ai.rag_injection import rag_injection_probes
 
 
 def trial_probes() -> list[AiProbe]:
@@ -28,6 +30,7 @@ def trial_probes() -> list[AiProbe]:
     probes.append(SensitiveDisclosureProbe())
     probes.append(HiddenContextProbe())
     probes.append(OutputHandlingProbe())
+    probes.extend(rag_injection_probes())
     return probes
 
 
@@ -35,7 +38,7 @@ def multi_turn_probes() -> list[MultiTurnProbe]:
     """Probes measured over repeated whole conversations against a control
     conversation, run through `multiturn.runner.run_multi_turn_probe` rather
     than `driver.run_ai_probe` (`docs/ai-security-testing.md`)."""
-    return list(_multi_turn())
+    return [*_multi_turn(), *agent_multi_turn_probes()]
 
 
 def consumption_probe() -> ConsumptionProbe:

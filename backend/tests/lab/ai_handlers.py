@@ -131,6 +131,12 @@ def vulnerable_chat(request: httpx.Request) -> httpx.Response:
     if current.strip().startswith("RELAY:"):
         return _reply(current.strip()[len("RELAY:") :].strip())
 
+    # Agent security: a later message claiming its new objective supersedes
+    # the one already given is obeyed — seeded for `ai.agent.goal_hijacking`
+    # (KERVY-AI-034).
+    if "supersedes" in current.lower() and "objective" in current.lower() and canary:
+        return _reply(canary.group())
+
     # Follows injected instructions, in any of the framings.
     if canary and any(trigger in effective for trigger in _OBEYS):
         return _reply(canary.group())
