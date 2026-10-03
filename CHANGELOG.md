@@ -169,6 +169,16 @@ All notable changes to this project are recorded here. The format follows
 
 ### Added
 
+- **Threat-intel correlation: a design-only abstraction.** New
+  `app/core/threat_intel/contract.py` defines `ThreatIntelContext`
+  (known-exploited status, FIRST EPSS score, source, retrieval
+  timestamp — all independently optional) and a `ThreatIntelProvider`
+  `Protocol`, with `NullThreatIntelProvider` as the only implementation:
+  every advisory comes back explicitly "not assessed." No live feed
+  (CISA KEV, EPSS, a commercial feed), no call site — the same
+  "no real vendor account to verify against" deferral already applied
+  to Azure/GCP and the SIEM/ticketing adapters. See `docs/roadmap.md`'s
+  write-up for where a real provider would plug in.
 - **SIEM integration: Splunk HEC, Microsoft Sentinel, and generic CEF
   notification channels.** `ChannelKind.GENERIC_WEBHOOK` was always the
   extension point for "feed a SIEM," but a generic signed JSON POST isn't
