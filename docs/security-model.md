@@ -39,7 +39,7 @@ being true. Most are both.
 | 23 | Authentication endpoints cannot be brute-forced without cost | Login/register are rate limited on both per-identity and per-IP dimensions, and the 2FA challenge step (`login/2fa`) has its own tighter per-identity budget; throttled (429), never locked out — `docs/rate-limiting.md` |
 | 24 | A cross-site page cannot forge a cookie-authenticated write | CSRF token is an HMAC over the session cookie's own value, enforced as middleware over every route — `docs/csrf.md` |
 | 25 | A logged-out or suspected-leaked token stops working immediately | Per-token deny-list on `/auth/logout`; durable per-user cutoff on `/auth/logout-all`; this control fails *closed* — `docs/revocation.md` |
-| 26 | A query that forgets its `organization_id` filter cannot return another tenant's rows | Postgres Row-Level Security on the 21 tenant-scoped tables (confirmed live against `pg_policies`, not hand-counted from migration files), independent of guarantee #12's application-level filtering — `app/db/tenant_context.py`; requires the operator setup in `docs/deployment.md`'s Database section |
+| 26 | A query that forgets its `organization_id` filter cannot return another tenant's rows | Postgres Row-Level Security on the tenant-scoped tables (confirmed live against `pg_policies`, not hand-counted from migration files), independent of guarantee #12's application-level filtering — `set_tenant_context` (`app/db/tenant_context.py`) asserts the session variable directly on the current transaction, not only the next one a `"begin"` event happens to see, which an earlier version of this mechanism did not and was silently inert as a result on any correctly non-superuser-provisioned deployment, since that deployment's own test suite runs as `postgres`, a role RLS exempts unconditionally — see "The habit behind the tests" below; requires the operator setup in `docs/deployment.md`'s Database section |
 | 27 | Cumulative AI provider spend cannot run away across many calls | A Redis-backed daily counter, checked before every call and charged with a real per-call estimate, on top of the $5.00 per-interaction budget — `app/core/assistant/spend_cap.py`, `app/core/assistant/pricing.py` |
 | 28 | The AI layer retains nothing for later use | Every provider call is single-shot; only platform-owned, audited rows (`AiDraft`, evidence bundles) persist anything, for a human to review and accept — never a store the AI itself reads back on a later call, run, or organization — `docs/guardrails.md` §1.1 |
 | 29 | The native agent cannot act beyond the caller's own role and tenant | Every tool call runs under an `AgentContext` built from the same role-ceiling logic `require_membership` enforces at the HTTP boundary; a `SENSITIVE` tool additionally requires an explicit, separately-authorized approval that no role or autonomy setting can substitute for — `app/core/agent/permissions.py`, `docs/agent.md` |
@@ -66,9 +66,23 @@ confirming the test caught it:
   repository-write check failed.
 - An adjacent-secret string that defeated the redactor's word boundaries — found
   by a property test, which is why the patterns no longer use `\b`.
+- **Guarantee #26's own mechanism, silently inert since Phase 1, found by
+  actually running the stack against a non-superuser database role instead of
+  trusting the test suite's own one.** `require_membership` set the RLS session
+  variable *after* `get_current_user` (every route's own prerequisite) had
+  already queried the database and autobegun the request's one transaction —
+  too late for Postgres's `"begin"`-scoped `SET LOCAL` to take effect. Every
+  RLS-enforced write failed outright and every RLS-enforced read silently
+  returned nothing, on any deployment that had correctly followed
+  `docs/deployment.md`'s instruction to not run as a superuser — and the test
+  suite could never have caught it, because its own database role **is**
+  `postgres`, which RLS exempts unconditionally, for the unrelated reason. Two
+  controls each made the other's absence invisible. See `docs/roadmap.md`'s
+  write-up for the fix.
 
 A control whose test has never been seen to fail is a control nobody has
-checked.
+checked. Nor, this one taught, is a control whose test runs as a role the
+control itself would never see in production.
 
 ## Where the guarantees stop
 

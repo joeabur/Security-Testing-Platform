@@ -6,6 +6,64 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
+### Security
+
+- **Row-Level Security's session variable was never actually set on a correctly
+  non-superuser-provisioned deployment, for any organization-scoped request or
+  Celery task.** `require_membership` (and every Celery task entry point that
+  loads its own row before it knows that row's organization) called
+  `set_current_organization(org_id)` to make the id available to
+  `app/db/tenant_context.py`'s `"begin"` event listener — but by that point,
+  `get_current_user` (which every authenticated route depends on first, to
+  establish who is calling) had already queried the database, which autobegins
+  SQLAlchemy's one transaction for the request. That transaction's `"begin"`
+  event had already fired — with nothing yet known — before the organization id
+  was ever set, and `SET LOCAL kervy.org_id` is scoped to the transaction it
+  runs in, not reissued just because a later statement runs. The result: every
+  RLS-enforced table (`targets`, `organization_invitations`, `findings`,
+  `scan_results`, `workflows`, `api_keys`, and more — anything with
+  `FORCE ROW LEVEL SECURITY`) saw `kervy.org_id` as empty for the rest of the
+  request, which Postgres's RLS policies could never match — failing inserts
+  outright and silently returning zero rows from reads, on every single
+  organization-scoped write. **This defeated RLS as a second, independent
+  tenant-isolation boundary entirely on any deployment that had correctly
+  followed `docs/deployment.md`'s own requirement that the runtime database role
+  not be a superuser** (a superuser bypasses RLS unconditionally, which is
+  exactly why the backend test suite's own `postgres`-role test database never
+  caught this: RLS was never evaluated there either, for the opposite reason).
+  Application-level `organization_id` filtering — the primary tenant-isolation
+  boundary RLS was defense-in-depth *behind* — was never affected; no
+  cross-tenant data exposure is possible from this bug, only RLS's own silent
+  inertness and the row-level-security insert failures a non-superuser role hit
+  on write. Fixed with a new `set_tenant_context(db, org_id)` (`app/db/tenant_context.py`)
+  that asserts the session variable directly on the session's *already open*
+  transaction via an explicit `SET LOCAL`, rather than only waiting for the next
+  one the `"begin"` listener happens to see. Replaces every call site that used
+  to call `set_current_organization` directly: `require_membership`,
+  `accept_invitation`, the inbound workflow webhook handler, and all four
+  Celery task entry points in `app/workers/tasks.py`. Found incidentally while
+  building the organization members UI below, by actually running the stack
+  with a correctly non-superuser database role rather than trusting the test
+  suite's own (superuser) one.
+
+### Added
+
+- **Dashboard: an organization Members page.** The backend has supported
+  inviting, listing, changing the role of, and removing members since early in
+  this project — and emailing invitations to not-yet-registered addresses more
+  recently — but no dashboard UI ever called any of it; the only way to invite
+  someone was a raw API request. Added a "Members" tab (`/organizations/{id}/members`)
+  with an invite form (email + role; distinguishes "added now" from "pending
+  invitation emailed" in the response, since the backend's own response shape
+  already does), a member list with inline role-change and remove controls, and
+  a pending-invitations list with revoke — all calling the existing
+  `POST/GET/PATCH/DELETE /organizations/{id}/members` and
+  `GET/DELETE /organizations/{id}/invitations` endpoints. Admin/Owner-only
+  controls are hidden client-side for a Viewer/Analyst/Security Engineer caller
+  (cosmetic only — the backend's own RBAC is what actually enforces this, per
+  `docs/BUILD_SPEC.md` §17.2's "the frontend's role-based UI hiding is cosmetic
+  only").
+
 ### Fixed
 
 - **A production deployment on any real domain silently shipped a browser bundle

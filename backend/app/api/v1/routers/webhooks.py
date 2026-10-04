@@ -15,8 +15,8 @@ invariant, so it lives here instead, at the top level, the same way
 one already-established pattern in this codebase for "look up by opaque
 UUID before any tenant context exists" —
 `app/workers/tasks.py::execute_assessment_run` loads its `AssessmentRun`
-by bare id and calls `set_current_organization` immediately after, before
-any further query; this handler does the same immediately after loading
+by bare id and calls `set_tenant_context` immediately after, before any
+further query; this handler does the same immediately after loading
 `Workflow`.
 """
 
@@ -37,7 +37,7 @@ from app.core.workflow.replay_guard import (
     WebhookReplayGuardUnavailable,
 )
 from app.core.workflow.webhook_secret import WebhookEncryptionNotConfigured, decrypt_secret
-from app.db.tenant_context import set_current_organization
+from app.db.tenant_context import set_tenant_context
 from app.models.workflow import Workflow
 from app.schemas.workflow import InboundWebhookTrigger
 
@@ -93,7 +93,7 @@ async def receive_workflow_webhook(
     except ValidationError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
 
-    set_current_organization(workflow.organization_id)
+    await set_tenant_context(db, workflow.organization_id)
     trigger = workflow_service.trigger_from(
         workflow,
         kind=payload.kind,

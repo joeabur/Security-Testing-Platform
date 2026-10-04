@@ -54,6 +54,17 @@ export interface Membership {
   role: Role;
 }
 
+/** A not-yet-registered address invited to an organization — no `user_id`,
+ * which is what distinguishes it from a `Membership` in the response of
+ * `POST /organizations/{id}/members` (see InviteMemberForm). */
+export interface OrganizationInvitation {
+  id: string;
+  email: string;
+  role: Role;
+  expires_at: string;
+  created_at: string;
+}
+
 export interface ApiErrorBody {
   error: {
     code: string;
