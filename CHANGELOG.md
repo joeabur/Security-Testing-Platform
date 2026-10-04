@@ -6,7 +6,33 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **A production deployment on any real domain silently shipped a browser bundle
+  hardcoded to `localhost:8000`.** Next.js inlines `NEXT_PUBLIC_*` variables into
+  the client bundle at build time, but `docker-compose.yml` only ever passed
+  `NEXT_PUBLIC_API_URL` to the `frontend` service as a runtime environment
+  variable — `Dockerfile.frontend`'s build stage had no `ARG`/`ENV` wiring for it
+  at all. Added both, so the value actually reaches the browser bundle.
+- **`postgres` and `redis` published their ports to every network interface**,
+  not just the host they run on. On a machine with a public IP (any real cloud
+  deployment), this handed an unauthenticated Postgres and Redis straight to the
+  internet unless a separate cloud firewall rule happened to block them — now
+  bound to `127.0.0.1` only in `docker-compose.yml`; the backend and worker
+  already reach both over the internal Docker network by service name and never
+  used the published ports anyway.
+
 ### Documentation
+
+- **Added `docs/free-deployment-oracle-cloud.md`**: a complete, step-by-step
+  path to a real, publicly reachable deployment of this platform at $0/month,
+  on Oracle Cloud's Always Free tier — the only option as of 2026 where the
+  Celery worker (the process that actually runs scans), Postgres, and Redis all
+  run for free with no feature gap, unlike Render (no free background workers)
+  or Fly.io (free tier discontinued). Covers account signup, instance creation,
+  firewall rules (both the cloud Security List and the VM's own `iptables`),
+  Docker installation, `.env` production values, automatic HTTPS via Caddy, and
+  the two Dockerfile/compose fixes above that this path depends on.
 
 - **`docs/competitive-gap-analysis.md`, README.md, and docs/dashboard.md were stale against
   several already-merged features.** Six of the eleven items in the gap-analysis doc's
