@@ -157,6 +157,11 @@ class RetestRecord:
     before_evidence_ref: str | None
     after_evidence_ref: str | None
     detail: str
+    # §7.1's own requirement — the rate, the interval and the control
+    # visible wherever the finding is — applied across the retest
+    # boundary. `None` whenever either side has no measurement; see
+    # `app.core.measure.asr.asr_delta`.
+    attack_success_rate_delta: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)

@@ -16,6 +16,7 @@ import csv
 import html
 import io
 from collections.abc import Iterable
+from typing import Any
 
 from app.core.reporting.model import ReportData, ReportFinding
 from app.core.reporting.templates import Section, Template, sections_for, shows_probe_ids
@@ -441,11 +442,34 @@ def _retest_verdicts(report: ReportData) -> list[str]:
             f"- Fingerprint: `{record.fingerprint}`",
             f"- Evidence before: `{record.before_evidence_ref or 'none recorded'}`",
             f"- Evidence after: `{record.after_evidence_ref or 'none — nothing was observed'}`",
+        ]
+        out += _asr_delta_line(record.attack_success_rate_delta)
+        out += [
             "",
             record.detail,
             "",
         ]
     return out
+
+
+def _asr_delta_line(delta: dict[str, Any] | None) -> list[str]:
+    """§7.1's rate, interval and control, carried across the retest
+    boundary. Omitted rather than printed as "unknown" when either side
+    has no measurement — a finding whose probe never ran under the trial
+    driver has nothing here to report, and most findings are not AI-probe
+    findings at all.
+    """
+    if delta is None:
+        return []
+    before, after = delta["before"], delta["after"]
+    significance = "significant" if delta["significant"] else "not significant at this trial count"
+    return [
+        f"- Attack success rate before: {before['successes']}/{before['trials']} = "
+        f"{before['rate']:.0%} (95% CI {before['ci95'][0]:.2f}–{before['ci95'][1]:.2f})",
+        f"- Attack success rate after: {after['successes']}/{after['trials']} = "
+        f"{after['rate']:.0%} (95% CI {after['ci95'][0]:.2f}–{after['ci95'][1]:.2f})",
+        f"- Change: {delta['direction']} ({significance})",
+    ]
 
 
 def _appendix(report: ReportData) -> list[str]:

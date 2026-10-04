@@ -14,8 +14,9 @@ would read as a fix.
 
 import uuid
 from enum import StrEnum
+from typing import Any
 
-from sqlalchemy import Enum, ForeignKey, String, Text
+from sqlalchemy import JSON, Enum, ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -53,4 +54,15 @@ class RetestResult(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # weakness that is genuinely gone has no "after".
     before_evidence_ref: Mapped[str | None] = mapped_column(String(80), nullable=True)
     after_evidence_ref: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    # §7.1's attack-success-rate measurement, carried across the same
+    # before/after boundary as the evidence refs above. Null on either side
+    # for exactly the same reason the evidence refs can be null: a finding
+    # whose probe never ran under the trial driver has no rate to report,
+    # and a retest that found nothing new has no "after" measurement —
+    # never a fabricated one. `app.core.measure.asr.asr_delta` is what
+    # turns this pair into a direction and a significance verdict.
+    before_attack_success_rate: Mapped[dict[str, Any] | None] = mapped_column(
+        JSON, nullable=True
+    )
+    after_attack_success_rate: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     detail: Mapped[str] = mapped_column(Text, nullable=False)

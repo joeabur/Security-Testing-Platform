@@ -169,6 +169,23 @@ All notable changes to this project are recorded here. The format follows
 
 ### Added
 
+- **Retest ASR-delta / confidence-interval comparison.** A retest's verdict
+  was presence/absence of a fingerprint only, even though
+  `Finding.attack_success_rate` already carries a real Wilson-interval
+  measurement for any finding whose probe ran under the §7.1 trial driver.
+  New `app.core.measure.asr.asr_delta` compares a before/after rate pair
+  using the same lower-bound-beats-upper-bound test `measure()` already
+  applies between an attack and its control, applied here symmetrically
+  between the earlier and later measurement instead. `RetestResult` gains
+  `before_attack_success_rate`/`after_attack_success_rate` columns (the
+  "before" is snapshotted in `BaselineEntry` the same way `evidence_ref`
+  already is, since promotion overwrites a reproduced finding's rate
+  before a retest can compare it), and `RetestResultRead` exposes a
+  computed `attack_success_rate_delta`. Only a `reproduced` verdict has a
+  real "after" rate — a probe that found nothing emits no `ScanResult` at
+  all, so `not_reproduced`/`not_tested` correctly carry no fabricated
+  comparison. The markdown report's retest section now prints the rate,
+  interval and direction either side of the boundary wherever one exists.
 - **Automatic finding-status-change audit events.** A human-initiated
   status change already recorded an audit event; the platform's own
   automatic transitions did not — a scan reopening a `remediated`/`closed`
