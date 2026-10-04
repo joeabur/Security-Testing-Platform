@@ -6039,3 +6039,75 @@ report, and the `report-retest.md` golden re-recorded (reviewed diff: three
 new lines on the one reproduced record, nothing on the other two). Full
 backend suite (2,260 passed, 2 skipped) passes clean; no existing test
 needed a behavioural change.
+
+## Dashboard convenience gaps: remediation assignment, evidence list/verify, workflow edit/delete
+
+`docs/competitive-gap-analysis.md` named three dashboard gaps as P2
+convenience, not P1 capability — each one already had a full backend API
+and a working `kervy_cli` command; only the web UI was missing. This closes
+all three, frontend-only, with no backend changes needed (the APIs were
+already complete and already covered by backend tests).
+
+**Delivered.**
+- **Remediation assignment**: `RemediationTaskForm` on the finding detail
+  page (`app/(dashboard)/organizations/[id]/findings/[findingId]/page.tsx`)
+  — summary, assignee (a `<select>` populated from `GET .../members`), due
+  date and notes, calling the same `PUT .../findings/{id}/remediation` the
+  CLI's remediation board already upserts through. The page now also reads
+  `GET .../remediation` (the board) to find this finding's existing task,
+  if any, and prefills the form from it rather than always starting blank.
+- **Evidence list/verify**: `EvidencePanel` on the run detail page — loads
+  the manifest from `GET .../evidence` on request (not polled; a
+  completed run's evidence does not change under a reader), a "Verify
+  chain" button against `GET .../evidence/verify` that shows the real
+  `ok`/`problems` result rather than assuming success, and a per-entry
+  download button reusing the existing `clientApiDownload` helper (already
+  built for the report-download route, previously unused by anything
+  evidence-related).
+- **Workflow edit/delete**: `EditWorkflowForm` on the workflows page —
+  collapsed to Edit/Delete buttons by default, expanding to an inline
+  name/enabled/schedule form on Edit (`PATCH .../workflows/{id}`), Delete
+  firing `DELETE .../workflows/{id}` immediately on click — the same
+  immediate-action convention `CancelRunButton` and the finding-duplicate
+  "Unlink" button already use; no confirmation-dialog pattern exists
+  anywhere in this codebase's frontend, so none was introduced here either.
+- `lib/types.ts` gains `RemediationRead`, `RemediationBoardRow`,
+  `EvidenceManifestEntry`, `EvidenceVerification`, and the `Workflow`
+  interface gains the `schedule_interval_minutes`/`next_run_at`/
+  `webhook_enabled` fields the backend's `WorkflowRead` already returns but
+  the frontend type never declared. `lib/validation.ts` gains
+  `remediationUpsertSchema` and `updateWorkflowSchema`.
+
+**Decisions.**
+- **Gate-config editing stays CLI/API-only.** `kervy workflow update
+  --gate-config` takes a JSON file; a raw JSON editor in a web form is a
+  separate, larger feature than this convenience gap, not a smaller version
+  of it, and is not attempted here.
+- **No board page.** The per-finding assignment form closes the named gap
+  (assigning/tracking one finding's remediation from the dashboard); a
+  cross-finding board view is a reasonable future increment but is not what
+  was asked for here, and the CLI's `GET .../remediation` already serves
+  that need today.
+- **No modal/confirmation-dialog infrastructure added.** Every existing
+  destructive action in this frontend (cancelling a run, unlinking a
+  duplicate) fires immediately on click with no `window.confirm` or modal —
+  grepped and confirmed empty. Workflow delete follows the same convention
+  rather than introducing a new one for this single feature.
+
+**Deferred.** None for the three named gaps. A cross-finding remediation
+board page and a gate-config web editor are named above as explicitly
+out of scope, not half-built.
+
+**Verified.** `tsc --noEmit`, `eslint .`, and `next build` all clean.
+41 Vitest tests pass across 7 files, including new component-level tests
+for all three features (`remediation-task-form.test.tsx`,
+`evidence-panel.test.tsx`, `edit-workflow-form.test.tsx`) that render the
+real component tree via `@testing-library/react` and assert on the actual
+request bodies sent — an unassigned task serializes to `assignee_user_id:
+null` rather than `""`, a blank schedule clears to `null`, a verification
+failure renders its `problems` list rather than a bare "failed" message —
+plus new `validation.test.ts` cases for the two new Zod schemas. No live
+browser walkthrough was run: seeding the org/target/finding/workflow data
+needed to exercise these three pages end-to-end was out of proportion to a
+P2 convenience item, so verification stopped at build, lint, type-check and
+component-rendering tests, stated here rather than left unstated.

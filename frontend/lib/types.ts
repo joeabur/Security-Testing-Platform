@@ -200,6 +200,9 @@ export interface Workflow {
   trigger_kind: string;
   enabled: boolean;
   gate_config: Record<string, unknown> | null;
+  schedule_interval_minutes: number | null;
+  next_run_at: string | null;
+  webhook_enabled: boolean;
   created_at: string;
 }
 
@@ -343,6 +346,43 @@ export interface PillarCoverageEntry {
 export interface RemediationSummary {
   open: number;
   overdue: number;
+}
+
+export interface RemediationRead {
+  id: string;
+  finding_id: string;
+  summary: string;
+  assignee_user_id: string | null;
+  due_date: string | null;
+  notes: string | null;
+  closed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RemediationBoardRow {
+  task: RemediationRead;
+  finding_id: string;
+  title: string;
+  severity: Severity;
+  risk_score: number;
+  status: FindingStatus;
+  retest_result: string | null;
+}
+
+export interface EvidenceManifestEntry {
+  sequence: number;
+  digest: string;
+  previous: string;
+  chain: string;
+  probe_id: string;
+  created_at: string;
+}
+
+export interface EvidenceVerification {
+  ok: boolean;
+  entries: number;
+  problems: string[];
 }
 
 export interface DashboardRun {

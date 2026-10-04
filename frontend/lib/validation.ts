@@ -263,3 +263,26 @@ export const createWorkflowSchema = z.object({
   enabled: z.boolean(),
 });
 export type CreateWorkflowInput = z.infer<typeof createWorkflowSchema>;
+
+export const updateWorkflowSchema = z.object({
+  name: z.string().min(1, "Name is required").max(120),
+  enabled: z.boolean(),
+  // "" clears the schedule (sent to the API as null); otherwise it must
+  // meet MIN_SCHEDULE_INTERVAL_MINUTES, matching app/schemas/workflow.py's
+  // own floor against unattended, repeated scanning of a live target.
+  schedule_interval_minutes: z
+    .string()
+    .refine((value) => value === "" || Number(value) >= 60, "Minimum interval is 60 minutes"),
+});
+export type UpdateWorkflowInput = z.infer<typeof updateWorkflowSchema>;
+
+export const remediationUpsertSchema = z.object({
+  summary: z.string().max(300).optional().or(z.literal("")),
+  // "" means unassigned, the same convention agentToolConfigSchema's
+  // minimum_role_override uses for "no override" — the submit handler maps
+  // it to null before sending it to the API.
+  assignee_user_id: z.string(),
+  due_date: z.string().optional().or(z.literal("")),
+  notes: z.string().max(4000).optional().or(z.literal("")),
+});
+export type RemediationUpsertInput = z.infer<typeof remediationUpsertSchema>;

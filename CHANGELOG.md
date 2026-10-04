@@ -169,6 +169,18 @@ All notable changes to this project are recorded here. The format follows
 
 ### Added
 
+- **Dashboard convenience gaps: remediation assignment, evidence
+  list/verify, workflow edit/delete.** All three already had a full
+  backend API and a working CLI command; only the web UI was missing,
+  frontend-only change. A finding's detail page gets a `RemediationTaskForm`
+  (summary/assignee/due-date/notes, prefilled from the existing task when
+  one exists); a run's detail page gets an `EvidencePanel` (on-demand
+  manifest listing, a "Verify chain" button showing the real ok/problems
+  result, and per-bundle download); the workflows page gets collapsible
+  Edit (PATCH: name/enabled/schedule) and Delete (immediate, matching this
+  frontend's existing no-confirmation-dialog convention) on each workflow
+  card. Gate-config editing and a cross-finding remediation board remain
+  CLI/API-only, named explicitly rather than half-built.
 - **Retest ASR-delta / confidence-interval comparison.** A retest's verdict
   was presence/absence of a fingerprint only, even though
   `Finding.attack_success_rate` already carries a real Wilson-interval
