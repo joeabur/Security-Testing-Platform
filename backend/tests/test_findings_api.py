@@ -7,12 +7,15 @@ from datetime import UTC, datetime, timedelta
 import pytest
 import respx
 from httpx import AsyncClient
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.csrf import anon as csrf_anon
 from app.core.csrf.enforce import HEADER_NAME
 from app.core.scope.engine import ScopeEngine
 from app.core.scope.transport import GatedTransport
+from app.models.audit import AuditEvent
 from app.workers.tasks import execute_assessment_run
 from tests.lab.ai_handlers import vulnerable_chat
 from tests.security.conftest import FakeDnsResolver
@@ -219,7 +222,7 @@ async def test_a_triage_decision_survives_a_re_run(
 
 
 async def test_something_marked_remediated_that_is_still_there_reopens(
-    client: AsyncClient, strong_password: str
+    client: AsyncClient, strong_password: str, db_session: AsyncSession
 ) -> None:
     """The one exception to preserving a status. A stale "remediated" on a
     weakness that is still present is the most dangerous kind of record."""
@@ -241,6 +244,25 @@ async def test_something_marked_remediated_that_is_still_there_reopens(
     ).json()
     assert after["status"] == "confirmed"
     assert "still present" in after["status_note"]
+
+    # The platform's own auto-reopen is in the append-only audit log too,
+    # distinct from a human-initiated status change and attributed to
+    # nobody (`user_id` is null) rather than to whoever happened to kick
+    # off the run that found it again.
+    audited = (
+        await db_session.execute(
+            select(AuditEvent.action, AuditEvent.user_id, AuditEvent.metadata_json).where(
+                AuditEvent.resource_type == "finding",
+                AuditEvent.resource_id == finding["id"],
+                AuditEvent.action == "finding.status.auto_reopened",
+            )
+        )
+    ).all()
+    assert len(audited) == 1
+    action, user_id, metadata = audited[0]
+    assert user_id is None
+    assert metadata["from_status"] == "remediated"
+    assert metadata["to_status"] == "confirmed"
 
 
 async def test_a_finding_cannot_jump_straight_to_closed(
