@@ -5,7 +5,9 @@ import {
   findingTransitionSchema,
   loginSchema,
   registerSchema,
+  remediationUpsertSchema,
   totpCodeSchema,
+  updateWorkflowSchema,
 } from "@/lib/validation";
 
 describe("loginSchema", () => {
@@ -99,6 +101,76 @@ describe("createOrganizationSchema", () => {
 
   it("rejects an empty name", () => {
     const result = createOrganizationSchema.safeParse({ name: "" });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("remediationUpsertSchema", () => {
+  it("accepts every field left blank — nothing is required", () => {
+    const result = remediationUpsertSchema.safeParse({
+      summary: "",
+      assignee_user_id: "",
+      due_date: "",
+      notes: "",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts a fully filled task", () => {
+    const result = remediationUpsertSchema.safeParse({
+      summary: "Patch the injection sink",
+      assignee_user_id: "11111111-1111-1111-1111-111111111111",
+      due_date: "2026-12-01",
+      notes: "Tracked in JIRA-123",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects a summary longer than 300 characters", () => {
+    const result = remediationUpsertSchema.safeParse({
+      summary: "x".repeat(301),
+      assignee_user_id: "",
+      due_date: "",
+      notes: "",
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("updateWorkflowSchema", () => {
+  it("accepts a blank schedule — it clears rather than requires one", () => {
+    const result = updateWorkflowSchema.safeParse({
+      name: "Staging gate",
+      enabled: true,
+      schedule_interval_minutes: "",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts an interval at the 60-minute floor", () => {
+    const result = updateWorkflowSchema.safeParse({
+      name: "Staging gate",
+      enabled: true,
+      schedule_interval_minutes: "60",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects an interval below the 60-minute floor", () => {
+    const result = updateWorkflowSchema.safeParse({
+      name: "Staging gate",
+      enabled: true,
+      schedule_interval_minutes: "30",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects an empty name", () => {
+    const result = updateWorkflowSchema.safeParse({
+      name: "",
+      enabled: true,
+      schedule_interval_minutes: "",
+    });
     expect(result.success).toBe(false);
   });
 });

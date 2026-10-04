@@ -5,10 +5,18 @@ import { ArrowLeft } from "lucide-react";
 import { FindingDuplicateForm } from "@/components/findings/finding-duplicate-form";
 import { FindingStatusForm } from "@/components/findings/finding-status-form";
 import { RetestFindingButton } from "@/components/findings/retest-finding-button";
+import { RemediationTaskForm } from "@/components/remediation/remediation-task-form";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { serverApiFetch } from "@/lib/api-server";
-import type { Finding, FindingStatus, Severity, Target } from "@/lib/types";
+import type {
+  Finding,
+  FindingStatus,
+  Membership,
+  RemediationBoardRow,
+  Severity,
+  Target,
+} from "@/lib/types";
 
 const SEVERITY_TONE: Record<Severity, BadgeProps["tone"]> = {
   CRITICAL: "critical",
@@ -58,6 +66,11 @@ export default async function FindingDetailPage({
   const duplicates = await serverApiFetch<Finding[]>(
     `/organizations/${id}/findings/${findingId}/duplicates`,
   );
+  const [members, board] = await Promise.all([
+    serverApiFetch<Membership[]>(`/organizations/${id}/members`),
+    serverApiFetch<RemediationBoardRow[]>(`/organizations/${id}/remediation`),
+  ]);
+  const remediationTask = board.find((row) => row.finding_id === finding.id)?.task ?? null;
 
   return (
     <div className="flex max-w-4xl animate-fade-in flex-col gap-4">
@@ -169,6 +182,24 @@ export default async function FindingDetailPage({
               </CardContent>
             </Card>
           )}
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Remediation</CardTitle>
+              <CardDescription>
+                Tracked work, separate from the finding&apos;s own security state.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <RemediationTaskForm
+                organizationId={id}
+                findingId={finding.id}
+                findingTitle={finding.title}
+                members={members}
+                task={remediationTask}
+              />
+            </CardContent>
+          </Card>
 
           <Card>
             <CardHeader>

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Workflow as WorkflowIcon } from "lucide-react";
 
 import { CreateWorkflowForm } from "@/components/workflows/create-workflow-form";
+import { EditWorkflowForm } from "@/components/workflows/edit-workflow-form";
 import { RunWorkflowButton } from "@/components/workflows/run-workflow-button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -60,7 +61,10 @@ export default async function WorkflowsPage({ params }: { params: Promise<{ id: 
                     </Badge>
                   </div>
                 </div>
-                <RunWorkflowButton organizationId={id} workflowId={workflow.id} />
+                <div className="flex items-center gap-2">
+                  <RunWorkflowButton organizationId={id} workflowId={workflow.id} />
+                  <EditWorkflowForm organizationId={id} workflow={workflow} />
+                </div>
               </CardContent>
             </Card>
           ))

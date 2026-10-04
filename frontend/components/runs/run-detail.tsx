@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 
+import { EvidencePanel } from "@/components/evidence/evidence-panel";
 import { CancelRunButton } from "@/components/runs/cancel-run-button";
 import { ExploitationFires } from "@/components/runs/exploitation-fires";
 import { ReportDownload } from "@/components/runs/report-download";
@@ -196,7 +197,10 @@ export function RunDetail({
       </Card>
 
       {!NOT_YET_RUN.includes(run.status) && (
-        <ReportDownload organizationId={organizationId} runId={runId} />
+        <>
+          <ReportDownload organizationId={organizationId} runId={runId} />
+          <EvidencePanel organizationId={organizationId} runId={runId} />
+        </>
       )}
 
       {run.status === "completed" && (
