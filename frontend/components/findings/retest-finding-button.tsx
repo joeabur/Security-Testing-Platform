@@ -4,6 +4,8 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 import { clientApiFetch } from "@/lib/api-client";
 import { ApiError } from "@/lib/errors";
 import type { Run } from "@/lib/types";
@@ -18,6 +20,7 @@ export function RetestFindingButton({
   targetId: string;
 }) {
   const router = useRouter();
+  const [isConfirmed, setIsConfirmed] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -30,7 +33,7 @@ export function RetestFindingButton({
         body: JSON.stringify({
           target_id: targetId,
           finding_ids: [findingId],
-          authorization_confirmed: true,
+          authorization_confirmed: isConfirmed,
         }),
       });
       router.push(`/organizations/${organizationId}/runs/${run.id}`);
@@ -42,8 +45,26 @@ export function RetestFindingButton({
   }
 
   return (
-    <div className="flex flex-col items-start gap-1">
-      <Button type="button" size="sm" variant="outline" onClick={onRetest} isLoading={isStarting}>
+    <div className="flex flex-col items-start gap-2">
+      <div className="flex items-start gap-2">
+        <Checkbox
+          id={`retest-authorized-${findingId}`}
+          className="mt-0.5"
+          checked={isConfirmed}
+          onChange={(event) => setIsConfirmed(event.target.checked)}
+        />
+        <Label htmlFor={`retest-authorized-${findingId}`} className="font-normal">
+          I confirm this retest is authorized for this target.
+        </Label>
+      </div>
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        onClick={onRetest}
+        isLoading={isStarting}
+        disabled={!isConfirmed}
+      >
         {isStarting ? "Starting retest..." : "Retest this finding"}
       </Button>
       {error && (

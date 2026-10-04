@@ -280,6 +280,84 @@ async def test_changing_the_gate_is_recorded_as_changing_the_gate(
     assert unchanged.json()["gate_config"] == {"fail_on": ["critical", "high"], "max_medium": 5}
 
 
+async def test_renaming_a_workflow_to_an_existing_name_is_a_conflict(
+    client: AsyncClient, strong_password: str
+) -> None:
+    org_id, target_id, headers = await _setup(client, strong_password, uuid.uuid4().hex[:8])
+    await client.post(
+        f"/api/v1/organizations/{org_id}/workflows",
+        json={"name": "taken", "target_id": target_id},
+        headers=headers,
+    )
+    other_id = (
+        await client.post(
+            f"/api/v1/organizations/{org_id}/workflows",
+            json={"name": "free", "target_id": target_id},
+            headers=headers,
+        )
+    ).json()["id"]
+
+    # Renaming to a name already used by a *different* workflow in this
+    # organization must be the same 409 a duplicate create gets, not the
+    # database's own unique-constraint 500.
+    collision = await client.patch(
+        f"/api/v1/organizations/{org_id}/workflows/{other_id}",
+        json={"name": "taken"},
+        headers=headers,
+    )
+    assert collision.status_code == 409, collision.text
+
+    # Renaming to its own current name (a no-op) must not be refused as a
+    # collision with itself.
+    noop = await client.patch(
+        f"/api/v1/organizations/{org_id}/workflows/{other_id}",
+        json={"name": "free"},
+        headers=headers,
+    )
+    assert noop.status_code == 200, noop.text
+
+
+async def test_editing_an_unrelated_field_does_not_reset_the_schedule_timer(
+    client: AsyncClient, strong_password: str
+) -> None:
+    org_id, target_id, headers = await _setup(client, strong_password, uuid.uuid4().hex[:8])
+    workflow_id = (
+        await client.post(
+            f"/api/v1/organizations/{org_id}/workflows",
+            json={
+                "name": "scheduled",
+                "target_id": target_id,
+                "trigger_kind": "schedule",
+                "schedule_interval_minutes": 120,
+            },
+            headers=headers,
+        )
+    ).json()["id"]
+    first = (
+        await client.get(f"/api/v1/organizations/{org_id}/workflows/{workflow_id}", headers=headers)
+    ).json()
+    assert first["next_run_at"] is not None
+
+    # Toggling something unrelated to the schedule must leave the existing
+    # countdown alone rather than re-arming it from now.
+    toggled = await client.patch(
+        f"/api/v1/organizations/{org_id}/workflows/{workflow_id}",
+        json={"enabled": False},
+        headers=headers,
+    )
+    assert toggled.status_code == 200, toggled.text
+    assert toggled.json()["next_run_at"] == first["next_run_at"]
+
+    # Actually changing the interval does re-arm it.
+    rescheduled = await client.patch(
+        f"/api/v1/organizations/{org_id}/workflows/{workflow_id}",
+        json={"schedule_interval_minutes": 180},
+        headers=headers,
+    )
+    assert rescheduled.status_code == 200, rescheduled.text
+    assert rescheduled.json()["next_run_at"] != first["next_run_at"]
+
+
 async def test_a_deleted_workflow_is_gone(client: AsyncClient, strong_password: str) -> None:
     org_id, target_id, headers = await _setup(client, strong_password, uuid.uuid4().hex[:8])
     workflow_id = (

@@ -6111,3 +6111,113 @@ browser walkthrough was run: seeding the org/target/finding/workflow data
 needed to exercise these three pages end-to-end was out of proportion to a
 P2 convenience item, so verification stopped at build, lint, type-check and
 component-rendering tests, stated here rather than left unstated.
+
+## Frontend/backend wiring audit: seven fixes
+
+A full-system pass cross-referenced every frontend `clientApiFetch`/
+`serverApiFetch` call site against the backend's actual served OpenAPI
+spec, rather than reading router decorators by eye. Seven real bugs came
+out of it, spanning both this session's own recent work and earlier code;
+all seven are fixed here, frontend-only except where noted.
+
+**Fixed.**
+- **Agent transcript appeared to be wiped on poll/approve.** Not a backend
+  bug: `Investigation`'s zero-persistence design (`core/agent/
+  investigation.py`, `core/agent/runtime.py`) deliberately never
+  serializes tool outputs across an approval pause — `GET .../status`
+  always returns an empty `outcomes` list by design, and `POST .../approve`
+  returns only the steps run since resuming, never the ones before it. The
+  actual bug was in `AgentWorkspace` (`components/agent/agent-workspace.
+  tsx`): it replaced its entire investigation state with each poll/approve
+  response, even though its own comment calls the in-memory state "the
+  entire conversation" while mounted. Fixed with a `mergeInvestigation`
+  helper that appends a response's outcomes onto the existing transcript
+  when the investigation id matches, and resets to the new response
+  outright when it doesn't (a fresh ask replaces the old transcript, not
+  merges onto it).
+- **Renaming a workflow to a name already in use 500'd instead of 409'ing.**
+  `update_workflow` (`api/v1/routers/workflows.py`) only checked for a name
+  collision on create, never on `PATCH`; a rename collision fell through to
+  the database's own unique-constraint error. Fixed by running the same
+  collision check `create_workflow` already runs, but only when `name` is
+  actually being changed (a no-op rename to the workflow's own current name
+  must not self-collide).
+- **Any workflow edit reset the schedule's `next_run_at` countdown.**
+  `update_workflow` recomputed `next_run_at` from `now()` on every `PATCH`,
+  even one that never touched `schedule_interval_minutes` — toggling
+  `enabled` alone silently pushed a scheduled workflow's next run back out.
+  Fixed by only re-arming `next_run_at` when `schedule_interval_minutes` is
+  actually present in the patch and differs from the stored value.
+- **Authorization grant forms defaulted "Valid from"/"Valid until" in UTC
+  against a local-time input.** `AuthorizationGrantForm` and
+  `ExploitationAuthorizationGrantForm` both built their `datetime-local`
+  defaults with `.toISOString().slice(0, 16)` — UTC wall-clock digits in a
+  field with no timezone marker, showing the wrong clock time to anyone not
+  at UTC+0. Extracted a shared `toLocalDatetimeInputValue()` helper
+  (`lib/dates.ts`, using local `Date` getters) and pointed both forms' and
+  both defaults at it.
+- **A Viewer visiting the Workflows page got a crash, not the dashboard's
+  usual access-denied state.** `GET .../workflows` requires Analyst or
+  higher; the page read it the same way it reads targets (Viewer-safe) and
+  let a 403 propagate as an unhandled error. Fixed by catching an
+  `ApiError` with `status === 403` specifically and rendering the same
+  `Alert tone="warning"` pattern used elsewhere, rethrowing anything else.
+- **A malformed request body returned FastAPI's own bare `{"detail":
+  [...]}` instead of this API's usual error shape.** Every `raise
+  HTTPException` already went through `http_exception_handler` and came
+  back as `{"error": {"code", "message", "request_id"}}`; a body or path
+  parameter FastAPI itself rejects before any route handler runs
+  (`RequestValidationError`) never did, so `lib/errors.ts`'s `ApiError`
+  (which only ever reads `body.error.message`) silently fell back to a
+  generic "Request failed" string even though Pydantic's specific
+  field-level reason was already known. Added an
+  `@app.exception_handler(RequestValidationError)` in `app/main.py` that
+  renders the same shape, joining each error's field path and message.
+- **Retesting a finding always sent `authorization_confirmed: true`,
+  skipping the explicit confirmation every other authorization flow in this
+  app requires.** `RetestFindingButton` had no checkbox at all. Added one
+  (`I confirm this retest is authorized for this target.`, matching
+  `StartRunForm`'s existing pattern) wired to local state, gating the
+  button and replacing the hardcoded `true` with the checkbox's own value.
+
+**Also fixed in the same pass (found alongside the audit, not in its
+original seven).**
+- **`Target`, `Run`, `WorkflowRun`, and `AgentToolCatalogEntry` in
+  `lib/types.ts` were missing fields their backend schemas already return**
+  (`adapter_config`, `code_repo_ref`, `runtime_protection`,
+  `code_languages`, `code_build_manifest_paths`, `declared_tools` on
+  `Target`; `authorization_digest`, `roe_digest` on `Run`; `trigger`,
+  `plan`, `plan_digest`, `stages`, `evidence_refs`, `gate_exit_code`,
+  `gate_counts`, `approved_by_user_id`, `approved_at` on `WorkflowRun`;
+  `input_schema` on `AgentToolCatalogEntry`). No consumer read any of them
+  yet, so this was latent rather than an active bug, but left the types out
+  of sync with what the API actually serves. Synced all four.
+- **Creating a schedule-triggered workflow had nowhere to set the
+  interval.** `CreateWorkflowForm` let a caller pick the "Schedule" trigger
+  but never showed a `schedule_interval_minutes` field, so a freshly
+  created scheduled workflow was created inert (per the backend's own
+  "silence is the inert state" default) with no way to arm it short of
+  immediately opening Edit. Added a conditional "Run every (minutes)"
+  field, shown only for the schedule trigger, with the same 60-minute floor
+  `updateWorkflowSchema` already enforces.
+
+**Deferred, not fixed here (named rather than silently dropped).**
+- **CORS middleware ordering** possibly affecting which headers a
+  cross-origin 403/429 response carries — flagged as lower-confidence by
+  the audit and touching this app's security posture; it needs a focused
+  look of its own rather than a fix folded into this bundle.
+- **Rules of Engagement's wholesale-replace-on-resave** — already
+  documented, intended UI behavior (the form's own copy says so), not a
+  wiring bug.
+- **Retest results are not fetched or rendered anywhere in the dashboard**
+  — a genuinely missing feature (a natural follow-up to the ASR-delta work
+  above), not a case of frontend and backend disagreeing about a contract.
+
+**Verified.** `ruff check`, `mypy app`, and backend `pytest` all clean;
+`tsc --noEmit`, `eslint .`, `next build`, and the full Vitest suite all
+clean on the frontend, including new tests for every fix above: workflow
+rename-collision and schedule-preservation cases in
+`test_workflows_api.py`, a new `test_error_responses.py` for the validation
+error shape, and new/extended frontend tests
+(`agent-workspace.test.tsx`, `create-workflow-form.test.tsx`,
+`retest-finding-button.test.tsx`, `dates.test.ts`).

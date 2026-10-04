@@ -8,6 +8,22 @@ All notable changes to this project are recorded here. The format follows
 
 ### Fixed
 
+- **Seven bugs found by a full-system frontend/backend wiring audit**, which cross-referenced
+  every frontend API call site against the backend's actual served OpenAPI spec: the agent
+  workspace erased its own transcript on poll/approve (frontend-only — the backend's
+  zero-persistence design for investigations was already correct); renaming a workflow to a
+  name already in use 500'd instead of 409'ing; any workflow edit reset the schedule's
+  `next_run_at` countdown even when the schedule itself was untouched; the authorization grant
+  forms defaulted their "valid from/until" fields in UTC against a local-time
+  `datetime-local` input; a Viewer visiting the Workflows page got an unhandled crash instead
+  of the dashboard's usual access-denied state; a malformed request body returned FastAPI's
+  own bare `{"detail": [...]}` instead of this API's usual `{"error": {...}}` shape; and
+  retesting a finding always sent `authorization_confirmed: true`, skipping the explicit
+  confirmation every other authorization flow requires. Also synced `lib/types.ts`'s `Target`,
+  `Run`, `WorkflowRun`, and `AgentToolCatalogEntry` with fields their backend schemas already
+  return, and added the missing schedule-interval field to the create-workflow form. See
+  `docs/roadmap.md`'s "Frontend/backend wiring audit: seven fixes" for the full write-up,
+  including what was deferred.
 - **Findings listing had no deterministic tiebreaker, so a page could silently disagree
   with the unbounded list it was paging through.** `GET /organizations/{id}/findings` and
   the dashboard's `top_findings`/`has_more_findings` queries all ordered by
