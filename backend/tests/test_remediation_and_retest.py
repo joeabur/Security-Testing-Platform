@@ -28,6 +28,7 @@ from app.core.retest.service import baseline_of, mark_awaiting_retest, record_re
 from app.core.scope.engine import ScopeEngine
 from app.core.scope.transport import GatedTransport
 from app.models.assessment_run import AssessmentRun, RunKind, RunStatus
+from app.models.audit import AuditEvent
 from app.models.finding import Finding, FindingStatus
 from app.models.remediation import RemediationTask
 from app.models.retest import RetestResult, RetestVerdict
@@ -346,7 +347,7 @@ async def test_a_viewer_can_read_the_board_but_not_change_it(
 
 
 async def test_a_weakness_that_is_still_there_is_reported_as_reproduced(
-    client: AsyncClient, strong_password: str
+    client: AsyncClient, strong_password: str, db_session: AsyncSession
 ) -> None:
     org_id, target_id, headers = await _setup(client, strong_password, "e")
     await _run(client, org_id, target_id, headers)
@@ -379,6 +380,26 @@ async def test_a_weakness_that_is_still_there_is_reported_as_reproduced(
     ).json()
     assert after["status"] == "confirmed"
     assert after["retest_result"] == "reproduced"
+
+    # The retest's own auto-reopen (retest_required -> confirmed) is
+    # audited distinctly from promotion's own auto-reopen, and attributed
+    # to nobody: the retest's requester did not make this specific call,
+    # the platform did once it saw the fingerprint again.
+    audited = (
+        await db_session.execute(
+            select(AuditEvent.user_id, AuditEvent.metadata_json).where(
+                AuditEvent.resource_type == "finding",
+                AuditEvent.resource_id == finding["id"],
+                AuditEvent.action == "finding.status.auto_retest_verdict",
+            )
+        )
+    ).all()
+    assert len(audited) == 1
+    user_id, metadata = audited[0]
+    assert user_id is None
+    assert metadata["from_status"] == "retest_required"
+    assert metadata["to_status"] == "confirmed"
+    assert metadata["verdict"] == "reproduced"
 
 
 async def test_a_weakness_that_is_gone_is_reported_as_not_reproduced_and_closed(
@@ -425,6 +446,22 @@ async def test_a_weakness_that_is_gone_is_reported_as_not_reproduced_and_closed(
         )
     ).scalar_one()
     assert task.closed_at is not None, "a verified fix should close its task"
+
+    audited = (
+        await db_session.execute(
+            select(AuditEvent.user_id, AuditEvent.metadata_json).where(
+                AuditEvent.resource_type == "finding",
+                AuditEvent.resource_id == finding["id"],
+                AuditEvent.action == "finding.status.auto_retest_verdict",
+            )
+        )
+    ).all()
+    assert len(audited) == 1
+    user_id, metadata = audited[0]
+    assert user_id is None
+    assert metadata["from_status"] == "retest_required"
+    assert metadata["to_status"] == "closed"
+    assert metadata["verdict"] == "not_reproduced"
 
 
 async def test_a_retest_needs_its_own_authorization_confirmation(
@@ -567,6 +604,20 @@ async def test_a_probe_that_did_not_run_is_not_tested_rather_than_fixed(
     # And the status is untouched: nothing was learned, so nothing moves.
     assert finding.status is FindingStatus.RETEST_REQUIRED
     assert finding.retest_result == "not_tested"
+
+    # Nothing moved, so there is nothing to audit either — a `not_tested`
+    # verdict must never produce an auto-status-change event about a
+    # change that did not happen.
+    audited = (
+        await db_session.execute(
+            select(AuditEvent).where(
+                AuditEvent.resource_type == "finding",
+                AuditEvent.resource_id == finding_id,
+                AuditEvent.action == "finding.status.auto_retest_verdict",
+            )
+        )
+    ).all()
+    assert audited == []
 
 
 async def test_a_halted_retest_reports_nothing_as_fixed(

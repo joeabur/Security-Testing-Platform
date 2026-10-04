@@ -5898,3 +5898,63 @@ one that is not, and the disclaimer fallback when there are no Python
 files to check. Full `tests/test_appsec_engines.py` + the three new
 reachability test files + `tests/security/test_scope_controls.py`
 (112 tests) passes clean; no existing test needed a behavioural change.
+
+## Automatic finding-status-change audit events
+
+`docs/competitive-gap-analysis.md` named a gap in the audit trail itself:
+a human-initiated status change (`POST /findings/{id}/status`) already
+calls `app.audit.service.record_event`, but the platform's own automatic
+transitions — a scan that finds the same fingerprint again and reopens a
+finding promotion had marked `remediated`, and a retest's own
+reproduced/not-reproduced verdict closing or reopening a finding — left no
+audit row at all. An org reading the audit log for "why is this finding
+confirmed again" saw nothing, even though something had, in fact, changed
+its status without anyone clicking anything.
+
+**Delivered.**
+- `app/core/findings/service.py`'s `promote_run_results` auto-reopen path
+  (a `remediated`/`closed` finding reappearing in a new run) now calls
+  `record_event` with `action="finding.status.auto_reopened"`,
+  `user_id=None`, and `metadata` naming the `from_status`/`to_status`,
+  fingerprint, and the run that triggered it.
+- `app/core/retest/service.py`'s `_apply` (now `async`, since
+  `record_event` awaits a flush) calls a new `_audit_auto_status_change`
+  helper at both of its status-changing branches — a `not_reproduced`
+  verdict closing a `retest_required` finding, and a `reproduced` verdict
+  reopening one to `confirmed` — with `action=
+  "finding.status.auto_retest_verdict"` and metadata additionally naming
+  the retest run and verdict. A `not_tested` verdict changes no status and
+  correctly writes no event.
+- Both call sites write inline, inside the existing transaction, before
+  that transaction's own final flush/commit — `record_event` already does
+  its own `db.add()` + `await db.flush()`, so no transaction-boundary
+  restructuring was needed, just placing the call before the status
+  mutation's own commit point.
+
+**Decisions.**
+- **`user_id=None`, always.** A human-initiated change attributes to the
+  acting user; these two paths attribute to nobody, deliberately — the
+  change was the platform's own rule firing (a fingerprint match, a
+  retest verdict), not a decision the human who happened to request the
+  run or retest made on the finding's behalf. This differs from the
+  existing worker-run-lifecycle audit event (`_audit_run_event` in
+  `app/workers/tasks.py`), which attributes to the run's creator; that
+  event is about *a run happening*, something a person did start, whereas
+  these are about *a finding's status changing automatically*, something
+  nobody directly asked for on that specific finding.
+- **No change to the status transitions themselves.** This phase only adds
+  the missing audit row to transitions that already existed; it does not
+  add, remove, or alter which transitions are automatic.
+
+**Deferred.** None — this item was fully scoped and closed by the two call
+sites above; there are no other automatic finding-status mutations in the
+codebase (confirmed by grep for `finding.status =` outside human-driven
+request handlers).
+
+**Verified.** `ruff check` / `mypy app` clean. `tests/test_findings_api.py`
+and `tests/test_remediation_and_retest.py` extended with positive
+assertions (the expected `AuditEvent` row exists, with `user_id is None`
+and the correct `from_status`/`to_status`/`verdict` metadata) at all three
+call sites, plus a negative assertion that a `not_tested` verdict produces
+no event at all. Full backend suite (130 tests) passes clean; no existing
+test needed a behavioural change.

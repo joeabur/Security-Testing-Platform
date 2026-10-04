@@ -16,6 +16,7 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.audit.service import record_event
 from app.core.findings.normalize import build_finding
 from app.core.probes.models import Severity
 from app.core.risk.model import Environment, Exposure
@@ -144,10 +145,31 @@ async def promote_run_results(
         # silently leaving it closed would be the most dangerous kind of
         # stale record.
         if existing.status in (FindingStatus.REMEDIATED, FindingStatus.CLOSED):
+            previous_status = existing.status
             existing.status = FindingStatus.CONFIRMED
             existing.status_note = (
                 f"Reopened automatically: still present in run {run_id} after being "
-                f"marked {existing.status.value}."
+                f"marked {previous_status.value}."
+            )
+            # The human-initiated transition at `POST /findings/{id}/status`
+            # has always been audited; this automatic one — the platform
+            # itself reopening a finding, not a person — was the real gap
+            # docs/competitive-gap-analysis.md names. `user_id=None` says
+            # plainly that nobody made this call.
+            await record_event(
+                db,
+                action="finding.status.auto_reopened",
+                resource_type="finding",
+                resource_id=str(existing.id),
+                result="allow",
+                organization_id=organization_id,
+                user_id=None,
+                metadata={
+                    "from_status": previous_status.value,
+                    "to_status": existing.status.value,
+                    "fingerprint": existing.fingerprint,
+                    "run_id": str(run_id),
+                },
             )
         promoted.append(existing)
 

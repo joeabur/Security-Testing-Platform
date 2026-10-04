@@ -169,6 +169,19 @@ All notable changes to this project are recorded here. The format follows
 
 ### Added
 
+- **Automatic finding-status-change audit events.** A human-initiated
+  status change already recorded an audit event; the platform's own
+  automatic transitions did not — a scan reopening a `remediated`/`closed`
+  finding it saw again, and a retest's own verdict closing or reopening a
+  `retest_required` finding, left no row in the audit log at all. Both
+  `app/core/findings/service.py`'s `promote_run_results` auto-reopen path
+  and `app/core/retest/service.py`'s `_apply` now call
+  `app.audit.service.record_event` (actions
+  `finding.status.auto_reopened` / `finding.status.auto_retest_verdict`),
+  always with `user_id=None` to attribute the change to the platform's own
+  rule rather than whichever human requested the run or retest. A
+  `not_tested` retest verdict changes no status and correctly writes no
+  event.
 - **Reachability analysis foundation: import-level evidence for SCA
   findings, replacing a blanket disclaimer.** `docs/competitive-gap-
   analysis.md` named this precisely: only network reachability existed;

@@ -28,6 +28,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.audit.service import record_event
 from app.models.assessment_run import AssessmentRun
 from app.models.finding import Finding, FindingStatus
 from app.models.retest import RetestResult, RetestVerdict
@@ -168,7 +169,7 @@ async def record_retest(db: AsyncSession, *, run: AssessmentRun) -> list[RetestR
             continue
 
         verdict, detail, after_ref = _verdict_for(entry, finding, run, probes_that_ran)
-        _apply(finding, verdict, run)
+        await _apply(db, finding, verdict, run)
         results.append(
             _result(
                 run,
@@ -233,7 +234,9 @@ def _verdict_for(
     )
 
 
-def _apply(finding: Finding, verdict: RetestVerdict, run: AssessmentRun) -> None:
+async def _apply(
+    db: AsyncSession, finding: Finding, verdict: RetestVerdict, run: AssessmentRun
+) -> None:
     """Record the verdict on the finding, and close only what may be closed.
 
     `not_tested` never moves a status — that is the point of having it. And a
@@ -249,22 +252,53 @@ def _apply(finding: Finding, verdict: RetestVerdict, run: AssessmentRun) -> None
 
     if verdict is RetestVerdict.NOT_REPRODUCED:
         if finding.status is FindingStatus.RETEST_REQUIRED:
+            previous_status = finding.status
             finding.status = FindingStatus.CLOSED
             finding.status_note = f"Closed by retest {run.id}: not reproduced."
             if finding.remediation_task is not None:
                 finding.remediation_task.closed_at = datetime.now(UTC)
+            await _audit_auto_status_change(
+                db, finding=finding, run=run, from_status=previous_status
+            )
         return
 
     # Reproduced. Promotion has already reopened a remediated or closed
     # finding as confirmed; this covers the one it cannot, because
     # `retest_required` is not a state promotion treats as resolved.
     if finding.status is FindingStatus.RETEST_REQUIRED:
+        previous_status = finding.status
         finding.status = FindingStatus.CONFIRMED
         finding.status_note = f"Reopened by retest {run.id}: still reproducible."
+        await _audit_auto_status_change(db, finding=finding, run=run, from_status=previous_status)
     # The work is not done, so its task stays open even if something closed it
     # optimistically earlier.
     if finding.remediation_task is not None:
         finding.remediation_task.closed_at = None
+
+
+async def _audit_auto_status_change(
+    db: AsyncSession, *, finding: Finding, run: AssessmentRun, from_status: FindingStatus
+) -> None:
+    """The retest's own automatic status transitions, audited the same way
+    `promote_run_results`'s auto-reopen now is: the platform made this
+    call, not a person, so `user_id=None` says so rather than attributing
+    it to whoever happened to request the retest."""
+    await record_event(
+        db,
+        action="finding.status.auto_retest_verdict",
+        resource_type="finding",
+        resource_id=str(finding.id),
+        result="allow",
+        organization_id=run.organization_id,
+        user_id=None,
+        metadata={
+            "from_status": from_status.value,
+            "to_status": finding.status.value,
+            "fingerprint": finding.fingerprint,
+            "retest_run_id": str(run.id),
+            "verdict": finding.retest_result,
+        },
+    )
 
 
 def _result(
