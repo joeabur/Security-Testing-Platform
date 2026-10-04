@@ -6,6 +6,21 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
+### Documentation
+
+- **`docs/competitive-gap-analysis.md`, README.md, and docs/dashboard.md were stale against
+  several already-merged features.** Six of the eleven items in the gap-analysis doc's
+  "Remaining gaps" list (RAG/agent security probes, the AI regression CLI, direct OSV.dev
+  integration, reachability analysis, automatic finding-status audit events, retest
+  ASR-delta, and the dashboard convenience UI gaps) had shipped in later passes but were
+  never marked done, and three dashboard-completeness table rows (run cancel, finding
+  retest, API keys) were stale from an even earlier pass. Also corrected a factual error
+  introduced in an earlier roadmap write-up: the "Dashboard convenience gaps" entry claimed
+  a `kervy_cli` command already existed for remediation assignment before its UI was added —
+  no such subcommand exists anywhere in `kervy_cli/main.py`; only the backend API did. Updated
+  all three docs to match the actual current state, splitting each closed item into what was
+  actually delivered versus what remains honestly open, rather than marking a whole row "done."
+
 ### Fixed
 
 - **Seven bugs found by a full-system frontend/backend wiring audit**, which cross-referenced

@@ -6043,19 +6043,25 @@ needed a behavioural change.
 ## Dashboard convenience gaps: remediation assignment, evidence list/verify, workflow edit/delete
 
 `docs/competitive-gap-analysis.md` named three dashboard gaps as P2
-convenience, not P1 capability — each one already had a full backend API
-and a working `kervy_cli` command; only the web UI was missing. This closes
-all three, frontend-only, with no backend changes needed (the APIs were
-already complete and already covered by backend tests).
+convenience, not P1 capability — each already had a full backend API; two
+of the three (evidence list/verify, workflow edit/delete) also already had
+a working `kervy_cli` command, so only the web UI was missing. (Corrected
+after the fact: remediation assignment did **not** have a CLI command —
+no `remediation` subcommand exists anywhere in `kervy_cli/main.py` — only
+the backend API did; this write-up originally overstated that, now fixed
+here and in `docs/competitive-gap-analysis.md`.) This closes all three,
+frontend-only, with no backend changes needed (the APIs were already
+complete and already covered by backend tests).
 
 **Delivered.**
 - **Remediation assignment**: `RemediationTaskForm` on the finding detail
   page (`app/(dashboard)/organizations/[id]/findings/[findingId]/page.tsx`)
   — summary, assignee (a `<select>` populated from `GET .../members`), due
-  date and notes, calling the same `PUT .../findings/{id}/remediation` the
-  CLI's remediation board already upserts through. The page now also reads
-  `GET .../remediation` (the board) to find this finding's existing task,
-  if any, and prefills the form from it rather than always starting blank.
+  date and notes, calling the existing `PUT .../findings/{id}/remediation`
+  route (API-only until now — no `kervy_cli` subcommand wraps it either).
+  The page now also reads `GET .../remediation` (the board) to find this
+  finding's existing task, if any, and prefills the form from it rather
+  than always starting blank.
 - **Evidence list/verify**: `EvidencePanel` on the run detail page — loads
   the manifest from `GET .../evidence` on request (not polled; a
   completed run's evidence does not change under a reader), a "Verify
@@ -6086,8 +6092,9 @@ already complete and already covered by backend tests).
 - **No board page.** The per-finding assignment form closes the named gap
   (assigning/tracking one finding's remediation from the dashboard); a
   cross-finding board view is a reasonable future increment but is not what
-  was asked for here, and the CLI's `GET .../remediation` already serves
-  that need today.
+  was asked for here. `GET .../remediation` (the board) is reachable today
+  only as a raw API call — no `kervy_cli` subcommand wraps it, a real,
+  separate gap this pass does not close either.
 - **No modal/confirmation-dialog infrastructure added.** Every existing
   destructive action in this frontend (cancelling a run, unlinking a
   duplicate) fires immediately on click with no `window.confirm` or modal —

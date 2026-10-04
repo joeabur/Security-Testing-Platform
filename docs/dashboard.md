@@ -103,6 +103,46 @@ human's own explicit judgment — see `docs/authorization-and-scope.md` and
 invariant this UI does not itself enforce (the API's `409` on a violation
 surfaces as an ordinary form error).
 
+### Run cancel, retest trigger, and three more convenience gaps
+
+Five actions that already had a working backend route (and, for the first
+two, a `kervy_cli` command) but no dashboard surface, closed across two
+passes once `docs/competitive-gap-analysis.md` named each as a real but
+P2 gap:
+
+- **Run cancel** (`components/runs/cancel-run-button.tsx`, on the run
+  detail page) fires `POST .../runs/{id}/cancel` immediately on click —
+  no confirmation dialog, matching this frontend's one convention for
+  every destructive action.
+- **Retest trigger** (`components/findings/retest-finding-button.tsx`, on
+  the finding detail page) posts to the same retest route the CLI's
+  `kervy retest` uses, gated the same way (`SECURITY_ENGINEER`+) and
+  requiring the caller to check an explicit "I confirm this retest is
+  authorized for this target" box before the button enables — the UI's
+  own confirmation step, not a substitute for the backend's own
+  authorization check.
+- **Remediation assignment** (`components/remediation/
+  remediation-task-form.tsx`, on the finding detail page) — summary,
+  assignee (a `<select>` populated from `GET .../members`), due date and
+  notes, against `PUT .../findings/{id}/remediation`. The page also reads
+  `GET .../remediation` (the board) to prefill the form from this
+  finding's existing task, if any, rather than always starting blank.
+  There is still no dedicated `kervy_cli` command for this — only the
+  API and now this UI.
+- **Evidence list/verify** (`components/evidence/evidence-panel.tsx`, on
+  the run detail page) loads the manifest from `GET .../evidence` on
+  request, a "Verify chain" button against `GET .../evidence/verify` that
+  shows the real `ok`/`problems` result, and a per-entry download button
+  reusing the `clientApiDownload` helper the report-download feature below
+  already built.
+- **Workflow edit/delete** (`components/workflows/edit-workflow-form.tsx`,
+  on the workflows page) — collapsed to Edit/Delete buttons by default,
+  expanding to an inline name/enabled/schedule form on Edit (`PATCH
+  .../workflows/{id}`), Delete firing `DELETE .../workflows/{id}`
+  immediately on click, same no-confirmation-dialog convention as run
+  cancel above. Workflow webhook-secret rotation and gate approve/reject
+  remain CLI-only — not yet given a dashboard surface.
+
 ### Agent tool configuration
 
 The native agent workspace's "Available tools" card
