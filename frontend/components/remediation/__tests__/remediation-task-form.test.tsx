@@ -39,7 +39,7 @@ describe("RemediationTaskForm", () => {
     fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
-    const [path, init] = fetchMock.mock.calls[0];
+    const [path, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(path).toBe("/organizations/org-1/findings/finding-1/remediation");
     expect(init.method).toBe("PUT");
     const body = JSON.parse(init.body as string);
@@ -77,7 +77,8 @@ describe("RemediationTaskForm", () => {
     fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
-    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(init.body as string);
     expect(body.assignee_user_id).toBe("user-1");
   });
 });

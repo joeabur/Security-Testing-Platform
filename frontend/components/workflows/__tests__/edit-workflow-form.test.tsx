@@ -50,7 +50,7 @@ describe("EditWorkflowForm", () => {
     fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
-    const [path, init] = fetchMock.mock.calls[0];
+    const [path, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(path).toBe("/organizations/org-1/workflows/wf-1");
     expect(init.method).toBe("PATCH");
     const body = JSON.parse(init.body as string);

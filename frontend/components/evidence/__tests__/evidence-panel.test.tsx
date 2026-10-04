@@ -11,16 +11,15 @@ vi.mock("@/lib/api-client", () => ({
 import { EvidencePanel } from "@/components/evidence/evidence-panel";
 import type { EvidenceManifestEntry, EvidenceVerification } from "@/lib/types";
 
-const manifest: EvidenceManifestEntry[] = [
-  {
-    sequence: 1,
-    digest: "sha256:" + "a".repeat(64),
-    previous: "sha256:" + "0".repeat(64),
-    chain: "sha256:" + "b".repeat(64),
-    probe_id: "ai.injection.direct",
-    created_at: "2026-01-01T00:00:00Z",
-  },
-];
+const firstEntry: EvidenceManifestEntry = {
+  sequence: 1,
+  digest: "sha256:" + "a".repeat(64),
+  previous: "sha256:" + "0".repeat(64),
+  chain: "sha256:" + "b".repeat(64),
+  probe_id: "ai.injection.direct",
+  created_at: "2026-01-01T00:00:00Z",
+};
+const manifest: EvidenceManifestEntry[] = [firstEntry];
 
 describe("EvidencePanel", () => {
   beforeEach(() => {
@@ -85,7 +84,7 @@ describe("EvidencePanel", () => {
 
     await waitFor(() =>
       expect(downloadMock).toHaveBeenCalledWith(
-        `/organizations/org-1/runs/run-1/evidence/${encodeURIComponent(manifest[0].digest)}`,
+        `/organizations/org-1/runs/run-1/evidence/${encodeURIComponent(firstEntry.digest)}`,
       ),
     );
   });
