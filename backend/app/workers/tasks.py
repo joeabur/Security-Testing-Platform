@@ -84,7 +84,7 @@ from app.core.vm.contract import VmTarget
 from app.core.workflow import service as workflow_service
 from app.core.workflow.contract import WorkflowStatus
 from app.db.session import dispose_engine, get_session_factory
-from app.db.tenant_context import set_current_organization
+from app.db.tenant_context import set_tenant_context
 from app.models.assessment_run import (
     AssessmentRun,
     RunEvent,
@@ -262,12 +262,12 @@ async def execute_assessment_run(
             # it up — never restart a run that has left the queue.
             return run.status
 
-        # Row-Level Security (app/db/tenant_context.py): every query this
-        # task makes from here on, including the ones already issued above
-        # to load `run` itself, needs the organization set for the *next*
-        # transaction this session opens — set as soon as the run's
-        # organization is known.
-        set_current_organization(run.organization_id)
+        # Row-Level Security (app/db/tenant_context.py): `_load_run` above
+        # already autobegan this session's transaction before the run's own
+        # organization was known, so `set_tenant_context` (not the bare
+        # ContextVar setter) asserts it directly on that already-open
+        # transaction rather than waiting for one that begins later.
+        await set_tenant_context(db, run.organization_id)
 
         target = run.target
 
@@ -789,7 +789,7 @@ async def gate_workflow_run_if_linked_async(run_id: str) -> None:
         ).scalar_one_or_none()
         if workflow_run is None:
             return
-        set_current_organization(workflow_run.organization_id)
+        await set_tenant_context(db, workflow_run.organization_id)
         workflow = await db.get(Workflow, workflow_run.workflow_id)
         if workflow is None:
             logger.warning(
@@ -881,7 +881,7 @@ async def run_scheduled_workflow_async(workflow_id: str) -> None:
         if workflow is None or not workflow.enabled:
             logger.warning("scheduled_workflow_not_runnable", workflow_id=workflow_id)
             return
-        set_current_organization(workflow.organization_id)
+        await set_tenant_context(db, workflow.organization_id)
         trigger = workflow_service.trigger_from(
             workflow, actor="system:celery-beat", unattended=True
         )
@@ -944,7 +944,7 @@ async def fire_exploitation_module_async(fire_id: str) -> None:
         if fire is None:
             logger.warning("exploitation_fire_not_found", fire_id=fire_id)
             return
-        set_current_organization(fire.organization_id)
+        await set_tenant_context(db, fire.organization_id)
 
         if (
             fire.status != ExploitationFireStatus.QUEUED.value

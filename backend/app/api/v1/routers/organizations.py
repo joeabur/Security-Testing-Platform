@@ -14,7 +14,7 @@ from app.auth.dependencies import CurrentUser, DbSession, require_membership
 from app.core.config import get_settings
 from app.core.invitation_email import InvitationEmailNotConfigured, send_invitation_email
 from app.core.revocation import dependency as revocation
-from app.db.tenant_context import set_current_organization
+from app.db.tenant_context import set_tenant_context
 from app.models.invitation import OrganizationInvitation, digest_of, mint_invitation_token
 from app.models.organization import Membership, Organization, Role
 from app.models.user import User
@@ -378,7 +378,7 @@ async def accept_invitation(
     no `require_membership` dependency to declare a minimum role, on
     purpose, since the entire point is a caller who is *not yet* a member.
 
-    The token lookup itself happens before `set_current_organization` can be
+    The token lookup itself happens before `set_tenant_context` can be
     called — the same shape `resolve_api_key`'s `ApiKey.key_id` lookup
     already has, for the same reason: which organization a presented secret
     belongs to is precisely what looking it up *tells* you, not something
@@ -402,7 +402,7 @@ async def accept_invitation(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Invalid or expired invitation")
 
     organization_id = invitation.organization_id
-    set_current_organization(organization_id)
+    await set_tenant_context(db, organization_id)
 
     existing = await db.execute(
         select(Membership).where(

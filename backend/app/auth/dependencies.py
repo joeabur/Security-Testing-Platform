@@ -19,7 +19,7 @@ from app.core.config import get_settings
 from app.core.revocation import dependency as revocation
 from app.core.revocation.contract import RevocationStoreUnavailable
 from app.db.session import get_db
-from app.db.tenant_context import set_current_organization
+from app.db.tenant_context import set_tenant_context
 from app.models.api_key import ApiKey, split_token
 from app.models.organization import Membership, Role
 from app.models.user import PlatformRole, User
@@ -172,8 +172,11 @@ def require_membership(
         # including this one, runs under the Postgres session variable RLS
         # policies read — this is what makes forgetting an
         # `organization_id` filter fail closed instead of silently
-        # succeeding.
-        set_current_organization(organization_id)
+        # succeeding. `set_tenant_context` (not the bare ContextVar setter)
+        # because `current_user` above already queried the database to
+        # resolve the caller's identity, which has already autobegun this
+        # request's transaction — see app/db/tenant_context.py.
+        await set_tenant_context(db, organization_id)
         result = await db.execute(
             select(Membership)
             .where(

@@ -172,6 +172,46 @@ role-gating convention anywhere (every form renders unconditionally; the
 backend's RBAC is the only enforcement). See
 `docs/authorization-and-scope.md`.
 
+### Members
+
+A new top-level tab (`/organizations/{id}/members`,
+`components/organizations/org-section-nav.tsx`), wiring up member
+invitation, role changes, removal, and pending-invitation management —
+all of which the backend has supported since early in this project, with
+no dashboard surface until now. An invite form
+(`components/organizations/invite-member-form.tsx`, email + role) posts
+to `POST .../members`, which returns one of two differently-shaped
+responses — a `Membership` if the address already has an account
+(added immediately) or an `OrganizationInvitation` if not (a pending
+invite is created and emailed) — distinguished by the presence of
+`user_id` rather than inferred from an absent field, matching the two
+schemas' own deliberate difference. The member list shows an inline
+role `<select>` + Save (`components/organizations/member-role-form.tsx`,
+`PATCH .../members/{id}`) and a Remove button
+(`components/organizations/remove-member-button.tsx`, `DELETE
+.../members/{id}`) per row; pending invitations get a Revoke button
+(`components/organizations/revoke-invitation-button.tsx`, `DELETE
+.../invitations/{id}`). Remove and Revoke are the only two destructive
+actions on this page without this frontend's usual no-confirmation
+convention — both go through `window.confirm` first, since removing a
+teammate (unlike cancelling a run or deleting a workflow) is not easily
+self-correctable from inside the product.
+
+This page is the one exception to "every form renders unconditionally"
+noted above for the exploitation tier: `GET .../invitations` itself
+requires `Role.ADMIN` at the API (unlike every other list endpoint this
+dashboard calls), and `serverApiFetch` has no error boundary of its own —
+fetching it unconditionally would crash the whole page for a Viewer/
+Analyst/Security Engineer rather than degrade gracefully. The page reads
+the caller's own role from `GET /organizations/{id}` (already returned
+on every response) and only fetches invitations, and only renders the
+invite form and the per-member role/remove controls, when that role is
+Admin or Owner — a Viewer/Analyst/Security Engineer still sees the member
+list (`list_members` only requires `Role.VIEWER`), just without controls
+they could never successfully use. This is still cosmetic, not
+authorization: the backend's own `require_membership` enforces every one
+of these routes independently, same as the rest of this dashboard.
+
 ### Report download
 
 The run detail page's "Report" card (`components/runs/report-download.tsx`,

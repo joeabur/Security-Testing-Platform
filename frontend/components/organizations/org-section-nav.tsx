@@ -9,6 +9,7 @@ import {
   LayoutDashboard,
   PlayCircle,
   ShieldAlert,
+  Users,
   Workflow,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -23,6 +24,7 @@ const SECTIONS: { slug: string; label: string; icon: LucideIcon }[] = [
   { slug: "runs", label: "Runs", icon: PlayCircle },
   { slug: "findings", label: "Findings", icon: ShieldAlert },
   { slug: "agent", label: "Agent", icon: Bot },
+  { slug: "members", label: "Members", icon: Users },
 ];
 
 export function OrgSectionNav({ organizationId }: { organizationId: string }) {

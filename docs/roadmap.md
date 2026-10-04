@@ -6315,3 +6315,148 @@ real `docker compose build`/`up` could not be run in this sandbox (the
 same Docker Hub/apt-mirror egress block `docs/installation.md` and
 `docs/competitive-gap-analysis.md` already document) — stated here
 rather than claimed otherwise.
+
+## Row-Level Security's session variable was never actually set on a correctly-provisioned deployment
+
+Found incidentally while building the dashboard Members page below, by
+actually running the full stack (Postgres, Redis, FastAPI, Next.js)
+against a non-superuser database role instead of trusting the test
+suite's own role, which is `postgres` — a superuser, and superusers
+bypass Postgres RLS unconditionally. Inviting a not-yet-registered
+address (`POST /organizations/{id}/members`, the `organization_invitations`
+table write) failed with `new row violates row-level security policy`.
+
+**Context.** `app/db/tenant_context.py` bridges a per-request
+`ContextVar` to Postgres's session-local `kervy.org_id` setting via an
+SQLAlchemy `"begin"` event: when a transaction starts on a connection,
+the listener reads the ContextVar and issues `SET LOCAL`. Every
+organization-scoped route calls `set_current_organization(organization_id)`
+in `require_membership` — the single dependency every such route already
+depends on — before doing anything else.
+
+**Root cause.** "Before doing anything else" was not early enough.
+Every one of those routes also depends on `get_current_user`, to
+establish who is calling — and identity has to come first, so
+`get_current_user` necessarily resolves before `require_membership`'s own
+body runs. `get_current_user` queries the database (`db.get(User,
+user_id)`), and that query autobegins the one transaction SQLAlchemy's
+`AsyncSession` keeps open for the rest of the request. The `"begin"`
+event fires right there — with the ContextVar still at its default,
+since the organization id was not yet known. `set_current_organization`
+inside `require_membership`, moments later, updates the ContextVar, but
+nothing re-issues `SET LOCAL`: Postgres's session-local setting from a
+`"begin"` event only changes at the next `"begin"`, not retroactively.
+For the rest of that request, every RLS-enforced table (`targets`,
+`organization_invitations`, `findings`, `scan_results`, `workflows`,
+`agent_tools`, `api_keys`, and 15 more) saw `kervy.org_id` as empty —
+`FORCE ROW LEVEL SECURITY` rejecting every insert/update outright, and
+silently returning zero rows from every read. The same shape of bug
+existed in the inbound workflow-webhook handler and in all four Celery
+task entry points that load a row by bare id before they know that row's
+organization (`execute_assessment_run`, the workflow-gate task, the
+scheduled-workflow task, `fire_exploitation_module`) — each one queries
+the database once before calling `set_current_organization`, for the
+same unavoidable reason (which row this is *is* what tells you its
+organization).
+
+**Why the test suite never caught it.** `tests/conftest.py`'s database
+role is `postgres`, a superuser — and superusers bypass RLS
+unconditionally, with no override (`app/db/tenant_context.py`'s own
+docstring states this). Every test that exercises an organization-scoped
+route runs against a role for which RLS is never evaluated at all, for
+the opposite reason this bug exists. The tenant-isolation guarantee the
+suite does verify (`docs/security-model.md` guarantee #12) is the
+application-level `organization_id` filtering every query already has —
+RLS was meant to be a second, independent check behind it, and that
+second check had been silently inert since Phase 1, on any deployment
+that had correctly followed `docs/deployment.md`'s own instruction that
+the runtime role must not be a superuser.
+
+**Blast radius.** Defense-in-depth only. The primary tenant-isolation
+boundary — explicit `organization_id` filtering in every query — was
+never affected by this bug and is what the passing test suite actually
+proves; no cross-tenant data exposure follows from this, because nothing
+in the request path ever omitted that filter. What broke was RLS's own
+job as a second, independent backstop, plus a concrete, user-visible
+symptom on any correctly non-superuser deployment: invitations to
+not-yet-registered addresses failing outright, and (per the same
+mechanism) likely other RLS-gated writes depending on exact query
+ordering within a request.
+
+**Fixed.**
+- New `set_tenant_context(db, organization_id)` in
+  `app/db/tenant_context.py`: sets the ContextVar as before, *and*
+  immediately issues `SELECT set_config('kervy.org_id', ..., true)` on
+  `db`'s current transaction directly — `SET LOCAL` is not restricted to
+  the instant a transaction begins, so this corrects the value for every
+  query the request or task still has left to make, regardless of which
+  dependency queried the database first. The `"begin"` listener stays in
+  place as the backstop for a transaction that begins *after* this one
+  commits (the case it was always correct for).
+- Every call site that used to call `set_current_organization` directly
+  now calls `set_tenant_context` instead: `require_membership`
+  (`app/auth/dependencies.py`), `accept_invitation`
+  (`app/api/v1/routers/organizations.py`), the inbound workflow webhook
+  handler (`app/api/v1/routers/webhooks.py`), and all four Celery task
+  entry points in `app/workers/tasks.py`.
+
+**Verified.** `ruff check` / `mypy app` clean on every changed file. The
+full backend suite (321 organizations/invitations/authorization-matrix
+tests, 74 workflow/webhook/exploitation tests, then the complete suite)
+passes unchanged — expected, since those tests run against the
+superuser role this bug never affected. Manually reproduced and
+confirmed fixed end to end against a real, non-superuser-provisioned
+Postgres role and the running dev stack (not just the test suite): the
+invite-by-email flow that originally surfaced this (see the Members page
+entry below) failed before the fix and succeeds after it, confirmed via
+Playwright driving the actual browser UI.
+
+## Dashboard: organization Members page
+
+The backend has supported member invitation, listing, role changes, and
+removal since early in this project (`docs/roadmap.md`'s Phase 1), and
+email invitations for not-yet-registered addresses since a later pass —
+but no dashboard page ever called any of it. The only way to invite a
+teammate was a raw API request with the session cookie or an API key.
+
+**Delivered.**
+- A "Members" tab on the organization page
+  (`/organizations/{id}/members`), added to `OrgSectionNav` alongside
+  Overview/Targets/Repositories/Workflows/Runs/Findings/Agent.
+- An invite form (email + role) calling `POST .../members`. The backend
+  returns one of two differently-shaped responses for this call — a
+  `Membership` (existing account, added immediately) or an
+  `OrganizationInvitation` (no account yet, emailed a pending invite) —
+  and the form distinguishes them by the presence of `user_id` rather
+  than guessing, matching the shapes' own deliberate difference.
+- A member list with an inline role-change form (`PATCH .../members/{id}`)
+  and a remove button (`DELETE .../members/{id}`, behind a
+  `window.confirm`).
+- A pending-invitations list with a revoke button
+  (`DELETE .../invitations/{id}`).
+- `frontend/lib/types.ts` gained `OrganizationInvitation`;
+  `frontend/lib/validation.ts` gained `inviteMemberSchema` and
+  `updateMemberRoleSchema`.
+
+**Decisions.**
+- **Admin/Owner-only controls hidden client-side for a caller without
+  that role**, same as every other role-gated control already in this
+  dashboard — cosmetic only, since the backend's own `require_membership`
+  is what actually enforces it (`docs/BUILD_SPEC.md` §17.2: "the
+  frontend's role-based UI hiding is cosmetic only"). A Viewer/Analyst/
+  Security Engineer still sees the member list (the `GET` route only
+  requires `Role.VIEWER`) but not the invite form, role selects, remove
+  buttons, or the pending-invitations section.
+- **No new backend endpoints, schemas, or business logic.** Every call
+  this page makes already existed; this is wiring only — the same
+  "dashboard/CLI wiring is its own, later pass" precedent already applied
+  to the exploitation tier and agent tool config.
+
+**Verified.** `npm run lint`, `npx tsc --noEmit`, and `npm run build` all
+clean. Manually driven end to end with Playwright against the real,
+running dev stack: registered a user, created an organization, opened
+the Members tab, invited an existing registered user (added
+immediately), invited a not-yet-registered address (pending invitation
+created — this is what surfaced the RLS bug above), changed a member's
+role, removed a member, and revoked a pending invitation — all confirmed
+via screenshot and backend log, not just a 2xx response.

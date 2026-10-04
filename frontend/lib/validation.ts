@@ -251,6 +251,20 @@ export const exploitationFireRejectSchema = z.object({
 });
 export type ExploitationFireRejectInput = z.infer<typeof exploitationFireRejectSchema>;
 
+export const inviteMemberSchema = z.object({
+  email: z
+    .string()
+    .min(1, "Email is required")
+    .email("Enter a valid email address"),
+  role: z.enum(["owner", "admin", "security_engineer", "analyst", "viewer"]),
+});
+export type InviteMemberInput = z.infer<typeof inviteMemberSchema>;
+
+export const updateMemberRoleSchema = z.object({
+  role: z.enum(["owner", "admin", "security_engineer", "analyst", "viewer"]),
+});
+export type UpdateMemberRoleInput = z.infer<typeof updateMemberRoleSchema>;
+
 export const createWorkflowSchema = z.object({
   name: z.string().min(1, "Name is required").max(120),
   target_id: z.string().min(1, "Choose a target"),

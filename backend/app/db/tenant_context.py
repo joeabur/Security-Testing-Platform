@@ -15,17 +15,25 @@ A Postgres RLS policy reads a *session-local* setting
 (`current_setting('kervy.org_id', true)`), not an application variable — the
 database has no idea what "the current request" is. The bridge is:
 
-1. `set_current_organization(org_id)` stores the id in a `ContextVar`, set
-   once per request (`require_membership`, the single dependency every
-   organization-scoped route already goes through) or once per Celery task
-   (`app.workers.tasks`, immediately after the run's own organization is
-   loaded).
+1. `set_tenant_context(db, org_id)` stores the id in a `ContextVar` *and*
+   immediately issues `SET LOCAL` on `db`'s current transaction itself —
+   called once per request (`require_membership`, the single dependency
+   every organization-scoped route already goes through) or once per
+   Celery task (`app.workers.tasks`, immediately after the run's own
+   organization is loaded). The immediate `SET LOCAL` matters because by
+   this point a transaction has nearly always already begun: identifying
+   *who* is calling (`get_current_user`, which every route depends on
+   before it can reach `require_membership`) itself queries the database,
+   autobeginning this request's one transaction before this module's own
+   "begin" event below ever had an organization id to read.
 2. An SQLAlchemy `"begin"` event, registered on every engine this process
    creates, fires whenever a transaction actually starts on a connection —
    including the second and later transactions in a request that calls
    `db.commit()` mid-handler and keeps querying, which the naive "set it
    once at the top" approach would silently stop protecting. The listener
-   reads the `ContextVar` and issues `SET LOCAL` on that transaction.
+   reads the `ContextVar` and issues `SET LOCAL` on that transaction — this
+   is what covers every transaction *after* the first one `set_tenant_context`
+   already corrected directly.
 3. `SET LOCAL` is transaction-scoped by Postgres itself: it is cleared by
    COMMIT and by ROLLBACK, which is also what SQLAlchemy's pool does to a
    connection before returning it to the pool. A connection handed to the
@@ -60,7 +68,7 @@ from uuid import UUID
 
 from sqlalchemy import event, text
 from sqlalchemy.engine import Connection
-from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 # One process, one "current organization for whichever request or task is
 # running right now". A ContextVar rather than a plain module global because
@@ -86,6 +94,39 @@ def set_current_organization(organization_id: UUID | str | None) -> None:
 
 def get_current_organization() -> str | None:
     return _current_organization.get()
+
+
+async def set_tenant_context(db: AsyncSession, organization_id: UUID | str | None) -> None:
+    """Set the current organization, and assert it on `db`'s *already open*
+    transaction, not just the next one `register_tenant_context_listener`
+    happens to see begin.
+
+    Every organization-scoped route depends on `get_current_user` before it
+    reaches the point where its own organization id is even known (it has to
+    — identity comes first) — and `get_current_user` queries the database.
+    That query autobegins this request's one transaction, which means the
+    "begin" event has already fired, and already asked Postgres for
+    whatever `get_current_organization()` returned at that moment: nothing,
+    since the caller had not identified an organization yet. `SET LOCAL` is
+    not restricted to the instant a transaction begins, though — it holds
+    for the rest of whichever transaction is open when it runs, so calling
+    it again *here*, now that the organization id is known, corrects the
+    value for every query this request or task still has left to make,
+    without requiring every future call site to reason about exactly which
+    dependency queries the database first.
+
+    Every call site that used to call `set_current_organization` directly —
+    `require_membership` and each Celery task that loads its own row before
+    it knows that row's organization — must call this instead; the bare
+    ContextVar setter now exists only for `register_tenant_context_listener`
+    itself to read, and for the rarer transaction that begins *after* this
+    one commits, where the "begin" listener alone is already correct.
+    """
+    set_current_organization(organization_id)
+    await db.execute(
+        text("SELECT set_config('kervy.org_id', :org_id, true)"),
+        {"org_id": str(organization_id) if organization_id is not None else ""},
+    )
 
 
 def register_tenant_context_listener(engine: AsyncEngine) -> None:
