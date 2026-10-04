@@ -141,6 +141,29 @@ services:
     depends_on:
       - backend
 
+  # --- local-dev mail catcher (docs/configuration.md "Outbound mail") ----
+  #
+  # Behind `--profile mail`, the same opt-in shape as the demo lab below:
+  # production deployments point KERVY_PLATFORM_SMTP_HOST at a real relay
+  # and never need this service at all. For local development, it gives
+  # invitation and password-reset emails somewhere to actually land —
+  # without it, KERVY_PLATFORM_SMTP_HOST is simply unset, so those features
+  # silently create their underlying row (an invitation, a reset token) but
+  # send no mail, which is otherwise easy to mistake for a bug rather than
+  # an unconfigured relay. Bring it up with:
+  #
+  #     docker compose --profile mail up -d mailpit
+  #
+  # then point `.env` at it (see docs/configuration.md) and open
+  # http://localhost:8025 to read whatever this platform sent.
+  mailpit:
+    profiles: [mail]
+    image: axllent/mailpit:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8025:8025" # web UI
+      - "127.0.0.1:1025:1025" # SMTP
+
   # --- demo target lab (docs/BUILD_SPEC.md §19, §2.4) --------------------
   #
   # Behind `--profile demo`, so `docker compose up` never starts an

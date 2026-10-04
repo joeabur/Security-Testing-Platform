@@ -24,7 +24,9 @@ export function InviteMemberForm({
 }) {
   const router = useRouter();
   const [formError, setFormError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
+  const [notice, setNotice] = useState<{ tone: "success" | "warning"; message: string } | null>(
+    null,
+  );
   const {
     register,
     handleSubmit,
@@ -37,22 +39,45 @@ export function InviteMemberForm({
 
   async function onSubmit(values: InviteMemberInput) {
     setFormError(null);
-    setSuccess(null);
+    setNotice(null);
     try {
       // The backend returns one of two different shapes for this call —
       // a Membership (existing account, added immediately) or an
-      // OrganizationInvitation (no account yet, a pending invite email was
-      // sent) — deliberately different shapes so which one happened is
-      // never something this has to guess at from an absent field.
+      // OrganizationInvitation (no account yet, a pending invite created) —
+      // deliberately different shapes so which one happened is never
+      // something this has to guess at from an absent field. The
+      // invitation shape additionally carries `email_sent`, since creating
+      // the row and actually delivering the email are two different
+      // things — whether no relay is configured at all, or a configured
+      // one failed to deliver, the row is still created (so the invite can
+      // be revoked and re-sent later), but nothing went out, and the UI
+      // has no business implying otherwise.
       const result = await clientApiFetch<Membership | OrganizationInvitation>(
         `/organizations/${organizationId}/members`,
         { method: "POST", body: JSON.stringify(values) },
       );
-      setSuccess(
-        "user_id" in result
-          ? `${result.email} was added to the organization.`
-          : `An invitation email was sent to ${result.email}.`,
-      );
+      if ("user_id" in result) {
+        setNotice({ tone: "success", message: `${result.email} was added to the organization.` });
+      } else if (result.email_sent) {
+        setNotice({
+          tone: "success",
+          message: `An invitation email was sent to ${result.email}.`,
+        });
+      } else {
+        // `email_sent` is false both when no relay is configured at all
+        // and when a configured one failed to deliver (wrong credentials,
+        // refused STARTTLS, connection refused) — the response doesn't
+        // distinguish which, so this says only what's true in both cases
+        // rather than guessing a specific cause.
+        setNotice({
+          tone: "warning",
+          message:
+            `An invitation was created for ${result.email}, but the email could not be ` +
+            "delivered. Ask an administrator to check this server's outbound mail setup " +
+            "(KERVY_PLATFORM_SMTP_HOST and related settings), then revoke and re-invite " +
+            "once it's working.",
+        });
+      }
       reset({ email: "", role: "viewer" });
       router.refresh();
     } catch (error) {
@@ -89,7 +114,7 @@ export function InviteMemberForm({
         </div>
       </div>
       {formError && <Alert tone="destructive">{formError}</Alert>}
-      {success && <Alert tone="success">{success}</Alert>}
+      {notice && <Alert tone={notice.tone}>{notice.message}</Alert>}
       <Button type="submit" isLoading={isSubmitting} className="self-start">
         {isSubmitting ? "Sending..." : "Invite"}
       </Button>

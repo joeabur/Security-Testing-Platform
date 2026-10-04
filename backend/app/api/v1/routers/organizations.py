@@ -255,8 +255,19 @@ async def _create_invitation(
 
     base = (settings.public_base_url or "").rstrip("/")
     accept_url = f"{base}/accept-invitation?token={quote(token)}"
+    # `send_invitation_email` raises `InvitationEmailNotConfigured` when no
+    # relay is set up at all, but a *configured* relay that then fails
+    # (wrong credentials, refuses STARTTLS, connection refused) does not
+    # raise — `send_email` (app/core/integrations/send.py) reports that as
+    # an ordinary `DeliveryResult(delivered=False, ...)` return value, the
+    # same as any other outbound-notification failure in this codebase.
+    # `email_sent` must reflect that result, not just "no exception was
+    # raised", or a real delivery failure would be reported to the caller
+    # as a success.
+    email_sent = False
+    delivery_detail: str | None = None
     with suppress(InvitationEmailNotConfigured):
-        await send_invitation_email(
+        result = await send_invitation_email(
             settings,
             to_address=email,
             organization_name=inviter.organization.name,
@@ -264,6 +275,8 @@ async def _create_invitation(
             invited_by_name=current_user.full_name or current_user.email,
             accept_url=accept_url,
         )
+        email_sent = result.delivered
+        delivery_detail = result.detail
 
     await record_event(
         db,
@@ -274,7 +287,12 @@ async def _create_invitation(
         organization_id=organization_id,
         user_id=inviter.user_id,
         ip_address=request.client.host if request.client else None,
-        metadata={"email": email, "role": role.value},
+        metadata={
+            "email": email,
+            "role": role.value,
+            "email_sent": email_sent,
+            **({"delivery_detail": delivery_detail} if delivery_detail else {}),
+        },
     )
     await db.commit()
 
@@ -283,6 +301,7 @@ async def _create_invitation(
         email=invitation.email,
         role=invitation.role,
         expires_at=invitation.expires_at,
+        email_sent=email_sent,
         created_at=invitation.created_at,
     )
 
