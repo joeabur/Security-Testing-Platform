@@ -261,6 +261,13 @@ export const createWorkflowSchema = z.object({
     "manual",
   ]),
   enabled: z.boolean(),
+  // Only meaningful when trigger_kind is "schedule" — left "" (the
+  // default), this workflow is created but never picked up by the
+  // scheduler, matching app/schemas/workflow.py's own "silence is the
+  // inert state" default. Same floor as updateWorkflowSchema's own field.
+  schedule_interval_minutes: z
+    .string()
+    .refine((value) => value === "" || Number(value) >= 60, "Minimum interval is 60 minutes"),
 });
 export type CreateWorkflowInput = z.infer<typeof createWorkflowSchema>;
 

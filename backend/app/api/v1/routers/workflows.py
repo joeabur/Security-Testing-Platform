@@ -156,13 +156,35 @@ async def update_workflow(
 ) -> Workflow:
     workflow = await _load(db, organization_id, workflow_id)
     fields = payload.model_dump(exclude_unset=True)
+
+    if "name" in fields and fields["name"] != workflow.name:
+        collision = (
+            await db.execute(
+                select(Workflow.id).where(
+                    Workflow.organization_id == organization_id,
+                    Workflow.name == fields["name"],
+                    Workflow.id != workflow_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if collision is not None:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT, detail="a workflow with that name exists"
+            )
+
+    schedule_changed = (
+        "schedule_interval_minutes" in fields
+        and fields["schedule_interval_minutes"] != workflow.schedule_interval_minutes
+    )
+
     for field, value in fields.items():
         setattr(workflow, field, value)
-    if "schedule_interval_minutes" in fields:
-        # Re-arms the schedule from now, whether an interval was set for the
-        # first time or changed to a different one. `None` (turning
-        # scheduling off) clears `next_run_at` too, so a disabled schedule
-        # is not silently still due.
+    if schedule_changed:
+        # Re-arms the schedule from now, only when the interval actually
+        # changed — an edit that leaves it alone (renaming, toggling
+        # enabled) must not push back a run that was already due. `None`
+        # (turning scheduling off) clears `next_run_at` too, so a disabled
+        # schedule is not silently still due.
         workflow.next_run_at = (
             datetime.now(UTC) + timedelta(minutes=workflow.schedule_interval_minutes)
             if workflow.schedule_interval_minutes is not None

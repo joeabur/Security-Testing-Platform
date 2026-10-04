@@ -4,20 +4,46 @@ import { Workflow as WorkflowIcon } from "lucide-react";
 import { CreateWorkflowForm } from "@/components/workflows/create-workflow-form";
 import { EditWorkflowForm } from "@/components/workflows/edit-workflow-form";
 import { RunWorkflowButton } from "@/components/workflows/run-workflow-button";
+import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { serverApiFetch } from "@/lib/api-server";
+import { ApiError } from "@/lib/errors";
 import type { Target, Workflow } from "@/lib/types";
 
 export const metadata: Metadata = { title: "Workflows — Kervy Security" };
 
 export default async function WorkflowsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const [workflows, targets] = await Promise.all([
-    serverApiFetch<Workflow[]>(`/organizations/${id}/workflows`),
-    serverApiFetch<Target[]>(`/organizations/${id}/targets`),
-  ]);
+  // Listing workflows needs Analyst or higher; reading targets only needs
+  // Viewer. A Viewer visiting this page is expected, not an error, so the
+  // 403 is caught here rather than left to crash the page — the backend's
+  // role check is still what actually decides access (per §17.2, the
+  // frontend's own gating is cosmetic only); this just keeps the expected
+  // "you don't have access" case from reading as a broken page.
+  const targets = await serverApiFetch<Target[]>(`/organizations/${id}/targets`);
+  let workflows: Workflow[] = [];
+  let accessDenied = false;
+  try {
+    workflows = await serverApiFetch<Workflow[]>(`/organizations/${id}/workflows`);
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 403) {
+      accessDenied = true;
+    } else {
+      throw error;
+    }
+  }
   const targetNames = new Map(targets.map((target) => [target.id, target.name]));
+
+  if (accessDenied) {
+    return (
+      <div className="flex animate-fade-in flex-col gap-6">
+        <Alert tone="warning">
+          You need Analyst access or higher in this organization to view workflows.
+        </Alert>
+      </div>
+    );
+  }
 
   return (
     <div className="flex animate-fade-in flex-col gap-6">

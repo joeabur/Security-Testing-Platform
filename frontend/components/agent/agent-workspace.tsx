@@ -53,6 +53,16 @@ export function AgentWorkspace({
   // "conversation": one investigation at a time, gone on reload.
   const pollTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
+  // The backend never re-sends outcomes already reported: `/status` always
+  // returns an empty list (nothing to read back by design — see
+  // `agent.py`'s own zero-persistence note), and `/approve` returns only
+  // the steps run since resuming. The transcript shown here is accumulated
+  // client-side across the one investigation's lifetime instead.
+  function mergeInvestigation(prev: Investigation | null, next: Investigation): Investigation {
+    if (!prev || prev.investigation_id !== next.investigation_id) return next;
+    return { ...next, outcomes: [...prev.outcomes, ...next.outcomes] };
+  }
+
   useEffect(() => {
     return () => {
       if (pollTimer.current) clearTimeout(pollTimer.current);
@@ -66,7 +76,7 @@ export function AgentWorkspace({
         const latest = await clientApiFetch<Investigation>(
           `/organizations/${organizationId}/agent/investigate/${investigationId}/status`,
         );
-        setInvestigation(latest);
+        setInvestigation((prev) => mergeInvestigation(prev, latest));
         if (latest.status === "awaiting_approval") {
           schedulePoll(investigationId);
         }
@@ -88,7 +98,7 @@ export function AgentWorkspace({
         `/organizations/${organizationId}/agent/investigate`,
         { method: "POST", body: JSON.stringify({ request }) },
       );
-      setInvestigation(result);
+      setInvestigation((prev) => mergeInvestigation(prev, result));
       setRequest("");
       if (result.status === "awaiting_approval") {
         schedulePoll(result.investigation_id);
@@ -109,7 +119,7 @@ export function AgentWorkspace({
         `/organizations/${organizationId}/agent/investigate/${investigation.investigation_id}/approve`,
         { method: "POST", body: JSON.stringify({}) },
       );
-      setInvestigation(result);
+      setInvestigation((prev) => mergeInvestigation(prev, result));
       if (result.status === "awaiting_approval") {
         schedulePoll(result.investigation_id);
       }

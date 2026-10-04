@@ -10,12 +10,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { clientApiFetch } from "@/lib/api-client";
+import { toLocalDatetimeInputValue } from "@/lib/dates";
 import { ApiError } from "@/lib/errors";
 import { authorizationGrantSchema, type AuthorizationGrantInput } from "@/lib/validation";
 
 function defaultValidUntil(): string {
   const inSevenDays = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-  return inSevenDays.toISOString().slice(0, 16);
+  return toLocalDatetimeInputValue(inSevenDays);
 }
 
 export function AuthorizationGrantForm({
@@ -34,7 +35,7 @@ export function AuthorizationGrantForm({
   } = useForm<AuthorizationGrantInput>({
     resolver: zodResolver(authorizationGrantSchema),
     defaultValues: {
-      valid_from: new Date().toISOString().slice(0, 16),
+      valid_from: toLocalDatetimeInputValue(new Date()),
       valid_until: defaultValidUntil(),
     },
   });

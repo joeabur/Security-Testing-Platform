@@ -86,6 +86,12 @@ export interface Target {
   kind: TargetKind;
   base_url: string;
   adapter_kind: string | null;
+  adapter_config: Record<string, unknown>;
+  code_repo_ref: string | null;
+  runtime_protection: Record<string, unknown>[];
+  code_languages: string[];
+  code_build_manifest_paths: string[];
+  declared_tools: Record<string, unknown>[];
   has_authorization: boolean;
   has_rules_of_engagement: boolean;
   created_at: string;
@@ -148,6 +154,8 @@ export interface Run {
   requests_used: number;
   requests_blocked: number;
   findings_reported: number;
+  authorization_digest: string | null;
+  roe_digest: string | null;
   halted_reason: string | null;
   error_message: string | null;
   queued_at: string | null;
@@ -211,11 +219,20 @@ export interface WorkflowRun {
   workflow_id: string;
   assessment_run_id: string | null;
   status: string;
+  trigger: Record<string, unknown>;
+  plan: Record<string, unknown>;
+  plan_digest: string;
+  stages: Record<string, unknown>[];
+  evidence_refs: string[];
   gate_passed: boolean | null;
+  gate_exit_code: number | null;
   gate_reasons: string[];
+  gate_counts: Record<string, unknown>;
   started_at: string | null;
   finished_at: string | null;
   detail: string | null;
+  approved_by_user_id: string | null;
+  approved_at: string | null;
   created_at: string;
 }
 
@@ -238,6 +255,7 @@ export interface AgentToolCatalogEntry {
   minimum_role: string;
   effective_minimum_role: string;
   enabled: boolean;
+  input_schema: Record<string, unknown>;
 }
 
 export interface AgentToolConfig {
