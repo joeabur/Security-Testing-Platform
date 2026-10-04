@@ -8,8 +8,14 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-kervy}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    # Loopback-only: the backend and worker reach this over the Docker
+    # network by service name (`postgres`), never through this published
+    # port. Binding it to every interface (the Compose default for
+    # "5432:5432") would hand Postgres to the open internet on any host with
+    # a public IP and no separate firewall rule blocking it — this keeps a
+    # psql client on the host itself working without that exposure.
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-kervy} -d ${POSTGRES_DB:-kervy}"]
       interval: 5s
@@ -19,8 +25,9 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    # Loopback-only — same reasoning as postgres's own port binding above.
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -120,6 +127,11 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.frontend
+      # Baked into the browser bundle at build time (see Dockerfile.frontend's
+      # own comment) — the `environment:` entry below is for server-side code
+      # only and does not, on its own, reach the browser.
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000/api/v1}
     restart: unless-stopped
     environment:
       BACKEND_INTERNAL_URL: http://backend:8000/api/v1

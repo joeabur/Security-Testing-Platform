@@ -206,6 +206,13 @@ report formats.
 > The compose file and Dockerfiles are written and reviewed but unexercised. The
 > direct-run path below *is* verified.
 
+Want this running on a real domain instead of your own machine?
+[`docs/free-deployment-oracle-cloud.md`](docs/free-deployment-oracle-cloud.md)
+is a complete, step-by-step path to a free, publicly reachable deployment
+— Postgres, Redis, the worker, and HTTPS included, on Oracle Cloud's
+Always Free tier (the only option in 2026 where none of those pieces
+need to be skipped or paid for).
+
 ### Local development without Docker
 
 ```bash

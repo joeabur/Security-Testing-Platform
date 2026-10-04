@@ -1,5 +1,9 @@
 # Deployment
 
+For a concrete, step-by-step path to a single machine running this for
+free — not just the considerations below — see
+[`docs/free-deployment-oracle-cloud.md`](free-deployment-oracle-cloud.md).
+
 For running this beyond a single machine or Compose stack — a cloud-hosted
 deployment handling many organizations and concurrent assessments — see
 [`docs/scaling-architecture.md`](scaling-architecture.md), which builds on
@@ -94,6 +98,24 @@ See `docs/configuration.md`. The production-specific items:
   `KERVY_VCS_ALLOWED_HOSTS` set to the minimum. These are the operator's control
   over where data may go; an empty list is the safe default.
 - `PLUGINS_CONFIG` only if you use plugins. There is no sandbox.
+- **`NEXT_PUBLIC_API_URL` must be set in `.env` *before* `docker compose
+  build`, not only before `up`.** Next.js inlines every `NEXT_PUBLIC_*`
+  variable into the browser bundle at build time; `docker-compose.yml`
+  passes it to the `frontend` service both as a build arg (what the
+  browser bundle gets) and as a runtime environment variable (what
+  server-rendered pages and route handlers see) — the two must agree.
+  Changing it after an image is already built does nothing until the next
+  `build`, same as any other `ARG`.
+- **`postgres` and `redis` publish their ports to `127.0.0.1` only**, not
+  every interface. The backend and worker reach both over the internal
+  Docker network by service name; the published ports exist only so a
+  client on the host itself (`psql`, `redis-cli`) can connect. A host with
+  a public IP and Docker's own default (`"5432:5432"` binds `0.0.0.0`)
+  would otherwise hand an unauthenticated Postgres straight to the
+  internet — closed here rather than left to a cloud firewall rule
+  someone might forget. If you need to reach either from another machine
+  (an admin workstation, a managed-Postgres migration), tunnel over SSH
+  rather than widening this binding.
 
 ## Scanner binaries
 

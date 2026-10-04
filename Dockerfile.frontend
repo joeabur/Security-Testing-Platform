@@ -9,6 +9,14 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY frontend/ ./
 ENV NEXT_TELEMETRY_DISABLED=1
+# Next.js inlines NEXT_PUBLIC_* variables into the browser bundle at build
+# time, not at container start — `docker-compose.yml`'s own NEXT_PUBLIC_API_URL
+# under `environment:` only takes effect for server-side code (lib/config.ts's
+# PUBLIC_API_BASE_URL also backs server-rendered links). Without this ARG, a
+# deployment anywhere other than localhost would silently ship a browser
+# bundle hardcoded to lib/config.ts's own localhost fallback.
+ARG NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 RUN npm run build
 
 FROM node:22-slim AS runner

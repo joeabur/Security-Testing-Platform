@@ -6228,3 +6228,90 @@ rename-collision and schedule-preservation cases in
 error shape, and new/extended frontend tests
 (`agent-workspace.test.tsx`, `create-workflow-form.test.tsx`,
 `retest-finding-button.test.tsx`, `dates.test.ts`).
+
+## Free deployment guide, and two deployment-blocking fixes it surfaced
+
+Writing a concrete "get this running on a real domain for free" guide
+surfaced two real bugs in the existing `docker-compose.yml`/
+`Dockerfile.frontend` that no prior phase had hit, because nothing before
+this had actually tried to serve the Next.js frontend from anywhere other
+than `localhost`.
+
+**Fixed.**
+- **`NEXT_PUBLIC_API_URL` never reached the browser bundle.** Next.js
+  inlines every `NEXT_PUBLIC_*` variable into the client bundle at `next
+  build` time; `docker-compose.yml` only ever passed it to the `frontend`
+  service as a runtime `environment:` entry, and `Dockerfile.frontend`'s
+  builder stage had no `ARG`/`ENV` wiring to receive it before `RUN npm
+  run build` ran. A deployment on any domain but `localhost` would have
+  silently shipped a browser bundle hardcoded to the Dockerfile's own
+  fallback. Fixed by adding `ARG NEXT_PUBLIC_API_URL`/`ENV
+  NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}` to the builder stage and a
+  matching `build.args` entry in `docker-compose.yml`'s `frontend`
+  service, both reading the same `.env` value the existing runtime
+  `environment:` entry already did — the two now can't drift apart.
+- **`postgres` and `redis` published their ports to every network
+  interface.** `docker-compose.yml`'s `"5432:5432"`/`"6379:6379"` bind
+  Docker's default of `0.0.0.0` — fine on a laptop behind NAT, but on any
+  host with a public IP (which is the entire point of a deployment),
+  that's an unauthenticated Postgres and Redis reachable from the open
+  internet unless a separate cloud firewall rule happens to block them.
+  Neither the backend nor the worker ever used the published port in the
+  first place — both reach each service over the internal Docker network
+  by its service name. Rebound both to `127.0.0.1` only; a `psql`/
+  `redis-cli` on the host itself still works unchanged.
+
+**Delivered.**
+- `docs/free-deployment-oracle-cloud.md` (new): a complete, step-by-step
+  path to a real, publicly reachable deployment at $0/month, chosen after
+  checking 2026's actual free-tier terms rather than assuming prior
+  knowledge still held — Render's free tier turned out to have no
+  background workers at all (this platform's Celery worker, the thing
+  that actually runs a scan, could not run there for free), and Fly.io
+  no longer offers a free tier, only a short trial. Oracle Cloud's Always
+  Free ARM instance (2 OCPU/12GB as of 2026) is the one option where
+  every piece — Postgres, Redis, the worker, the API, and the frontend —
+  runs for free, indefinitely, on one machine. The guide covers account
+  signup (including the "a card is required but you are not charged"
+  caveat, and the known ARM-capacity signup friction), instance creation,
+  both firewalls that default-deny inbound traffic (the cloud Security
+  List and the VM's own `iptables`), Docker installation, every `.env`
+  value that must change from its development default and why, automatic
+  HTTPS via Caddy (chosen over manual certbot/nginx for the same reason
+  this platform prefers the smallest sufficient fix elsewhere), and the
+  two fixes above that this path depends on.
+- Cross-linked from `README.md` (next to the existing "Docker is
+  unverified" note) and `docs/deployment.md` (at the top, alongside the
+  existing pointer to `docs/scaling-architecture.md`).
+
+**Decisions.**
+- **A VM-based guide, not a PaaS click-through.** Every free PaaS option
+  checked either can't run a background worker for free (Render) or has
+  no free tier left at all (Fly.io) — a guide pointing at either would be
+  dishonest about what actually works. A plain VM with `docker compose`
+  is more setup but is the only path that doesn't quietly drop the
+  worker.
+- **Caddy over certbot+nginx.** One binary, one config file, automatic
+  certificate acquisition and renewal with no cron job or manual renew
+  step to forget — the same "fewest moving parts" reasoning the egress
+  gateway and other infra choices in this project already follow.
+
+**Deferred, not fixed here (named, not silently dropped).**
+- **Scanner binaries are still not bundled into `Dockerfile.worker`**
+  (`semgrep`/`bandit`/`pip-audit`/`checkov`/`gitleaks`/`trivy`) — an
+  existing, already-documented gap (`docs/deployment.md`'s "Scanner
+  binaries" section predates this pass), not introduced or resolved by
+  it. Stated plainly in the new guide rather than left for a deployer to
+  discover as a silent `not tested` finding.
+- **No automated backup tooling, no monitoring/alerting setup** — the
+  guide names the one manual `pg_dump` command as a minimum and points
+  back to `docs/deployment.md`'s own "What is not provided" section
+  rather than inventing scope beyond what was asked.
+
+**Verified.** `docker compose config` resolves cleanly with the new build
+arg present in the rendered config alongside the existing runtime
+environment variable, confirming the interpolation path end to end. A
+real `docker compose build`/`up` could not be run in this sandbox (the
+same Docker Hub/apt-mirror egress block `docs/installation.md` and
+`docs/competitive-gap-analysis.md` already document) — stated here
+rather than claimed otherwise.
