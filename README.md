@@ -44,7 +44,26 @@ risk-scored findings with stable fingerprints and human-verified
 cross-engine duplicate linking, and content-addressed evidence plus reports
 in Markdown, HTML, PDF, JSON, SARIF 2.1.0 and CSV, and a remediation board
 with a retest workflow that reports reproduced / not reproduced / not
-tested with the evidence from either side.
+tested with the evidence from either side, now with a Wilson-interval
+ASR-delta comparing the before/after attack success rate directly rather
+than only presence/absence of the same fingerprint.
+
+A later competitive-gap-closing pass (`docs/competitive-gap-analysis.md`
+records what was audited, closed, narrowed, or honestly left open) added:
+a DAST egress gateway that routes Nuclei/ZAP through the same scope engine
+GatedTransport already enforces, a Playwright-driven browser crawl for
+client-side-rendered pages, two new AI probe families (indirect/RAG
+document injection and agent goal-hijacking, each a real but narrower
+first technique rather than full category coverage), a multi-turn attack
+orchestration engine, a `kervy-ai test ai [--ci]` regression command
+comparing two runs' AI-probe results via the same Wilson-interval rule,
+direct `osv.dev` vulnerability intelligence for npm dependencies, an
+import-level reachability check for Python SCA findings, automatic
+audit-log events for finding-status changes a scan (not a human) makes,
+and dashboard UI for actions that previously existed only as a CLI
+command or a raw API route (run cancel, retest trigger, remediation
+assignment, evidence list/verify/download, workflow edit/delete, and
+`kervy-ai apikey create/list/revoke`).
 
 There is also an `kervy-ai` CLI and a CI security gate with documented exit
 codes — see [`docs/cicd.md`](docs/cicd.md).
