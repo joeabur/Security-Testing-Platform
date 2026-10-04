@@ -14,7 +14,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.measure.asr import DEFAULT_RULE
+from app.core.measure.asr import DEFAULT_RULE, asr_delta
 from app.core.probes.models import Severity
 from app.core.reporting.model import (
     PILLAR_PREFIXES,
@@ -317,6 +317,10 @@ async def build_report(db: AsyncSession, *, run: AssessmentRun, target: Target) 
                     before_evidence_ref=row.RetestResult.before_evidence_ref,
                     after_evidence_ref=row.RetestResult.after_evidence_ref,
                     detail=row.RetestResult.detail,
+                    attack_success_rate_delta=asr_delta(
+                        row.RetestResult.before_attack_success_rate,
+                        row.RetestResult.after_attack_success_rate,
+                    ),
                 )
                 for row in rows
             ),

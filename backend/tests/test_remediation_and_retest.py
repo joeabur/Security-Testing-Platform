@@ -372,6 +372,16 @@ async def test_a_weakness_that_is_still_there_is_reported_as_reproduced(
     assert verdicts[0]["verdict"] == "reproduced"
     assert verdicts[0]["before_evidence_ref"]
     assert verdicts[0]["after_evidence_ref"]
+    # A reproduced AI-probe finding has a real rate on both sides of the
+    # retest boundary, so the comparison is a real one, not a guess.
+    assert verdicts[0]["before_attack_success_rate"] is not None
+    assert verdicts[0]["after_attack_success_rate"] is not None
+    assert verdicts[0]["attack_success_rate_delta"] is not None
+    assert verdicts[0]["attack_success_rate_delta"]["direction"] in {
+        "increased",
+        "decreased",
+        "unchanged",
+    }
 
     after = (
         await client.get(
@@ -431,6 +441,12 @@ async def test_a_weakness_that_is_gone_is_reported_as_not_reproduced_and_closed(
     # The before digest survives; there is no after, because nothing was seen.
     assert verdicts[0]["before_evidence_ref"]
     assert verdicts[0]["after_evidence_ref"] is None
+    # Same story for the rate: a baseline measurement survives, but a probe
+    # that reported no finding this run never produced a new one, so there
+    # is nothing to diff against it.
+    assert verdicts[0]["before_attack_success_rate"] is not None
+    assert verdicts[0]["after_attack_success_rate"] is None
+    assert verdicts[0]["attack_success_rate_delta"] is None
 
     after = (
         await client.get(
@@ -688,6 +704,32 @@ async def test_the_baseline_is_a_snapshot_not_a_live_read(
 
     # The snapshot is unmoved by the later write.
     assert snapshot[0]["evidence_ref"] == original_ref
+
+
+async def test_the_before_attack_success_rate_is_also_a_snapshot(
+    client: AsyncClient, strong_password: str, db_session: AsyncSession
+) -> None:
+    """`attack_success_rate` is overwritten by promotion the same way
+    `evidence_ref` is, so `baseline_of` has to capture it up front too — a
+    retest that read it back later would be diffing a finding's rate
+    against itself."""
+    org_id, target_id, headers = await _setup(client, strong_password, "r")
+    await _run(client, org_id, target_id, headers)
+    finding = await _injection_finding(client, org_id, headers)
+    db_finding = (
+        await db_session.execute(select(Finding).where(Finding.id == uuid.UUID(finding["id"])))
+    ).scalar_one()
+
+    snapshot = baseline_of([db_finding])
+    original_rate = db_finding.attack_success_rate
+    assert original_rate is not None
+    assert snapshot[0]["attack_success_rate"] == original_rate
+
+    db_finding.attack_success_rate = {"successes": 0, "trials": 0, "rate": 0.0, "ci95": [0.0, 1.0]}
+    await db_session.commit()
+
+    # The snapshot is unmoved by the later write.
+    assert snapshot[0]["attack_success_rate"] == original_rate
 
 
 async def test_retest_results_are_not_visible_across_organizations(

@@ -22,6 +22,7 @@ methodology, which means it has to be a value, not an opinion.
 import math
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import Any
 
 # 1.959963985 = the two-sided 95% normal quantile. Named because a bare
 # 1.96 in a statistics routine is the kind of constant that gets "tidied"
@@ -152,3 +153,34 @@ def measure(
         stability=classify_stability(attack),
         rule=rule,
     )
+
+
+def asr_delta(before: dict[str, Any] | None, after: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Compare an attack success rate across a retest boundary.
+
+    Reuses §7.1's own decision rule rather than inventing a second one: a
+    change counts as significant only when one side's Wilson interval
+    clears the other's, the same test `measure()` applies between an attack
+    and its control, applied here symmetrically in both directions.
+
+    Returns `None` when either side has no rate to compare — a retest that
+    found nothing new, or a finding whose probe never ran under the trial
+    driver, has no "before" or "after" measurement, and reporting a
+    direction anyway would be exactly the fabricated-confidence failure
+    §7.1 exists to prevent.
+    """
+    if before is None or after is None:
+        return None
+
+    before_rate = rate_of(int(before["successes"]), int(before["trials"]))
+    after_rate = rate_of(int(after["successes"]), int(after["trials"]))
+
+    increased = after_rate.trials > 0 and after_rate.lower > before_rate.upper
+    decreased = before_rate.trials > 0 and before_rate.lower > after_rate.upper
+
+    return {
+        "before": before_rate.as_dict(),
+        "after": after_rate.as_dict(),
+        "direction": "increased" if increased else "decreased" if decreased else "unchanged",
+        "significant": increased or decreased,
+    }

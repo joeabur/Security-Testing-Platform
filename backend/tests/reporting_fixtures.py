@@ -11,7 +11,7 @@ and SARIF each handle differently.
 from dataclasses import replace
 from datetime import UTC, datetime
 
-from app.core.measure.asr import DEFAULT_RULE
+from app.core.measure.asr import DEFAULT_RULE, asr_delta, rate_of
 from app.core.reporting.model import (
     NotTested,
     PillarCoverage,
@@ -274,6 +274,9 @@ def retest_report() -> ReportData:
                 before_evidence_ref="sha256:" + "d" * 64,
                 after_evidence_ref="sha256:" + "e" * 64,
                 detail="This run reported the same fingerprint again.",
+                attack_success_rate_delta=asr_delta(
+                    rate_of(3, 5).as_dict(), rate_of(5, 5).as_dict()
+                ),
             ),
             RetestRecord(
                 fingerprint="sha256:" + "1" * 64,

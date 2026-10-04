@@ -5958,3 +5958,84 @@ and the correct `from_status`/`to_status`/`verdict` metadata) at all three
 call sites, plus a negative assertion that a `not_tested` verdict produces
 no event at all. Full backend suite (130 tests) passes clean; no existing
 test needed a behavioural change.
+
+## Retest ASR-delta / confidence-interval comparison
+
+`docs/competitive-gap-analysis.md` named this precisely: a retest's verdict
+was presence/absence of a fingerprint only (`retest/service.py`'s
+`_verdict_for`), even though `Finding.attack_success_rate` already carries
+a real Wilson-interval measurement — `{successes, trials, rate, ci95}` —
+for any finding whose probe ran under the §7.1 trial driver, and nothing
+diffed it across a retest. A reproduced finding's rate was overwritten by
+promotion before anyone could compare it to what it used to be.
+
+**Delivered.**
+- `app/core/measure/asr.py` gains `asr_delta(before, after)`, reusing §7.1's
+  own decision rule rather than inventing a second one: a change counts as
+  significant only when one side's Wilson interval clears the other's —
+  symmetrically, in either direction — exactly the test `measure()` already
+  applies between an attack and its control. Returns `None` whenever either
+  side has no rate, never a guessed direction.
+- `retest/service.py`'s `BaselineEntry` now snapshots `attack_success_rate`
+  at request time, the same way it already snapshots `evidence_ref` —
+  necessary because promotion overwrites a reproduced finding's rate before
+  `record_retest` runs, so the "before" number only survives if it is
+  written down first. The "after" rate is `finding.attack_success_rate`
+  when the verdict is `reproduced` (promotion already wrote this run's own
+  rate onto it) and `None` otherwise: a `not_reproduced` probe returns no
+  `ScanResult` at all when it finds nothing (`_support.py`'s `scan_result`
+  is only ever called behind `if outcome.measurement.is_finding`), so there
+  is no fresh measurement to report, and `not_tested` never ran one.
+- `RetestResult` gains `before_attack_success_rate`/
+  `after_attack_success_rate` JSON columns (migration `a2f6c1d9b4e7`).
+  `RetestResultRead` exposes both plus a computed
+  `attack_success_rate_delta` (a Pydantic `model_validator`, not a stored
+  column, so the comparison logic can change without a migration touching
+  every past row).
+- The markdown report's retest section now prints the rate, interval and
+  direction either side of the boundary for any record that has one —
+  §7.1's own stated requirement ("the rate, the interval and the control
+  visible wherever the finding is"), now applied across a retest too.
+
+**Decisions.**
+- **Scoped to what a retest can actually measure.** Only a `reproduced`
+  verdict has a real "after" rate, because that is the only case where the
+  trial driver produced a fresh `ScanResult` this run. A `not_reproduced`
+  or `not_tested` row correctly carries no `after_attack_success_rate` and
+  therefore no delta — inventing a "0% after" for a probe that reported
+  nothing would be exactly the coin-flip-as-measurement failure §7.1 exists
+  to prevent, and would contradict the `not_tested` design `retest/service.py`
+  already protects (silence is not evidence).
+- **Computed, not stored.** `attack_success_rate_delta` is derived on read
+  from the two stored raw rates rather than persisted as its own column, so
+  a future change to the significance rule needs no backfill.
+- **Reused the existing decision rule rather than a new statistic.** §7.1
+  already has a tested, Wilson-interval-based way to decide "is this
+  difference real" (`measure()`'s own lower-bound-beats-upper-bound test).
+  `asr_delta` applies the identical test symmetrically between the earlier
+  and later rate instead of between attack and control — no new statistical
+  method, no new tunable threshold.
+- **AI-probe findings only, stated rather than hidden.** Most findings (API,
+  AppSec, pentest) never populate `attack_success_rate` at all — it is set
+  only by the AI trial driver (`probes/ai/driver.py`). For every other
+  finding, the before/after/delta fields are simply `None`, which is the
+  correct and honest answer: there is no rate to compare because none was
+  ever measured.
+
+**Deferred.** None — this item closes the exact gap named: a retest's
+presence/absence verdict now sits alongside a real statistical comparison
+wherever one exists to make.
+
+**Verified.** `ruff check` / `mypy app` clean. New `asr_delta` tests in
+`tests/test_determinism_harness.py` (none-without-both-sides, a
+significant increase, a significant decrease, two cases within sampling
+noise read as "unchanged"). `tests/test_remediation_and_retest.py` extended
+with before/after/delta assertions on the `reproduced` and `not_reproduced`
+paths, plus a dedicated snapshot test proving the baseline rate survives
+the live finding's row being overwritten later — the same proof the
+existing `evidence_ref` snapshot test already gives, now for the rate too.
+`tests/test_reporting.py` extended with two assertions on the rendered
+report, and the `report-retest.md` golden re-recorded (reviewed diff: three
+new lines on the one reproduced record, nothing on the other two). Full
+backend suite (2,260 passed, 2 skipped) passes clean; no existing test
+needed a behavioural change.

@@ -44,6 +44,12 @@ class BaselineEntry:
     evidence_ref: str | None
     severity: str
     status: str
+    # §7.1's measurement, snapshotted for the same reason evidence_ref is:
+    # a reproduced finding's attack_success_rate is overwritten by this
+    # run's own promotion, so the "before" rate only survives if it was
+    # written down first. `None` for any finding whose probe never ran
+    # under the trial driver — never a fabricated rate.
+    attack_success_rate: dict[str, Any] | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -53,6 +59,7 @@ class BaselineEntry:
             "evidence_ref": self.evidence_ref,
             "severity": self.severity,
             "status": self.status,
+            "attack_success_rate": self.attack_success_rate,
         }
 
     @classmethod
@@ -64,6 +71,7 @@ class BaselineEntry:
             evidence_ref=raw.get("evidence_ref"),
             severity=str(raw.get("severity", "")),
             status=str(raw.get("status", "")),
+            attack_success_rate=raw.get("attack_success_rate"),
         )
 
 
@@ -83,6 +91,7 @@ def baseline_of(findings: list[Finding]) -> list[dict[str, Any]]:
             evidence_ref=finding.evidence_ref,
             severity=finding.severity.value,
             status=finding.status.value,
+            attack_success_rate=finding.attack_success_rate,
         ).as_dict()
         for finding in findings
     ]
@@ -163,6 +172,7 @@ async def record_retest(db: AsyncSession, *, run: AssessmentRun) -> list[RetestR
                     entry=entry,
                     verdict=RetestVerdict.NOT_TESTED,
                     after_evidence_ref=None,
+                    after_attack_success_rate=None,
                     detail="The finding no longer exists, so nothing was compared.",
                 )
             )
@@ -170,6 +180,12 @@ async def record_retest(db: AsyncSession, *, run: AssessmentRun) -> list[RetestR
 
         verdict, detail, after_ref = _verdict_for(entry, finding, run, probes_that_ran)
         await _apply(db, finding, verdict, run)
+        # Only a reproduced finding carries a fresh measurement: promotion
+        # overwrote `finding.attack_success_rate` with this run's own rate
+        # before `record_retest` ever runs. A not-reproduced or not-tested
+        # verdict has no new trial data to report — the probe either found
+        # nothing (and reports no ScanResult at all, per §7.1) or never ran.
+        after_asr = finding.attack_success_rate if verdict is RetestVerdict.REPRODUCED else None
         results.append(
             _result(
                 run,
@@ -177,6 +193,7 @@ async def record_retest(db: AsyncSession, *, run: AssessmentRun) -> list[RetestR
                 entry=entry,
                 verdict=verdict,
                 after_evidence_ref=after_ref,
+                after_attack_success_rate=after_asr,
                 detail=detail,
             )
         )
@@ -308,6 +325,7 @@ def _result(
     entry: BaselineEntry,
     verdict: RetestVerdict,
     after_evidence_ref: str | None,
+    after_attack_success_rate: dict[str, Any] | None,
     detail: str,
 ) -> RetestResult:
     return RetestResult(
@@ -318,5 +336,7 @@ def _result(
         verdict=verdict,
         before_evidence_ref=entry.evidence_ref,
         after_evidence_ref=after_evidence_ref,
+        before_attack_success_rate=entry.attack_success_rate,
+        after_attack_success_rate=after_attack_success_rate,
         detail=detail,
     )

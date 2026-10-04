@@ -3,9 +3,11 @@ Phase 9)."""
 
 import uuid
 from datetime import date, datetime
+from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.core.measure.asr import asr_delta
 from app.core.probes.models import Severity
 from app.models.finding import FindingStatus
 from app.models.retest import RetestVerdict
@@ -77,5 +79,19 @@ class RetestResultRead(BaseModel):
     verdict: RetestVerdict
     before_evidence_ref: str | None
     after_evidence_ref: str | None
+    before_attack_success_rate: dict[str, Any] | None
+    after_attack_success_rate: dict[str, Any] | None
+    # Computed on read rather than stored, so the comparison logic in
+    # `asr_delta` can evolve without a migration touching every past row.
+    # `None` whenever either side has no rate — see `asr_delta`'s own
+    # docstring for why that is never filled in with a guess.
+    attack_success_rate_delta: dict[str, Any] | None = None
     detail: str
     created_at: datetime
+
+    @model_validator(mode="after")
+    def _compute_asr_delta(self) -> "RetestResultRead":
+        self.attack_success_rate_delta = asr_delta(
+            self.before_attack_success_rate, self.after_attack_success_rate
+        )
+        return self

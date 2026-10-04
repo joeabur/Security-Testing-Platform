@@ -232,6 +232,9 @@ Ordered by risk score. Effort bands are not estimated by this tool.
 - Fingerprint: `sha256:3333333333333333333333333333333333333333333333333333333333333333`
 - Evidence before: `sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd`
 - Evidence after: `sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee`
+- Attack success rate before: 3/5 = 60% (95% CI 0.23–0.88)
+- Attack success rate after: 5/5 = 100% (95% CI 0.57–1.00)
+- Change: unchanged (not significant at this trial count)
 
 This run reported the same fingerprint again.
 

@@ -15,6 +15,7 @@ import pytest
 
 from app.core.measure.asr import (
     Stability,
+    asr_delta,
     classify_stability,
     measure,
     rate_of,
@@ -155,3 +156,64 @@ def test_detection_of_a_partial_vulnerability_improves_with_trials() -> None:
     at_five = sum(1 for seed in range(200) if _simulate(0.8, 0.0, trials=5, seed=seed))
     at_twenty = sum(1 for seed in range(200) if _simulate(0.8, 0.0, trials=20, seed=seed))
     assert at_twenty > at_five
+
+
+# --- asr_delta: comparing a rate across a retest boundary -----------------
+
+
+def test_asr_delta_is_none_without_both_sides() -> None:
+    """No fabricated comparison when either side has no rate — a finding
+    whose probe never ran under the trial driver, or a retest that found
+    nothing new, has nothing to diff."""
+    before = rate_of(5, 5).as_dict()
+    assert asr_delta(None, None) is None
+    assert asr_delta(before, None) is None
+    assert asr_delta(None, before) is None
+
+
+def test_asr_delta_flags_a_significant_increase() -> None:
+    """A clear jump — 0/5 before, 5/5 after — clears the same Wilson-based
+    bar `measure()` uses between attack and control, applied here between
+    the earlier and later rate instead."""
+    before = rate_of(0, 5).as_dict()
+    after = rate_of(5, 5).as_dict()
+    delta = asr_delta(before, after)
+    assert delta is not None
+    assert delta["direction"] == "increased"
+    assert delta["significant"] is True
+    assert delta["before"]["rate"] == 0.0
+    assert delta["after"]["rate"] == 1.0
+
+
+def test_asr_delta_flags_a_significant_decrease() -> None:
+    """The mirror image: a weakness that used to always succeed and now
+    never does — the useful case for a retest that reproduced the
+    fingerprint but at a visibly reduced rate."""
+    before = rate_of(5, 5).as_dict()
+    after = rate_of(0, 5).as_dict()
+    delta = asr_delta(before, after)
+    assert delta is not None
+    assert delta["direction"] == "decreased"
+    assert delta["significant"] is True
+
+
+def test_asr_delta_is_unchanged_when_within_sampling_noise() -> None:
+    """Two rates that are the same effect measured twice, at a trial count
+    too small to tell apart from noise, must not be reported as a
+    direction — that would be exactly the coin-flip-as-measurement mistake
+    §7.1 exists to prevent."""
+    before = rate_of(3, 5).as_dict()
+    after = rate_of(2, 5).as_dict()
+    delta = asr_delta(before, after)
+    assert delta is not None
+    assert delta["direction"] == "unchanged"
+    assert delta["significant"] is False
+
+
+def test_asr_delta_is_unchanged_for_an_identical_rate() -> None:
+    before = rate_of(5, 5).as_dict()
+    after = rate_of(5, 5).as_dict()
+    delta = asr_delta(before, after)
+    assert delta is not None
+    assert delta["direction"] == "unchanged"
+    assert delta["significant"] is False

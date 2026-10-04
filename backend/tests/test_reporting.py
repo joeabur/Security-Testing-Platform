@@ -219,6 +219,23 @@ def test_a_retest_report_never_presents_not_tested_as_good_news() -> None:
     assert "Evidence of a fix" in rendered  # not_reproduced, stated separately
 
 
+def test_a_reproduced_finding_shows_its_attack_success_rate_either_side() -> None:
+    """§7.1's rate, interval and control follow the finding across the
+    retest boundary — not just a verdict, but the numbers behind it."""
+    rendered = render_markdown(retest_report(), Template.TECHNICAL)
+    assert "Attack success rate before: 3/5 = 60%" in rendered
+    assert "Attack success rate after: 5/5 = 100%" in rendered
+
+
+def test_a_not_reproduced_finding_has_no_fabricated_rate_comparison() -> None:
+    """The not_reproduced and not_tested rows in the fixture carry no
+    attack_success_rate_delta, so no rate line is printed for them — never
+    a guessed "0%" standing in for a measurement that was never taken."""
+    rendered = render_markdown(retest_report(), Template.TECHNICAL)
+    section = rendered.split("## Retest results")[1].split("## Appendix")[0]
+    assert section.count("Attack success rate before:") == 1
+
+
 def test_an_assessment_does_not_claim_to_be_a_retest() -> None:
     """Recurrence is a weaker claim than a verdict, and is labelled as one."""
     rendered = render_markdown(sample_report(), Template.TECHNICAL)
