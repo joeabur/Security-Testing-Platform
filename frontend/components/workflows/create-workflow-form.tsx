@@ -29,18 +29,25 @@ export function CreateWorkflowForm({
     register,
     handleSubmit,
     reset,
+    watch,
     formState: { errors, isSubmitting },
   } = useForm<CreateWorkflowInput>({
     resolver: zodResolver(createWorkflowSchema),
-    defaultValues: { trigger_kind: "manual", enabled: true },
+    defaultValues: { trigger_kind: "manual", enabled: true, schedule_interval_minutes: "" },
   });
+  const triggerKind = watch("trigger_kind");
 
   async function onSubmit(values: CreateWorkflowInput) {
     setFormError(null);
     try {
+      const { schedule_interval_minutes, ...rest } = values;
       await clientApiFetch<Workflow>(`/organizations/${organizationId}/workflows`, {
         method: "POST",
-        body: JSON.stringify(values),
+        body: JSON.stringify({
+          ...rest,
+          schedule_interval_minutes:
+            schedule_interval_minutes === "" ? null : Number(schedule_interval_minutes),
+        }),
       });
       reset();
       router.refresh();
@@ -89,6 +96,27 @@ export function CreateWorkflowForm({
           <option value="schedule">Schedule</option>
         </Select>
       </div>
+      {triggerKind === "schedule" && (
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="workflow-schedule-interval">Run every (minutes)</Label>
+          <Input
+            id="workflow-schedule-interval"
+            type="number"
+            min={60}
+            placeholder="60"
+            {...register("schedule_interval_minutes")}
+          />
+          <p className="text-xs text-muted-foreground">
+            Minimum 60 minutes. Left blank, this workflow is created but never runs on its own —
+            it can be scheduled later from the workflow&apos;s edit form.
+          </p>
+          {errors.schedule_interval_minutes && (
+            <p className="text-sm text-destructive" role="alert">
+              {errors.schedule_interval_minutes.message}
+            </p>
+          )}
+        </div>
+      )}
       <div className="flex items-center gap-2">
         <Checkbox id="workflow-enabled" {...register("enabled")} />
         <Label htmlFor="workflow-enabled" className="font-normal">

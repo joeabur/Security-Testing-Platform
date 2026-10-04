@@ -3,6 +3,7 @@ from collections.abc import Awaitable, Callable
 
 import structlog
 from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -127,6 +128,40 @@ def create_app() -> FastAPI:
             content=body.model_dump(),
             headers=exc.headers or None,
         )
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_exception_handler(
+        request: Request, exc: RequestValidationError
+    ) -> JSONResponse:
+        """A malformed request body or query parameter, caught before any
+        route handler runs.
+
+        FastAPI's own default for this is a bare `{"detail": [...]}`, in a
+        different shape than every other error this API returns — so a
+        caller reading `error.message` the way `http_exception_handler`'s
+        own body promises instead sees nothing and falls back to a generic
+        "Request failed" text, even though Pydantic already produced the
+        specific reason (which field, and why) that message should have
+        carried.
+        """
+        request_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
+        logger.info(
+            "request_validation_error",
+            path=request.url.path,
+            errors=exc.errors(),
+        )
+        detail = "; ".join(
+            f"{'.'.join(str(part) for part in error['loc'][1:])}: {error['msg']}"
+            for error in exc.errors()
+        )
+        body = ErrorResponse(
+            error=ErrorDetail(
+                code="VALIDATION_ERROR",
+                message=detail or "The request body is invalid.",
+                request_id=request_id,
+            )
+        )
+        return JSONResponse(status_code=422, content=body.model_dump())
 
     @app.exception_handler(Exception)
     async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
