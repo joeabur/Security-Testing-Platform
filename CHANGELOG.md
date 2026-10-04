@@ -169,6 +169,24 @@ All notable changes to this project are recorded here. The format follows
 
 ### Added
 
+- **Reachability analysis foundation: import-level evidence for SCA
+  findings, replacing a blanket disclaimer.** `docs/competitive-gap-
+  analysis.md` named this precisely: only network reachability existed;
+  there was no code-level reachability of a vulnerable dependency, so
+  every SCA finding carried the same unproven caveat since Phase 14
+  ("Reachability was not assessed"). New `app/core/appsec/reachability/
+  python_imports.py` answers the bounded, checkable half of that question
+  — does any in-scope file *statically import* this package — via an AST
+  walk (never a text search), resolving a PyPI distribution name to its
+  import module through the standard convention plus a small curated
+  override table for well-known mismatches (`PyYAML`→`yaml`, `Pillow`→
+  `PIL`, …). Wired into `pip_audit_engine`'s `_normalize`: a finding's
+  `impact` becomes a concrete file:line when the package is imported, or a
+  stated (never "proven") absence when it is not — existing call sites
+  that pass no workspace see the original disclaimer, unchanged. Symbol/
+  call-graph-level reachability (which function is actually called) and
+  non-Python ecosystems remain explicitly not attempted — a materially
+  larger project than an import check, named rather than approximated.
 - **Direct OSV.dev integration, closing npm's zero SCA coverage.**
   `docs/competitive-gap-analysis.md` named this precisely: SCA was fully
   delegated to pip-audit/Trivy/Checkov's own embedded advisory data, with

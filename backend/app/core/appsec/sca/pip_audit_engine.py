@@ -23,6 +23,8 @@ from typing import Any
 
 from app.core.appsec.contract import EngineMeta, Pillar, code_evidence, tool_unavailable
 from app.core.appsec.identifiers import verified_advisories
+from app.core.appsec.reachability.python_imports import ReachabilityVerdict
+from app.core.appsec.reachability.python_imports import assess as assess_reachability
 from app.core.appsec.tooling import NetworkUse, ToolInvocation, run_tool
 from app.core.appsec.workspace import Workspace
 from app.core.probes.models import Category, Confidence, ScanResult, Severity
@@ -111,10 +113,12 @@ class PipAuditEngine:
                 )
                 continue
 
-            findings.extend(self._normalize(payload, manifest))
+            findings.extend(self._normalize(payload, manifest, workspace))
         return findings
 
-    def _normalize(self, payload: dict[str, Any], manifest: str) -> list[ScanResult]:
+    def _normalize(
+        self, payload: dict[str, Any], manifest: str, workspace: Workspace | None = None
+    ) -> list[ScanResult]:
         findings: list[ScanResult] = []
 
         for dependency in payload.get("dependencies", []):
@@ -132,6 +136,7 @@ class PipAuditEngine:
 
                 fixes = [str(version) for version in vulnerability.get("fix_versions", []) or []]
                 primary = advisories[0]
+                impact = _reachability_impact(workspace, name) if workspace else None
                 findings.append(
                     ScanResult(
                         id=f"KERVY-SCA-{primary}",
@@ -157,7 +162,8 @@ class PipAuditEngine:
                             f"advisories: {', '.join(advisories)}\n"
                             f"first patched: {', '.join(fixes) or 'none published'}"
                         ),
-                        impact=(
+                        impact=impact
+                        or (
                             "Reachability was not assessed. A vulnerable version being "
                             "present does not establish that the affected code path is "
                             "used by this application."
@@ -226,3 +232,28 @@ class PipAuditEngine:
             probe_id=self.meta.id,
             probe_version=self.meta.version,
         )
+
+
+def _reachability_impact(workspace: Workspace, package_name: str) -> str | None:
+    """Replaces the blanket "reachability was not assessed" disclaimer with
+    what `app.core.appsec.reachability.python_imports` actually found —
+    concrete evidence when there is any, or `None` to fall back to the
+    original disclaimer when the check could not be run at all.
+    """
+    result = assess_reachability(workspace, package_name)
+    if result.verdict is ReachabilityVerdict.IMPORTED:
+        site = result.sites[0]
+        return (
+            f"Statically imported: {site.path}:{site.line} ({site.statement}). "
+            "This confirms the package is imported by this application's own code; "
+            "it does not confirm the specific vulnerable function is reached — that "
+            "deeper, symbol-level question is not assessed."
+        )
+    if result.verdict is ReachabilityVerdict.NOT_FOUND:
+        return (
+            "No static import of this package was found in the files scanned, which "
+            "suggests it may be an unused transitive dependency. This is not proof of "
+            "unreachability: a dynamic import, or an import name this check's "
+            "distribution-to-module mapping does not cover, would also read this way."
+        )
+    return None

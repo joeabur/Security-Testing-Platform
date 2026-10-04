@@ -5819,3 +5819,82 @@ all that shows the same context refuses a different host outright. Full
 `tests/test_appsec_engines.py` + the three new OSV test files + `tests/
 security/test_scope_controls.py` (125 tests) passes clean; no existing
 test needed a behavioural change.
+
+## Reachability analysis foundation (import-level, Python)
+
+`docs/competitive-gap-analysis.md` named this precisely: only *network*
+reachability existed (`orchestrator/checks.py`); there was no code-level
+reachability of a vulnerable dependency at all, and every SCA finding
+carried the same blanket caveat since Phase 14 — "Reachability was not
+assessed" — despite nothing ever having tried.
+
+**Delivered.**
+- `app/core/appsec/reachability/python_imports.py` (new): `assess(workspace,
+  distribution_name) -> ReachabilityAssessment` answers one bounded
+  question — does any in-scope Python file *statically import* this
+  package at all — by parsing each file with `ast.parse` and walking its
+  `Import`/`ImportFrom` nodes, never by text search. Resolves a PyPI
+  distribution name to its likely import module via the standard
+  hyphen/dot-to-underscore convention, plus a small curated table of
+  well-known mismatches (`PyYAML`→`yaml`, `Pillow`→`PIL`,
+  `beautifulsoup4`→`bs4`, …) — the same "one hand-curated list, explicitly
+  not a live feed" idiom `appsec/supplychain/malware.py` already uses.
+  Returns `IMPORTED` (with up to 5 file:line sites), `NOT_FOUND` (scanned,
+  nothing found), or `NOT_ASSESSED` (nothing to scan, or the package name
+  did not resolve to a candidate at all) — three distinct states, so
+  "we looked and found nothing" is never confused with "we did not look".
+- Wired into `app/core/appsec/sca/pip_audit_engine.py`'s `_normalize`
+  (now takes an optional `workspace` parameter): when a workspace is
+  available, the blanket disclaimer in a finding's `impact` is replaced
+  with the actual verdict — a concrete file:line when the package is
+  imported, or a stated (not proven) absence when it is not. Omitting
+  `workspace` keeps the original disclaimer exactly as before, so every
+  existing call site and test needed no change.
+
+**Decisions.**
+- **What this is not, stated as prominently as what it is.** This is
+  import-detection, not reachability's deeper question: *symbol*-level or
+  call-graph reachability — tracing from an import through actual call
+  sites down to the specific vulnerable function, across module
+  boundaries and dynamic dispatch — is a substantially larger project
+  (a real call graph, interprocedural data-flow to the vulnerable sink)
+  and is explicitly not attempted here. An `IMPORTED` verdict's own finding
+  text says so: it confirms the package is imported, not that the
+  vulnerable function specifically is reached.
+- **Two named false-negative classes, not hidden ones.** A dynamic import
+  (`importlib.import_module(name)`, a plugin loaded by entry point) is
+  invisible to an AST walk over literal `import` statements, and will read
+  `NOT_FOUND` even where the package genuinely is used. A distribution
+  whose import name is neither the standard normalization nor in the
+  curated override table will read the same way. Both are why a
+  `NOT_FOUND` finding is worded as "no *static* import was found", never
+  as "this dependency is unreachable".
+- **Python only, this pass.** `pip-audit` is this platform's only mature
+  SCA pillar; wiring the npm `OsvEngine` (and any future ecosystem) to the
+  same `ReachabilityAssessment` shape is parsing a different language's
+  import syntax, not new architecture, and is left for a later increment
+  rather than attempted speculatively alongside the Python path.
+- **No change to severity, confidence or risk score.** Whether and how a
+  confirmed-unreachable dependency should be weighted differently is a
+  risk-model decision, not a detection one, and belongs to a later,
+  deliberate phase — this pass only changes what a finding's `impact` text
+  says, never what it scores.
+
+**Deferred, stated plainly.** Symbol/call-graph-level reachability,
+non-Python ecosystems, and any risk-scoring effect of a reachability
+verdict — see the decisions above for why each is not attempted this pass.
+
+**Verified.** `ruff check .` / `mypy app` clean (370 source files). New
+`tests/test_reachability_python_imports.py` (11 tests): plain/`from`/
+aliased/submodule imports found, a relative import never matched against
+a same-named distribution, a comment/string mention never counted (AST,
+not text search), no-Python-files correctly reads `NOT_ASSESSED` rather
+than `NOT_FOUND`, a syntax error in one file does not stop the others, the
+curated override table resolves a real name mismatch, and sites are
+bounded. New `tests/test_sca_reachability.py` (4 tests) proves the
+`pip_audit_engine` wiring directly: unchanged behaviour with no workspace,
+concrete file:line evidence for an imported package, a stated absence for
+one that is not, and the disclaimer fallback when there are no Python
+files to check. Full `tests/test_appsec_engines.py` + the three new
+reachability test files + `tests/security/test_scope_controls.py`
+(112 tests) passes clean; no existing test needed a behavioural change.
