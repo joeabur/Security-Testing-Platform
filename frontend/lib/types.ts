@@ -63,6 +63,10 @@ export interface OrganizationInvitation {
   role: Role;
   expires_at: string;
   created_at: string;
+  /** Whether the invitation email actually went out — `null`/absent on a row
+   * read back from the list endpoint, since the row itself carries no record
+   * of it; only the create response says so for the invitation just made. */
+  email_sent?: boolean | null;
 }
 
 export interface ApiErrorBody {

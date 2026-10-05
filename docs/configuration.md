@@ -119,11 +119,23 @@ Register `{KERVY_OAUTH_CALLBACK_BASE_URL}/api/v1/auth/oauth/google/callback`
 (and the `github` equivalent) as the provider's own allowed redirect URI —
 it refuses any other.
 
-## Password reset (optional)
+## Outbound mail: password reset + organization invitations (optional)
 
-Leave `KERVY_PLATFORM_SMTP_HOST` unset and `POST /auth/forgot-password`
-still answers 202 (never disclosing whether an address is registered — see
-`docs/security-model.md`), but issues no token and sends no mail.
+One platform SMTP relay, two features built on it — there is no per-feature
+configuration, only `password_reset_enabled`/`invitation_email_enabled`,
+which are both just "is `KERVY_PLATFORM_SMTP_HOST` set" read under two
+different names (`app/core/config.py`).
+
+Leave `KERVY_PLATFORM_SMTP_HOST` unset and both features degrade the same
+way: no error, just no mail. `POST /auth/forgot-password` still answers its
+usual 202 (never disclosing whether an address is registered — see
+`docs/security-model.md`), but issues no token. Inviting a not-yet-
+registered address from the dashboard's Members tab (`docs/dashboard.md`)
+still creates the pending invitation row — so an admin can revoke it and
+re-invite later once mail is configured — but the row's own `email_sent`
+field comes back `false`, and the dashboard shows that plainly (a warning,
+not the "email was sent" success message) rather than claiming delivery
+that didn't happen.
 
 | Variable | Notes |
 |---|---|
@@ -133,6 +145,32 @@ still answers 202 (never disclosing whether an address is registered — see
 | `KERVY_PLATFORM_SMTP_USERNAME` | Optional |
 | `KERVY_PLATFORM_SMTP_PASSWORD_ENV_VAR` | Name of the variable holding the password, not the value itself |
 | `KERVY_PASSWORD_RESET_TOKEN_TTL_MINUTES` | Default `30` |
+| `KERVY_INVITATION_TOKEN_TTL_MINUTES` | Default `10080` (a week) — longer than a password reset's, since an invitation goes to someone who may not check their inbox right away |
+
+### Local development: catching mail without a real provider
+
+No real SMTP account is needed to see these emails locally. `docker-
+compose.yml` bundles [Mailpit](https://github.com/axllent/mailpit), a
+throwaway SMTP server with a web UI, behind `--profile mail` — the same
+opt-in shape as the demo target lab, so it never starts as part of an
+ordinary `docker compose up` or in a real deployment:
+
+```bash
+docker compose --profile mail up -d mailpit
+```
+
+Then point `.env` at it instead of a real relay:
+
+```bash
+KERVY_PLATFORM_SMTP_HOST=mailpit
+KERVY_PLATFORM_SMTP_PORT=1025
+KERVY_PLATFORM_SMTP_FROM_ADDRESS=dev@localhost
+```
+
+Restart the backend so it picks up the new values, then read whatever this
+platform sent at **http://localhost:8025** — invitation emails and password
+resets both land there, with working accept/reset links pointed at
+whatever `KERVY_PUBLIC_BASE_URL` is set to.
 
 ## Frontend
 

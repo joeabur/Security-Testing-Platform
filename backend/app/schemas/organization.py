@@ -51,6 +51,15 @@ class InvitationRead(BaseModel):
     role: Role
     expires_at: datetime
     created_at: datetime
+    #: Whether the invitation email actually went out — `None` when this
+    #: value isn't known for the row being read (every row returned by
+    #: `GET .../invitations`, since the row itself carries no record of it).
+    #: `invite_member`/`_create_invitation` set it explicitly, reflecting
+    #: whether a platform SMTP relay was configured at the moment this
+    #: specific invitation was created — the row persisting either way is
+    #: what lets an admin later revoke and re-invite once mail is
+    #: configured, rather than the invite silently vanishing.
+    email_sent: bool | None = None
 
 
 class InvitationAccept(BaseModel):

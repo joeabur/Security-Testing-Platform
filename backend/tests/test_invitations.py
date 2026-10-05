@@ -101,6 +101,7 @@ async def test_inviting_an_unregistered_email_creates_a_pending_invitation(
     assert body["email"] == "newcomer@example.test"
     assert body["role"] == "analyst"
     assert "user_id" not in body
+    assert body["email_sent"] is True
 
     assert sent_invitations
     assert sent_invitations[0]["to"] == "newcomer@example.test"
@@ -293,6 +294,7 @@ async def test_the_invitation_row_is_created_even_when_mail_is_not_configured(
         headers=_auth_headers(owner["access_token"]),
     )
     assert response.status_code == 201
+    assert response.json()["email_sent"] is False
 
     result = await db_session.execute(
         select(OrganizationInvitation).where(OrganizationInvitation.email == "nomail@example.test")
@@ -300,3 +302,34 @@ async def test_the_invitation_row_is_created_even_when_mail_is_not_configured(
     assert result.scalar_one() is not None
 
     get_settings.cache_clear()
+
+
+async def test_email_sent_is_false_when_a_configured_relay_fails_to_deliver(
+    client: AsyncClient,
+    strong_password: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`send_invitation_email` raises only when no relay is configured at
+    all (`InvitationEmailNotConfigured`) — a *configured* relay that then
+    fails (wrong credentials, refused STARTTLS, connection refused) reports
+    that failure through an ordinary `DeliveryResult(delivered=False, ...)`
+    return value instead, the same as every other outbound-notification
+    failure in this codebase. `email_sent` in the API response must reflect
+    that, not just "no exception was raised" — this is the regression test
+    for exactly that distinction."""
+
+    async def _failing_send(
+        settings, *, to_address, organization_name, role, invited_by_name, accept_url
+    ):  # noqa: ANN001
+        return DeliveryResult(delivered=False, detail="relay does not support STARTTLS")
+
+    monkeypatch.setattr(organizations_router, "send_invitation_email", _failing_send)
+
+    owner, org_id = await _owner_with_org(client, strong_password, "j")
+    response = await client.post(
+        f"/api/v1/organizations/{org_id}/members",
+        json={"email": "undeliverable@example.test", "role": "viewer"},
+        headers=_auth_headers(owner["access_token"]),
+    )
+    assert response.status_code == 201
+    assert response.json()["email_sent"] is False
