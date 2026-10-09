@@ -134,7 +134,12 @@ COPY backend/app ./app
 # optional at runtime by design (docs/third-party.md) — this image just
 # happens to install them so a `docker compose up` gets real scans without
 # any extra step.
-RUN pip install --no-cache-dir -c constraints.lock.txt ".[appsec,zap]" \
+#
+# setuptools<81: not a project dependency, but zap_common.py (imported by
+# zap-baseline.py/zap-full-scan.py above) imports pkg_resources, which
+# setuptools dropped entirely in 81 (pkg_resources was slated for removal
+# as early as 2025-11-30 and is now gone from current releases).
+RUN pip install --no-cache-dir -c constraints.lock.txt ".[appsec,zap]" "setuptools<81" \
     && useradd --create-home --uid 1000 appuser \
     && chown -R appuser:appuser /app /zap
 
