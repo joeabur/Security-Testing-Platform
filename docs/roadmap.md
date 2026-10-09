@@ -6559,3 +6559,82 @@ unverified here, the same already-documented limitation. A real build and
 `docker compose up` against the demo lab, confirming each engine actually
 produces findings rather than `KERVY-APPSEC-000 — not tested`, is left for
 whoever next runs this in an environment with normal Docker/apt egress.
+
+## Cross-user AI data-leakage probe
+
+`docs/competitive-gap-analysis.md` named "cross-user leakage probe — no
+multi-session/multi-user target abstraction exists to even express it" as an
+open P1 gap in the AI engine. That was true of the AI side specifically —
+the REST API side already had full multi-identity support
+(`SyntheticAccount`/`AuthorizationTestPlan`, driving the BOLA and
+function-level-authorization probes) — but `AiProbeTarget` carried no
+identity concept at all. This closes the gap by extending that existing,
+already-trusted infrastructure into the AI engine rather than inventing a
+second one.
+
+**Delivered.**
+- `extra_headers` (keyword-only, `Mapping[str, str] | None`) added to
+  `ConversationalAdapter.send` and both its implementations
+  (`ChatHttpAdapter`, `OpenAiCompatibleAdapter`), merged as the
+  highest-precedence header layer, resolved fresh per call and never
+  stored.
+- `AiProbeTarget.authorization: AuthorizationTestPlan`
+  (`app/core/probes/ai/contract.py`), reusing the REST side's type
+  unchanged. `build_ai_probe_target` (`context_builder.py`) now accepts
+  `accounts`/`environ` and sets it via the same `_authorization_plan`
+  helper `build_probe_target` already used.
+- New `app/core/probes/ai/cross_identity/` engine (`contract.py`,
+  `runner.py`), sized for its one real difference from the multi-turn
+  engine: each turn is sent by a possibly different declared identity via
+  an `ask_as: Mapping[str, Ask]`, and — deliberately — turns are never
+  composed into a replayed transcript the way the multi-turn engine does.
+- `app/core/probes/ai/cross_identity/data_leakage.py`'s
+  `CrossUserDataLeakageProbe` (`ai.disclosure.cross_user_leakage`,
+  `KERVY-AI-013`): identity `owner` plants a canary against a real,
+  operator-declared record id it owns; identity `other` then asks, in a
+  second independent request with no canary or transcript text of its own,
+  what value was recorded for that id. The control has `owner` ask for its
+  own value back, as the statistical/logical sanity gate every other probe
+  in this engine already uses.
+- `AiSecurityCheck.run` (`ai_check.py`) builds `ask_as` from
+  `self.probe_target.authorization.usable()` and runs
+  `cross_identity_probes()` through the new runner, guarded the same way
+  every other probe loop in that method already is.
+
+**Decisions.**
+- Detection stays marker-based only, this engine's one hard, unconditional
+  rule: a planted canary coming back in a different identity's independent
+  response, nothing structural or fuzzy.
+- No transcript replay is a safety property, not a limitation to work
+  around later: replaying turn one's text into turn two's prompt would
+  hand the second identity the canary directly, so a "success" would only
+  prove the target echoes what it is told, not that anything leaked across
+  an identity boundary.
+- A real e2e lab fixture (a stateful, header-keyed handler proving the
+  probe against a target that actually does leak across identities) is out
+  of scope for this pass and named as a natural follow-up, the same way
+  `test_ai_engine_e2e.py` already exists for the single-shot and multi-turn
+  engines.
+- Retrieval-corpus poisoning and real cross-tenant retrieval boundaries
+  remain separate, not-yet-covered attacks — this probe tests identity-
+  boundary state correlation through the conversational surface, not a
+  retrieval pipeline.
+
+**Deferred, stated plainly.** No e2e lab fixture demonstrating a true
+positive against a stateful target exists yet; this pass's acceptance tests
+are runner-level against scripted fakes, mirroring `test_multiturn_engine.py`'s
+own split between runner tests and e2e coverage before its e2e fixture was
+added. Tool manipulation, memory poisoning, chain manipulation,
+retrieval/context poisoning and cross-tenant retrieval remain the five
+still-not-covered attacks named by the RAG/agent-security pass above —
+unchanged by this one.
+
+**Verified.** `ruff check`/`mypy` clean on every changed and new file. New
+`tests/test_cross_identity_engine.py` (mirroring
+`tests/test_multiturn_engine.py`'s structure: no-replay assertion, early-
+stop, halt-mid-script, unanswered-turn behavior, `applies_to` true/false
+cases, both-account-labels-named and no-credential-leak assertions, and the
+registry-wiring check) plus two new tests in `tests/security/test_adapters.py`
+for `extra_headers` precedence — all passing. Full backend suite
+(`pytest -q --cov=app --cov=kervy_cli --cov=mcp_server --cov-fail-under=80`)
+re-run after this change to confirm nothing else broke.

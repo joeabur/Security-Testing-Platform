@@ -15,6 +15,8 @@ incidental:
 from app.core.probes.ai.agency import ExcessiveAgencyProbe
 from app.core.probes.ai.consumption import ConsumptionProbe
 from app.core.probes.ai.contract import AiProbe
+from app.core.probes.ai.cross_identity.contract import CrossIdentityProbe
+from app.core.probes.ai.cross_identity.data_leakage import CrossUserDataLeakageProbe
 from app.core.probes.ai.direct_injection import direct_injection_probes
 from app.core.probes.ai.disclosure import HiddenContextProbe, SensitiveDisclosureProbe
 from app.core.probes.ai.multiturn.agent_goal import agent_multi_turn_probes
@@ -41,6 +43,14 @@ def multi_turn_probes() -> list[MultiTurnProbe]:
     return [*_multi_turn(), *agent_multi_turn_probes()]
 
 
+def cross_identity_probes() -> list[CrossIdentityProbe]:
+    """Probes that drive a target through two or more operator-declared
+    synthetic identities at once, run through
+    `cross_identity.runner.run_cross_identity_probe` rather than
+    `driver.run_ai_probe` or `multiturn.runner.run_multi_turn_probe`."""
+    return [CrossUserDataLeakageProbe()]
+
+
 def consumption_probe() -> ConsumptionProbe:
     return ConsumptionProbe()
 
@@ -53,5 +63,6 @@ def all_probe_ids() -> list[str]:
     return sorted(
         [probe.meta.id for probe in trial_probes()]
         + [probe.meta.id for probe in multi_turn_probes()]
+        + [probe.meta.id for probe in cross_identity_probes()]
         + [consumption_probe().meta.id, agency_probe().meta.id]
     )

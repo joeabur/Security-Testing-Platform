@@ -11,16 +11,19 @@ from dataclasses import dataclass, field
 from functools import partial
 
 from app.core.orchestrator.checks import CheckResult
-from app.core.probes.ai.contract import AiProbeTarget, new_canary
+from app.core.probes.ai.contract import AiProbeTarget, Ask, new_canary
+from app.core.probes.ai.cross_identity.runner import run_cross_identity_probe
 from app.core.probes.ai.driver import run_ai_probe
 from app.core.probes.ai.judge import DISABLED_JUDGE, JudgeConfig
 from app.core.probes.ai.multiturn.runner import run_multi_turn_probe
 from app.core.probes.ai.registry import (
     agency_probe,
     consumption_probe,
+    cross_identity_probes,
     multi_turn_probes,
     trial_probes,
 )
+from app.core.probes.credentials import SyntheticAccount
 from app.core.probes.models import Category, Confidence, ScanResult, Severity
 from app.core.scope.context import RunContext
 from app.core.scope.transport import GatedTransport
@@ -42,6 +45,17 @@ class AiSecurityCheck:
 
         async def ask(prompt: str) -> TargetResponse:
             return await self.adapter.send(Turn(content=prompt), ctx)
+
+        # One `Ask` per operator-declared synthetic account, each closing
+        # over that account's own headers (resolved fresh here, never
+        # stored — the same rule `app/core/probes/credentials.py` already
+        # enforces for the REST authorization probes). This is what lets
+        # `cross_identity` probes below drive the target as two or more
+        # distinct identities.
+        ask_as: dict[str, Ask] = {
+            account.label: self._ask_as(account, ctx)
+            for account in self.probe_target.authorization.usable()
+        }
 
         # One canary for the whole check, so a marker that leaks from one
         # probe into another's context is still this run's marker and not a
@@ -81,6 +95,24 @@ class AiSecurityCheck:
                 )
             )
 
+        for identity_probe in cross_identity_probes():
+            if ctx.halted or ctx.kill_switch.tripped:
+                break
+            results.append(
+                await self._guard(
+                    identity_probe.meta.id,
+                    identity_probe.meta.name,
+                    partial(
+                        run_cross_identity_probe,
+                        identity_probe,
+                        self.probe_target,
+                        ctx,
+                        ask_as,
+                        canary=canary,
+                    ),
+                )
+            )
+
         consumption = consumption_probe()
         if not (ctx.halted or ctx.kill_switch.tripped):
             results.append(
@@ -105,6 +137,17 @@ class AiSecurityCheck:
             )
         )
         return results
+
+    def _ask_as(self, account: SyntheticAccount, ctx: RunContext) -> Ask:
+        """An `Ask` closure bound to one synthetic account's resolved
+        headers, computed once per run rather than resolved again on every
+        call — the credential itself still never leaves this closure."""
+        headers = self.probe_target.authorization.credentials.headers_for(account)
+
+        async def ask(prompt: str) -> TargetResponse:
+            return await self.adapter.send(Turn(content=prompt), ctx, extra_headers=headers)
+
+        return ask
 
     async def _guard(
         self,

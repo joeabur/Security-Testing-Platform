@@ -94,7 +94,7 @@ Still open, genuinely P2 convenience rather than a capability gap (a CLI path ex
 | Jailbreak: encoding, obfuscation, translation | **Already solid** | `direct_injection.py:290,334` |
 | Jailbreak: instruction chaining | **Implemented** — `ai.jailbreak.instruction_chaining` (`KERVY-AI-007`, `probes/ai/multiturn/instruction_chaining.py`), verified end to end against the real lab app | `tests/test_multiturn_engine.py` |
 | Data leakage: system prompt / secret / sensitive-info extraction | **Already solid** | `disclosure.py:49,170` |
-| Cross-user leakage | **Gap** — no multi-session/multi-user target abstraction exists to even express this probe | P1 |
+| Cross-user leakage | **Implemented** — `ai.disclosure.cross_user_leakage` (`KERVY-AI-013`, `app/core/probes/ai/cross_identity/`), reusing the same operator-declared `SyntheticAccount`s the REST BOLA probe already uses | — |
 | Excessive agency | **Partial** — permission-graph design review flags unconfirmed/irreversible tools structurally; nothing attempts a live unauthorized call | P1 (deliberately conservative by design — see `docs/limitations.md`'s own stated single-shot-confidence-cap philosophy; raising this requires either careful live-fire design or stays design-review by policy) |
 | RAG security (document injection, retrieval/context poisoning, cross-tenant retrieval, malicious documents) | **Partial** — document injection covered (see Indirect injection above); retrieval/context poisoning and cross-tenant retrieval still have no coverage, since neither has a real retrieval-corpus/multi-tenant-store target abstraction to test against | P1 (downgraded from "zero coverage") |
 | Agent security (goal hijacking, tool manipulation, memory poisoning, chain manipulation) | **Partial** — goal hijacking covered (`ai.agent.goal_hijacking`, `KERVY-AI-034`, new `ProbeCategory.AGENT`); tool manipulation, memory poisoning, and chain manipulation remain uncovered, needing visibility into actual tool invocation/persisted memory this platform doesn't yet model | P1 (downgraded from "zero coverage") |
@@ -106,7 +106,7 @@ Still open, genuinely P2 convenience rather than a capability gap (a CLI path ex
 | Cross-version/run statistical comparison | **Implemented** — same `app/core/measure/regression.py` as the row above: matches two runs by fingerprint (fallback probe_id+endpoint) and classifies REGRESSED/IMPROVED/UNCHANGED/NEW_PROBE/REMOVED_PROBE via a Wilson-interval non-overlap rule. (Distinct from "Retest ASR-delta" in section 4 below, which is about one finding's own before/after retest, not a cross-run AI-probe comparison — both are now implemented, by two different pieces of work.) | same section as above |
 | `ProbeMeta` metadata completeness | **Partial** — `id`, `category`, `description`, OWASP/MITRE-ATLAS/CWE/NIST-AI-RMF mappings, required capabilities all present (`contract.py:54-93`); `severity`, `attack_type`, `turn_count`, `remediation` exist only as per-probe class attributes, not on the metadata model itself | P2 |
 
-**Why this was originally sequenced as P1, not P0, despite being section 6-9 of the brief**: none of these were security *boundary* gaps — they were coverage/breadth gaps, the same category the platform's own `docs/comparison.md` already and correctly concedes to garak/PyRIT. Most of the P1 rows above have since been closed or narrowed in later passes (see each row's citation); what remains open (cross-user leakage, RAG retrieval/context poisoning, agent tool-manipulation/memory-poisoning/chain-manipulation, command-injection sink, `ProbeMeta` completeness) is listed in Remaining Gaps below.
+**Why this was originally sequenced as P1, not P0, despite being section 6-9 of the brief**: none of these were security *boundary* gaps — they were coverage/breadth gaps, the same category the platform's own `docs/comparison.md` already and correctly concedes to garak/PyRIT. Most of the P1 rows above have since been closed or narrowed in later passes (see each row's citation); what remains open (RAG retrieval/context poisoning, agent tool-manipulation/memory-poisoning/chain-manipulation, command-injection sink, `ProbeMeta` completeness) is listed in Remaining Gaps below.
 
 ### Implemented across this and later passes
 
@@ -115,10 +115,11 @@ Still open, genuinely P2 convenience rather than a capability gap (a CLI path ex
 - **Multi-turn attack orchestration engine** (`docs/roadmap.md`'s own section), shipping `ai.jailbreak.instruction_chaining`.
 - **RAG security + agent security probe families** (`docs/roadmap.md`'s own section), shipping `ai.injection.indirect.document_injection` and `ai.agent.goal_hijacking`.
 - **`kervy-ai test ai [--ci]` regression command + cross-run statistical comparison** (`docs/roadmap.md`'s own section).
+- **Cross-user AI data-leakage probe** (`docs/roadmap.md`'s own section), shipping `ai.disclosure.cross_user_leakage`.
 
 ### Not implemented (honestly deferred, not claimed)
 
-Retrieval/context poisoning and cross-tenant retrieval (RAG), tool manipulation/memory poisoning/chain manipulation (agent security), cross-user leakage, and a broader multi-turn attack taxonomy beyond the two techniques shipped. Each still needs a target abstraction (a real retrieval corpus, a multi-tenant document store, visibility into tool invocation or persisted memory) this platform does not yet model — not a probe-writing gap but a missing foundation, the same reasoning that gated the earlier work. These are listed as such in Remaining Gaps.
+Retrieval/context poisoning and cross-tenant retrieval (RAG), tool manipulation/memory poisoning/chain manipulation (agent security), and a broader multi-turn attack taxonomy beyond the two techniques shipped. Each still needs a target abstraction (a real retrieval corpus, a multi-tenant document store, visibility into tool invocation or persisted memory) this platform does not yet model — not a probe-writing gap but a missing foundation, the same reasoning that gated the earlier work. These are listed as such in Remaining Gaps.
 
 ---
 
@@ -208,7 +209,7 @@ task #80 in this project's history). See `docs/ai-security-testing.md`'s
 Still open — some are the narrower remainder of a row struck through above, not new discoveries:
 
 10. **RAG retrieval/context poisoning, cross-tenant retrieval; agent tool-manipulation, memory-poisoning, chain-manipulation** (the narrower remainder of item 2) — each needs a target abstraction (real retrieval corpus, multi-tenant store, tool-invocation/memory visibility) this platform doesn't yet model; not a probe-writing gap but a missing foundation.
-11. **Cross-user leakage probe** — no multi-session/multi-user target abstraction exists to even express it.
+11. ~~**Cross-user leakage probe**~~ — **Implemented** (`ai.disclosure.cross_user_leakage`, `KERVY-AI-013`, `app/core/probes/ai/cross_identity/`, `docs/roadmap.md`'s own section). Reuses the same operator-declared `SyntheticAccount`s the REST BOLA probe already uses, extended to the AI/conversational engine via a new per-identity `Ask` dispatch in `AiSecurityCheck.run`.
 12. **Direct NVD/GHSA clients, and OSV/direct-advisory coverage for non-npm ecosystems** (Python, Go, Rust, Java) (the narrower remainder of item 5).
 13. **Symbol/call-graph-level reachability analysis, and reachability for non-Python ecosystems** (the narrower remainder of item 6).
 14. **A dashboard surface for workflow webhook-secret rotation and gate approve/reject** — CLI-only today (`cmd_workflow_webhook_secret`/`approve`/`reject`) (the narrower remainder of item 9).

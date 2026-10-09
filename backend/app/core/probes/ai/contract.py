@@ -24,6 +24,7 @@ from enum import StrEnum
 from typing import Protocol, runtime_checkable
 
 from app.core.measure.asr import Measurement
+from app.core.probes.credentials import AuthorizationTestPlan
 from app.core.probes.models import ScanResult
 from app.core.targets.models import Capabilities, TargetResponse
 
@@ -187,6 +188,12 @@ class AiProbeTarget:
     # never guessed, so an empty tuple means "not declared", never "none".
     declared_tools: tuple["DeclaredTool", ...] = ()
     trials: int | None = None
+    # The same operator-declared synthetic test accounts the REST
+    # authorization probes already use (app/core/probes/credentials.py),
+    # reused verbatim here rather than inventing a second identity model —
+    # what makes a cross-identity AI probe (app/core/probes/ai/cross_identity/)
+    # possible.
+    authorization: AuthorizationTestPlan = field(default_factory=AuthorizationTestPlan)
 
 
 @dataclass(frozen=True)
