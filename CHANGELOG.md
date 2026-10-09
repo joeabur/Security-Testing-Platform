@@ -63,6 +63,16 @@ All notable changes to this project are recorded here. The format follows
   (cosmetic only — the backend's own RBAC is what actually enforces this, per
   `docs/BUILD_SPEC.md` §17.2's "the frontend's role-based UI hiding is cosmetic
   only").
+- **`Dockerfile.worker` now bundles every external scanner binary**: semgrep,
+  bandit, pip-audit, checkov (via a new `pip install ".[appsec,zap]"`),
+  gitleaks, trivy, and nuclei (pinned GitHub releases, each verified at build
+  time against that release's own published checksums), OWASP ZAP (its
+  official Linux tarball plus a JRE, installed the same way the official ZAP
+  Docker images lay it out), and the `docker` CLI. `docker-compose.yml`'s
+  `worker` service mounts `/var/run/docker.sock` (documented tradeoff — see
+  the comment on that mount) so the container engine can actually pull and
+  inspect images. A plain `docker compose up --build` now gets real findings
+  from every engine instead of only the ones with no external dependency.
 
 ### Fixed
 

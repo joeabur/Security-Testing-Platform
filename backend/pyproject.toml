@@ -124,6 +124,16 @@ cloud = [
 browser = [
     "playwright>=1.47",
 ]
+# OWASP ZAP's own `zap-baseline.py`/`zap-full-scan.py` wrapper scripts
+# (app/core/dast/zap.py) import `zapv2` and `six` directly; PyYAML is
+# already a core dependency above. The ZAP daemon itself is a separate,
+# non-pip Java application installed by the worker image, not by this
+# extra — same "optional at runtime, reports not tested rather than
+# crashing" reasoning as `appsec`.
+zap = [
+    "python-owasp-zap-v2.4>=0.1",
+    "six>=1.16",
+]
 
 [project.scripts]
 kervy-ai = "kervy_cli.main:main"

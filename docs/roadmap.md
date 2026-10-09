@@ -6297,12 +6297,13 @@ than `localhost`.
   gateway and other infra choices in this project already follow.
 
 **Deferred, not fixed here (named, not silently dropped).**
-- **Scanner binaries are still not bundled into `Dockerfile.worker`**
-  (`semgrep`/`bandit`/`pip-audit`/`checkov`/`gitleaks`/`trivy`) — an
-  existing, already-documented gap (`docs/deployment.md`'s "Scanner
-  binaries" section predates this pass), not introduced or resolved by
-  it. Stated plainly in the new guide rather than left for a deployer to
-  discover as a silent `not tested` finding.
+- **Scanner binaries were not yet bundled into `Dockerfile.worker`**
+  (`semgrep`/`bandit`/`pip-audit`/`checkov`/`gitleaks`/`trivy`) at the time
+  of this pass — an existing, already-documented gap (`docs/deployment.md`'s
+  "Scanner binaries" section predates this pass), not introduced or resolved
+  by it. Stated plainly in the new guide rather than left for a deployer to
+  discover as a silent `not tested` finding. Resolved in a later pass — see
+  "Bundle scanner binaries into `Dockerfile.worker`" further below.
 - **No automated backup tooling, no monitoring/alerting setup** — the
   guide names the one manual `pg_dump` command as a minimum and points
   back to `docs/deployment.md`'s own "What is not provided" section
@@ -6460,3 +6461,101 @@ immediately), invited a not-yet-registered address (pending invitation
 created — this is what surfaced the RLS bug above), changed a member's
 role, removed a member, and revoked a pending invitation — all confirmed
 via screenshot and backend log, not just a 2xx response.
+
+## Bundle scanner binaries into `Dockerfile.worker`
+
+Closes the gap this roadmap had carried under "deferred" since the free
+deployment guide pass (`docs/deployment.md`'s "Scanner binaries" section,
+and the "Scanner binaries are still not bundled" bullet above): a plain
+`docker compose up --build` on a fresh checkout now gets real results from
+every engine the worker can run, not just the ones that need no external
+tool (AI/LLM probes, the API security engine, the read-only cloud engine).
+
+**Delivered.**
+- `Dockerfile.worker` installs: the pip-based AppSec scanners (semgrep,
+  bandit, pip-audit, checkov) via a new `pip install ".[appsec,zap]"`;
+  gitleaks, trivy and nuclei as pinned Go-binary GitHub releases, each
+  verified at build time against that release's own published checksums
+  file (not a digest hand-copied into this repo); OWASP ZAP as its
+  official Linux release tarball plus `default-jre-headless` to run it,
+  installed at `/zap` with a `zap-x.sh` symlink and the `zap-baseline.py`/
+  `zap-full-scan.py`/`zap_common.py` wrapper scripts pulled from the same
+  ZAP release tag (`app/core/dast/zap.py` shells out to those two scripts
+  by name, and `zap_common.py` hardcodes both that install path and
+  launcher name — reproduced rather than patched around); and the
+  `docker` CLI (no daemon) via Docker's own apt repository, for the
+  container engine (`app/core/container/pull.py`).
+- `backend/pyproject.toml` gained a `zap` extra (`python-owasp-zap-v2.4`,
+  `six` — the libraries the wrapper scripts import; PyYAML was already a
+  core dependency), relocked via `python -m scripts.relock` the same way
+  every other dependency change in this repo is.
+- `docker-compose.yml`'s `worker` service now mounts
+  `/var/run/docker.sock` and adds a `group_add: ["${DOCKER_GID:-999}"]`
+  entry so the container's non-root `appuser` can use it by GID without
+  needing a matching named group inside the image. `.env.example`
+  documents `DOCKER_GID` and how to read the real value off a given host.
+- `docs/deployment.md`'s "Scanner binaries" section rewritten to describe
+  what is now bundled, the self-verifying download approach, and the
+  docker-socket tradeoff, replacing the stale "needs X on PATH, not
+  provided" framing.
+
+**Decisions.**
+- **Self-verifying checksums over hand-pinned digests, for gitleaks/
+  trivy/nuclei.** Each tool already publishes a checksums file alongside
+  its release; downloading it and `sha256sum -c`-ing the one matching
+  line means a version bump only ever touches the `ARG` at the top of
+  the file, with no separate digest to keep in sync and silently get
+  stale or wrong. ZAP is the one exception — it publishes no checksums
+  file for its Linux tarball — so its digest is pinned directly, computed
+  once from the release asset itself, with a comment saying why it's
+  different from the other three.
+- **ZAP's own install layout, not a patched one.** `zap_common.py`
+  hardcodes `/zap/zap-x.sh` and detects "running in Docker" via
+  `/.dockerenv`, which every container already has. Reproducing the
+  official image's layout (`/zap` + a `zap-x.sh` symlink to the release's
+  own `zap.sh`) was simpler and less fragile than forking the wrapper
+  scripts to look somewhere else.
+- **`docker-ce-cli` only, not the full `docker.io` package or a static
+  bundle including the daemon/containerd.** The worker only ever shells
+  out to `docker pull`/`docker rmi` against the host's own socket — it
+  never needs to run a daemon of its own, so there is no reason to ship
+  one.
+- **`group_add` with a numeric GID, not a build-time `docker` group.**
+  Baking a group with a guessed GID into the image risks mismatching
+  whatever GID the operator's actual host assigns `/var/run/docker.sock`
+  (it is not standardized). Linux permission checks are by GID number,
+  not by a matching `/etc/group` name, so `group_add` on the *running*
+  container, driven by an operator-settable `DOCKER_GID` env var, is
+  correct for any host rather than only the common default.
+
+**Deferred, not fixed here.**
+- **No automatic Trivy DB refresh.** Documented as a rebuild-or-run-
+  `trivy image --download-db-only` operator responsibility, same as
+  before this pass — adding a scheduled refresh is a separate increment.
+- **amd64/arm64 only.** The gitleaks/trivy/nuclei download step branches
+  on `dpkg --print-architecture` for these two; any other architecture
+  fails the build with an explicit message rather than silently grabbing
+  the wrong binary.
+- **Mounting the host Docker socket is a real, documented tradeoff, not
+  a solved problem.** It was already the only way for a sandboxed
+  container to reach a real Docker daemon before this pass; this pass
+  makes the worker's own `docker` CLI able to use that socket, it does
+  not change the tradeoff itself. Both `docker-compose.yml`'s own comment
+  on the mount and `docs/deployment.md` say so plainly rather than
+  burying it.
+
+**Verified.** Every pip package version this Dockerfile now installs
+(semgrep, bandit, pip-audit, checkov, python-owasp-zap-v2.4, six) resolves
+and locks cleanly via `python -m scripts.relock`. Each pinned gitleaks/
+trivy/nuclei/ZAP release asset was downloaded for real and its checksum
+verified by hand with the exact same `sha256sum -c` invocation the
+Dockerfile uses, confirming the download URLs, asset names, and (for
+gitleaks/trivy/nuclei) the checksums-file-based verification pattern are
+all correct before baking them into a `RUN` instruction that cannot be
+exercised in this sandbox — this environment's own egress policy blocks
+`deb.debian.org` and `ghcr.io` (consistent with the free-deployment-guide
+pass's own finding above), so `docker compose build` itself remains
+unverified here, the same already-documented limitation. A real build and
+`docker compose up` against the demo lab, confirming each engine actually
+produces findings rather than `KERVY-APPSEC-000 — not tested`, is left for
+whoever next runs this in an environment with normal Docker/apt egress.

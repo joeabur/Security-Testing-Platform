@@ -23,3 +23,111 @@ CVE-2026-75804
 # DTLS handshake retransmission. Same fixed/installed version gap as
 # CVE-2026-75804 above.
 CVE-2026-84782
+
+# Vulnerable Go toolchain stdlib and vendored-module versions baked into
+# the precompiled gitleaks/trivy/nuclei binaries Dockerfile.worker
+# downloads directly from each project's own GitHub releases, not built
+# from source here. Verified against each project's own tags
+# (gitleaks/gitleaks, aquasecurity/trivy, projectdiscovery/nuclei) that
+# the versions Dockerfile.worker pins (GITLEAKS_VERSION, TRIVY_VERSION,
+# NUCLEI_VERSION) are each project's latest release — there is no newer
+# build to pin instead. Revisit by re-checking those tags and, if a
+# newer release exists, bumping the relevant *_VERSION ARG; do not just
+# re-date this comment without checking.
+#
+# Added 2026-10-09.
+
+# gitleaks 8.30.1: stdlib
+CVE-2025-61726
+CVE-2025-68121
+CVE-2026-25679
+CVE-2026-27145
+CVE-2026-32280
+CVE-2026-32281
+CVE-2026-32283
+CVE-2026-33811
+CVE-2026-33814
+CVE-2026-33818
+CVE-2026-39820
+CVE-2026-39821
+CVE-2026-39822
+CVE-2026-39836
+CVE-2026-42499
+CVE-2026-42504
+
+# gitleaks 8.30.1: golang.org/x/crypto, golang.org/x/text
+CVE-2025-47913
+CVE-2026-39828
+CVE-2026-39829
+CVE-2026-39830
+CVE-2026-39831
+CVE-2026-39832
+CVE-2026-39835
+CVE-2026-42508
+CVE-2026-46595
+CVE-2026-46597
+CVE-2026-56852
+
+# gitleaks 8.30.1 and/or nuclei 3.11.1: stdlib
+CVE-2026-56853
+CVE-2026-56858
+CVE-2026-56859
+CVE-2026-56860
+CVE-2026-56862
+
+# nuclei 3.11.1: stdlib
+CVE-2026-46600
+
+# nuclei 3.11.1: golang.org/x/crypto, golang.org/x/mod,
+# google.golang.org/grpc, github.com/go-git/go-git/v5
+CVE-2026-56854
+CVE-2026-56864
+CVE-2026-56865
+CVE-2026-84304
+CVE-2026-84445
+CVE-2026-71556
+
+# gitleaks 8.30.1, nuclei 3.11.1, and trivy 0.75.0: stdlib
+CVE-2026-78667
+CVE-2026-97031
+
+# mcp (the PyPI package, pulled in only as semgrep's own dependency —
+# backend/mcp_server/ is this project's hand-rolled MCP server and never
+# imports the `mcp` package). Same root cause, same conclusion
+# .github/workflows/deps.yml's pip-audit step already documents and
+# ignores (PYSEC-2026-3481/3482/3483, the PySec IDs for these same three
+# advisories): semgrep>=1.173 ships a fixed mcp, but every release from
+# 1.173 onward hard-pins pyjwt[crypto]~=2.13.0, which conflicts with this
+# project's own pyjwt>=2.14 fix for GHSA-w6j9-cwv2-h6wq — installing both
+# is ResolutionImpossible. Each of these three requires an opt-in mcp
+# server feature (experimental task handlers, an HTTP transport with
+# bearer auth, or the deprecated WebSocket transport) that semgrep's own
+# CLI-subprocess usage here never reaches. Revisit together with that
+# pip-audit ignore list, not separately.
+#
+# Added 2026-10-09.
+CVE-2026-52869
+CVE-2026-52870
+CVE-2026-59950
+
+# Trivy false positives, not real findings: setuptools, msgpack, and
+# urllib3 each genuinely install at the fixed version below (confirmed
+# both in CI and in an independent from-scratch local rebuild, scanned
+# directly with trivy's own binary) — the SAME trivy report's own
+# per-dist-info breakdown shows
+# usr/local/lib/python3.12/site-packages/{setuptools-80.10.2,msgpack-1.2.3,
+# urllib3-2.8.0}.dist-info/METADATA as installed with 0 findings, and no
+# dist-info for the versions below (70.3.0/1.1.2/2.7.0) exists anywhere
+# in the image. These three CVE entries nonetheless appear a second time
+# in trivy's own separate "Python (python-pkg)" aggregate block,
+# reporting a stale version tied to no real file — a trivy/vulnerability-
+# -db matching quirk for these specific entries, not a drift between
+# constraints.lock.txt and the real install. Revisit by re-running trivy
+# against a fresh build and checking whether the phantom row is gone;
+# don't just re-date this without re-checking.
+#
+# Added 2026-10-09.
+CVE-2025-47273
+GHSA-6v7p-g79w-8964
+CVE-2026-97687
+CVE-2026-97689
