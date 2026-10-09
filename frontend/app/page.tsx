@@ -110,7 +110,7 @@ export default async function LandingPage() {
         dangerouslySetInnerHTML={{ __html: JSON.stringify(JSON_LD) }}
       />
 
-      <header className="sticky top-0 z-40 border-b border-border bg-background/85 backdrop-blur supports-[backdrop-filter]:bg-background/70">
+      <header className="sticky top-0 z-40 border-b border-border bg-background/85 backdrop-blur-sm supports-backdrop-filter:bg-background/70">
         <div className="flex items-center justify-between gap-2 px-4 py-4 sm:px-10">
           <div className="flex min-w-0 items-center gap-2 text-foreground">
             <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-soft">

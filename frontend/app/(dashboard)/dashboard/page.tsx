@@ -75,7 +75,7 @@ export default async function DashboardPage() {
             </Card>
           ))}
           <Link href="/organizations/new">
-            <Card className="flex h-full min-h-[140px] items-center justify-center border-dashed text-muted-foreground shadow-none transition-colors hover:border-primary hover:bg-primary/[0.03] hover:text-primary">
+            <Card className="flex h-full min-h-[140px] items-center justify-center border-dashed text-muted-foreground shadow-none transition-colors hover:border-primary hover:bg-primary/3 hover:text-primary">
               <div className="flex flex-col items-center gap-2 p-6">
                 <Plus className="h-6 w-6" aria-hidden />
                 <span className="text-sm font-medium">New organization</span>

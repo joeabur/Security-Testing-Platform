@@ -150,7 +150,7 @@ export function AgentWorkspace({
   return (
     <div className="grid animate-fade-in gap-6 lg:grid-cols-[2fr_1fr]">
       <div className="flex flex-col gap-4">
-        <Card className="border-accent/20 bg-gradient-to-br from-accent/[0.04] to-transparent">
+        <Card className="border-accent/20 bg-linear-to-br from-accent/4 to-transparent">
           <CardContent className="pt-6">
             <form onSubmit={onSubmit} className="flex flex-col gap-3">
               <div className="flex items-center gap-2 text-sm font-medium text-accent">
