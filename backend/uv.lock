@@ -1940,6 +1940,10 @@ dev = [
 pdf = [
     { name = "weasyprint" },
 ]
+zap = [
+    { name = "python-owasp-zap-v2-4" },
+    { name = "six" },
+]
 
 [package.metadata]
 requires-dist = [
@@ -1974,11 +1978,13 @@ requires-dist = [
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.24" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5.0" },
     { name = "python-multipart", specifier = ">=0.0.12" },
+    { name = "python-owasp-zap-v2-4", marker = "extra == 'zap'", specifier = ">=0.1" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "redis", specifier = ">=5.1" },
     { name = "respx", marker = "extra == 'dev'", specifier = ">=0.21" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.7" },
     { name = "semgrep", marker = "extra == 'appsec'", specifier = ">=1.90" },
+    { name = "six", marker = "extra == 'zap'", specifier = ">=1.16" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0" },
     { name = "structlog", specifier = ">=24.4" },
     { name = "types-defusedxml", marker = "extra == 'dev'", specifier = ">=0.7" },
@@ -1987,7 +1993,7 @@ requires-dist = [
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.32" },
     { name = "weasyprint", marker = "extra == 'pdf'", specifier = ">=62" },
 ]
-provides-extras = ["dev", "pdf", "appsec", "cloud", "browser"]
+provides-extras = ["dev", "pdf", "appsec", "cloud", "browser", "zap"]
 
 [[package]]
 name = "kombu"
@@ -3538,6 +3544,18 @@ wheels = [
 ]
 
 [[package]]
+name = "python-owasp-zap-v2-4"
+version = "0.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "zaproxy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/54/fc/91192ca872399544c09c1cf3053c71d87d8fc21a4a0ddba1a890940a761a/python-owasp-zap-v2.4-0.1.0.tar.gz", hash = "sha256:2af4252320b3b77a38712081422688e676e038306cf1f2792feed811235afa8b", size = 5222, upload-time = "2023-08-09T12:33:16.127Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8c/aa/2d32daaa560bd2ed4f338bc97e3ff845906c6190bf7aa778b7c7911c1844/python_owasp_zap_v2.4-0.1.0-py2.py3-none-any.whl", hash = "sha256:d4dc00387b0089d81683be01b8272577ad39fb47674377f65c7da0fd30b8abe9", size = 5418, upload-time = "2023-08-09T12:33:14.61Z" },
+]
+
+[[package]]
 name = "pywin32"
 version = "311"
 source = { registry = "https://pypi.org/simple" }
@@ -4880,6 +4898,19 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/38/02/eef443559563ef8f2e10469387b8b1e97cb5efee95b288a56da60801f7ee/yarl-1.25.1-cp315-cp315t-win_amd64.whl", hash = "sha256:b13b88747769537f3d32e89e3a735da10c0a9e35d7322928c701b5f93d3afffd", size = 106811, upload-time = "2026-09-15T19:34:54.935Z" },
     { url = "https://files.pythonhosted.org/packages/88/91/41e284ca2cf5211e05dae031d126a3668aea88fa759df56e7e35c6ad25ba/yarl-1.25.1-cp315-cp315t-win_arm64.whl", hash = "sha256:783dd1467083f4d3f7722ad6a313f24c173e7571372738fcb7a6e6d1ba48df25", size = 101804, upload-time = "2026-09-15T19:34:57.231Z" },
     { url = "https://files.pythonhosted.org/packages/54/22/318c7980066769c6bcd9221ed2248294f5698811da099013098c670565ed/yarl-1.25.1-py3-none-any.whl", hash = "sha256:681c758b0490f9e96b78e5fa8e8dc6e648e9185bb6eaebe73183c33ea0c445f3", size = 63617, upload-time = "2026-09-15T19:34:59.616Z" },
+]
+
+[[package]]
+name = "zaproxy"
+version = "0.6.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "requests" },
+    { name = "six" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c8/c6/5f292fe289c7dff5111b9802d8f7aa3af1edfd23cf40f98d5ae50f1846cd/zaproxy-0.6.0.tar.gz", hash = "sha256:3de13bbdcd8319c9d6395dd545ce7294d8bbaefb10d7199a57bcd22ec3587a81", size = 39356, upload-time = "2026-06-12T13:54:09.67Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f2/20/17fa3a9e0053e39a4cf6d0f902f1d39eca93bbc71e36a329b1620c265802/zaproxy-0.6.0-py3-none-any.whl", hash = "sha256:1a9123f4fe31605143e6cefe5adbc31af0d62bd6f86e10bdce7ec99573b74310", size = 74129, upload-time = "2026-06-12T13:54:08.295Z" },
 ]
 
 [[package]]

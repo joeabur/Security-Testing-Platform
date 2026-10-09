@@ -83,6 +83,25 @@ services:
       EVIDENCE_ROOT: ${EVIDENCE_ROOT:-/var/lib/kervy/evidence}
     volumes:
       - evidence_data:/var/lib/kervy/evidence
+      # The container engine (app/core/container/pull.py) shells out to the
+      # `docker` CLI bundled in Dockerfile.worker to pull/inspect/remove
+      # images for scanning. Mounting the host's own socket is how it talks
+      # to a real Docker daemon — there is no sandboxed alternative — and it
+      # means this container can do anything the host's Docker daemon can,
+      # which in practice is root-equivalent access to the host. That is a
+      # deliberate, documented tradeoff (docs/deployment.md), not an
+      # oversight: don't add this mount, or run this compose file at all, on
+      # a host you don't trust the worker's own code and its scan targets
+      # with full root access to.
+      - /var/run/docker.sock:/var/run/docker.sock
+    # Lets the container's `appuser` (uid 1000, no entry in its own
+    # /etc/group for the host's docker group) read/write the socket above by
+    # GID alone — Linux permission checks are by GID number, not by name, so
+    # no matching group entry is required. Defaults to Debian/Docker's usual
+    # `docker` GID; if `stat -c '%g' /var/run/docker.sock` on this host
+    # prints something else, set DOCKER_GID in `.env` to that number.
+    group_add:
+      - "${DOCKER_GID:-999}"
     # The worker is the only service that joins the lab network, because it is
     # the only one that reaches a target. `lab_net` has no gateway, so joining
     # it grants the worker reachability into the lab and no new reachability

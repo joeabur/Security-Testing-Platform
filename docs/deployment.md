@@ -119,14 +119,36 @@ See `docs/configuration.md`. The production-specific items:
 
 ## Scanner binaries
 
-The worker needs semgrep, bandit, pip-audit, checkov, gitleaks and trivy on its
-`PATH` for the corresponding engines. Any that are missing produce an explicit
-`not tested` finding rather than a silent gap, so a partial install degrades
-honestly — but check the coverage section of a report if you expected AppSec
-results and did not get them.
+The worker needs semgrep, bandit, pip-audit, checkov, gitleaks, trivy, nuclei,
+nmap, the OWASP ZAP daemon (plus its `zap-baseline.py`/`zap-full-scan.py`
+wrapper scripts) and the `docker` CLI on its `PATH` for the corresponding
+engines. `Dockerfile.worker` installs all of them — the pip-installable
+scanners via the `appsec`/`zap` extras (`backend/pyproject.toml`, pinned
+through `backend/constraints.lock.txt`), gitleaks/trivy/nuclei as
+self-verifying GitHub-release downloads (the image fetches each tool's own
+published checksums file at build time and verifies the matching line rather
+than trusting a hand-copied digest), and ZAP as its official Linux tarball
+plus a JRE (`default-jre-headless`) to run it. A `docker compose up --build`
+gets every engine working out of the box; if you build the worker from a
+different base or trim this Dockerfile down, any tool you drop produces an
+explicit `not tested` finding rather than a silent gap, so a partial install
+still degrades honestly — check the coverage section of a report if you
+expected results from an engine and did not get them.
 
-Trivy runs offline against whatever database the image already has. Refresh it
-as part of your image build, or its findings will go stale quietly.
+The container engine (`app/core/container/pull.py`) talks to the `docker` CLI
+bundled in the image, which in turn needs a real Docker daemon to talk to —
+`docker-compose.yml` mounts the host's own `/var/run/docker.sock` into the
+worker for this. That grants the worker container root-equivalent access to
+the host; see the comment on that mount in `docker-compose.yml` before
+running this compose file anywhere you don't trust the worker's own code and
+its scan targets with that level of access.
+
+Trivy runs offline against whatever vulnerability database the image already
+has. Refresh it (`trivy image --download-db-only`, or just rebuild the image
+periodically) as part of your deployment, or its findings will go stale
+quietly. The versions of gitleaks/trivy/nuclei/ZAP baked into
+`Dockerfile.worker` are pinned `ARG`s at its top — bump them deliberately,
+the same review any dependency bump gets, not as a drive-by edit.
 
 ## Scaling and backpressure
 

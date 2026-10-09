@@ -5,11 +5,118 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1
 
+# Pinned versions of the external scanner binaries this image bundles.
+# Bump these (and the matching sha256 below for ZAP, which publishes no
+# checksums file of its own) deliberately, the same review any dependency
+# bump gets — not as a drive-by edit of an unrelated change.
+ARG GITLEAKS_VERSION=8.30.1
+ARG TRIVY_VERSION=0.75.0
+ARG NUCLEI_VERSION=3.11.1
+ARG ZAP_VERSION=2.17.0
+# Computed once from the release asset itself: zaproxy publishes no
+# checksums file for its Linux tarball, so this is pinned directly here
+# rather than verified against an upstream-published digest.
+ARG ZAP_SHA256=efe799aaa3627db683b43f00c9c210aea0b75c00cc8f0a0f0434d12bb3ddde5a
+# The docker/*.py wrapper scripts are pinned to the same tag as ZAP_VERSION
+# itself (not `main`), so they never drift ahead of the daemon they drive.
+
 # Picks up Debian security patches (e.g. libpcre2) released after this image
 # was last baked, so the container scan doesn't flag a fix that already
 # exists upstream — the base image's own packages, not anything this
 # project pins itself.
-RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
+#
+# Also installs every *system* dependency the bundled scanners need:
+#   - curl, ca-certificates, unzip: fetch and unpack the Go-binary scanners
+#     and ZAP below.
+#   - nmap: app/core/pentest/nmap_scripts.py's own tool, invoked directly.
+#   - default-jre-headless: OWASP ZAP (app/core/dast/zap.py) is a Java
+#     application; its own release tarball does not bundle a JRE.
+#   - gnupg, lsb-release: needed once, to add Docker's own apt repo below,
+#     for docker-ce-cli specifically (the CLI only — no daemon, no
+#     containerd — talking to the host's Docker socket the worker mounts;
+#     see docker-compose.yml's own comment on that socket mount).
+RUN apt-get update && apt-get upgrade -y \
+    && apt-get install -y --no-install-recommends \
+        curl \
+        ca-certificates \
+        unzip \
+        nmap \
+        default-jre-headless \
+        gnupg \
+        lsb-release \
+    && install -m 0755 -d /etc/apt/keyrings \
+    && curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc \
+    && chmod a+r /etc/apt/keyrings/docker.asc \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
+        > /etc/apt/sources.list.d/docker.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends docker-ce-cli \
+    && rm -rf /var/lib/apt/lists/* \
+    # zap-baseline.py's own shebang is `#!/usr/bin/env python`, which this
+    # base image does not provide (only `python3`).
+    && ln -s /usr/local/bin/python3 /usr/local/bin/python
+
+# --- Gitleaks, Trivy, Nuclei: self-verifying downloads -------------------
+#
+# Each tool publishes its own checksums file alongside the release; this
+# downloads both and verifies the one line that matters, rather than
+# pinning a digest by hand in this file (which would need its own
+# out-of-band update every version bump, and silently drift if forgotten).
+RUN set -eu; \
+    cd /tmp; \
+    arch="$(dpkg --print-architecture)"; \
+    case "$arch" in \
+        amd64) gitleaks_arch=x64; nuclei_arch=amd64 ;; \
+        arm64) gitleaks_arch=arm64; nuclei_arch=arm64 ;; \
+        *) echo "unsupported architecture: $arch" >&2; exit 1 ;; \
+    esac; \
+    \
+    gitleaks_tar="gitleaks_${GITLEAKS_VERSION}_linux_${gitleaks_arch}.tar.gz"; \
+    curl -fsSL -O "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${gitleaks_tar}"; \
+    curl -fsSL -O "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_checksums.txt"; \
+    grep " ${gitleaks_tar}\$" "gitleaks_${GITLEAKS_VERSION}_checksums.txt" | sha256sum -c -; \
+    tar -xzf "$gitleaks_tar" -C /usr/local/bin gitleaks; \
+    \
+    trivy_tar="trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"; \
+    [ "$arch" = arm64 ] && trivy_tar="trivy_${TRIVY_VERSION}_Linux-ARM64.tar.gz"; \
+    curl -fsSL -O "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/${trivy_tar}"; \
+    curl -fsSL -O "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_checksums.txt"; \
+    grep " ${trivy_tar}\$" "trivy_${TRIVY_VERSION}_checksums.txt" | sha256sum -c -; \
+    tar -xzf "$trivy_tar" -C /usr/local/bin trivy; \
+    \
+    nuclei_zip="nuclei_${NUCLEI_VERSION}_linux_${nuclei_arch}.zip"; \
+    curl -fsSL -O "https://github.com/projectdiscovery/nuclei/releases/download/v${NUCLEI_VERSION}/${nuclei_zip}"; \
+    curl -fsSL -O "https://github.com/projectdiscovery/nuclei/releases/download/v${NUCLEI_VERSION}/nuclei_${NUCLEI_VERSION}_checksums.txt"; \
+    grep " ${nuclei_zip}\$" "nuclei_${NUCLEI_VERSION}_checksums.txt" | sha256sum -c -; \
+    unzip -p "$nuclei_zip" nuclei > /usr/local/bin/nuclei; \
+    \
+    chmod +x /usr/local/bin/gitleaks /usr/local/bin/trivy /usr/local/bin/nuclei; \
+    rm -f ./*.tar.gz ./*.zip ./*checksums.txt
+
+# --- OWASP ZAP -------------------------------------------------------------
+#
+# app/core/dast/zap.py shells out to `zap-baseline.py`/`zap-full-scan.py`,
+# the project's own wrapper scripts. Those scripts (via zap_common.py's
+# `running_in_docker()`/`create_start_options()`) hardcode the ZAP install
+# path to `/zap` and the launcher name to `zap-x.sh` — the shape the
+# official zaproxy Docker images use, which this reproduces directly
+# rather than patching the wrapper scripts to look somewhere else.
+RUN set -eu; \
+    cd /tmp; \
+    curl -fsSL -O "https://github.com/zaproxy/zaproxy/releases/download/v${ZAP_VERSION}/ZAP_${ZAP_VERSION}_Linux.tar.gz"; \
+    echo "${ZAP_SHA256}  ZAP_${ZAP_VERSION}_Linux.tar.gz" | sha256sum -c -; \
+    mkdir -p /zap; \
+    tar -xzf "ZAP_${ZAP_VERSION}_Linux.tar.gz" --strip-components=1 -C /zap; \
+    ln -s /zap/zap.sh /zap/zap-x.sh; \
+    rm -f "ZAP_${ZAP_VERSION}_Linux.tar.gz"; \
+    \
+    curl -fsSL -o /usr/local/bin/zap-baseline.py \
+        "https://raw.githubusercontent.com/zaproxy/zaproxy/v${ZAP_VERSION}/docker/zap-baseline.py"; \
+    curl -fsSL -o /usr/local/bin/zap-full-scan.py \
+        "https://raw.githubusercontent.com/zaproxy/zaproxy/v${ZAP_VERSION}/docker/zap-full-scan.py"; \
+    curl -fsSL -o /usr/local/bin/zap_common.py \
+        "https://raw.githubusercontent.com/zaproxy/zaproxy/v${ZAP_VERSION}/docker/zap_common.py"; \
+    chmod +x /usr/local/bin/zap-baseline.py /usr/local/bin/zap-full-scan.py
 
 WORKDIR /app
 
@@ -21,9 +128,15 @@ COPY backend/app ./app
 # rather than whatever `>=` in pyproject.toml happens to resolve to today —
 # the same drift class that produced several of this repo's own past
 # dedicated "fix CI" PRs.
-RUN pip install --no-cache-dir -c constraints.lock.txt . \
+#
+# `appsec` installs semgrep/bandit/pip-audit/checkov; `zap` installs the
+# `zapv2`/`six` libraries the wrapper scripts above import. Both are
+# optional at runtime by design (docs/third-party.md) — this image just
+# happens to install them so a `docker compose up` gets real scans without
+# any extra step.
+RUN pip install --no-cache-dir -c constraints.lock.txt ".[appsec,zap]" \
     && useradd --create-home --uid 1000 appuser \
-    && chown -R appuser:appuser /app
+    && chown -R appuser:appuser /app /zap
 
 USER appuser
 
