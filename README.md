@@ -1,5 +1,12 @@
 # Kervy Security
 
+> **Repo moved:** this repository now lives at
+> `github.com/joeabur/Security-Testing-Platform` (previously
+> `Generative-AI-Risk-Identification-Security-Testing-Platform`). GitHub
+> redirects the old URL, but update an existing clone's `origin` to avoid
+> the redirect warning on every push/fetch:
+> `git remote set-url origin https://github.com/joeabur/Security-Testing-Platform.git`
+
 An open-source web platform for **authorized** security assessment of
 Generative AI applications — their models, prompts, retrieval layers,
 agents, tools, and supporting APIs — producing defensible, reproducible,
