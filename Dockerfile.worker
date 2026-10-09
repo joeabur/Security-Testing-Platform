@@ -54,7 +54,7 @@ RUN apt-get update && apt-get upgrade -y \
     && rm -rf /var/lib/apt/lists/* \
     # zap-baseline.py's own shebang is `#!/usr/bin/env python`, which this
     # base image does not provide (only `python3`).
-    && ln -s /usr/local/bin/python3 /usr/local/bin/python
+    && ln -sf /usr/local/bin/python3 /usr/local/bin/python
 
 # --- Gitleaks, Trivy, Nuclei: self-verifying downloads -------------------
 #
