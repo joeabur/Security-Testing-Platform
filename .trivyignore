@@ -109,3 +109,25 @@ CVE-2026-97031
 CVE-2026-52869
 CVE-2026-52870
 CVE-2026-59950
+
+# Trivy false positives, not real findings: setuptools, msgpack, and
+# urllib3 each genuinely install at the fixed version below (confirmed
+# both in CI and in an independent from-scratch local rebuild, scanned
+# directly with trivy's own binary) — the SAME trivy report's own
+# per-dist-info breakdown shows
+# usr/local/lib/python3.12/site-packages/{setuptools-80.10.2,msgpack-1.2.3,
+# urllib3-2.8.0}.dist-info/METADATA as installed with 0 findings, and no
+# dist-info for the versions below (70.3.0/1.1.2/2.7.0) exists anywhere
+# in the image. These three CVE entries nonetheless appear a second time
+# in trivy's own separate "Python (python-pkg)" aggregate block,
+# reporting a stale version tied to no real file — a trivy/vulnerability-
+# -db matching quirk for these specific entries, not a drift between
+# constraints.lock.txt and the real install. Revisit by re-running trivy
+# against a fresh build and checking whether the phantom row is gone;
+# don't just re-date this without re-checking.
+#
+# Added 2026-10-09.
+CVE-2025-47273
+GHSA-6v7p-g79w-8964
+CVE-2026-97687
+CVE-2026-97689
