@@ -394,7 +394,7 @@ async def test_a_failed_gate_fans_out_to_subscribed_channels(
 
     monkeypatch.setenv(
         "KERVY_TEST_SLACK_WEBHOOK",
-        "https://hooks.slack.com/services/T111/B222/zzzzzzzzzzzzzzzzzzzzzzzz",
+        "https://hooks.slack.com/services/T111/B222/zzzzzzzzzzzzzzzzzzzzzzzz",  # pragma: allowlist secret
     )
     get_settings.cache_clear()
 
@@ -468,7 +468,7 @@ async def test_a_passed_gate_notifies_no_channel(
 
     monkeypatch.setenv(
         "KERVY_TEST_SLACK_WEBHOOK",
-        "https://hooks.slack.com/services/T111/B222/zzzzzzzzzzzzzzzzzzzzzzzz",
+        "https://hooks.slack.com/services/T111/B222/zzzzzzzzzzzzzzzzzzzzzzzz",  # pragma: allowlist secret
     )
     get_settings.cache_clear()
 
