@@ -42,7 +42,7 @@ describe("RotateWebhookSecretButton", () => {
   it("rotates and reveals the secret exactly once when confirmed", async () => {
     vi.spyOn(window, "confirm").mockReturnValue(true);
     fetchMock.mockResolvedValueOnce({
-      secret: "whsec_abc123",
+      secret: "whsec_abc123", // pragma: allowlist secret
       webhook_url: "https://api.example.com/api/v1/webhooks/workflows/wf-1",
     });
     render(

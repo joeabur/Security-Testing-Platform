@@ -56,7 +56,7 @@ export interface Membership {
 
 // --- API keys (CI/CD credentials, docs/BUILD_SPEC.md §17.4) ---------------
 
-export type ApiKeyScope = "read" | "triage" | "scan";
+export type ApiKeyScope = "read" | "triage" | "scan"; // pragma: allowlist secret
 
 export interface ApiKey {
   id: string;

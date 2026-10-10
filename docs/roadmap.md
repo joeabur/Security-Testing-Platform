@@ -6160,7 +6160,7 @@ already complete and tested; this closes both gaps frontend-only.
 - `frontend/lib/roles.ts` (new) — `ROLE_SENIORITY`/`atLeast` extracted out
   of `members/page.tsx` (the only other place that logic lived), now typed
   against the `Role` union instead of bare strings. `lib/types.ts` gains
-  `ApiKey`/`ApiKeyCreated`; `lib/validation.ts` gains `createApiKeySchema`.
+  `ApiKey`/`ApiKeyCreated`; `lib/validation.ts` gains `createApiKeySchema`. <!-- pragma: allowlist secret -->
 
 **Decisions.**
 - **Confirmation convention, corrected.** The prior "Dashboard convenience
