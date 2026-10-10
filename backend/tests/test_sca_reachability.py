@@ -75,3 +75,23 @@ def test_a_workspace_with_no_python_files_falls_back_to_the_disclaimer(
     findings = PipAuditEngine()._normalize(_PAYLOAD, "requirements.txt", workspace)
 
     assert "Reachability was not assessed" in findings[0].impact
+
+
+def test_an_imported_and_called_package_gets_the_strongest_evidence(
+    tmp_path: Path,
+) -> None:
+    workspace = _workspace(
+        tmp_path,
+        {
+            "requirements.txt": "jinja2==2.10\n",
+            "app.py": "from jinja2 import Template\nTemplate(x)\n",
+        },
+    )
+
+    findings = PipAuditEngine()._normalize(_PAYLOAD, "requirements.txt", workspace)
+
+    assert "and called" in findings[0].impact
+    assert "app.py:2" in findings[0].impact
+    assert "both imported and called" in findings[0].impact
+    # Distinguishable from the plain-IMPORTED text used when no call is found.
+    assert "no call to a name from that module was found" not in findings[0].impact

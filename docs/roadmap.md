@@ -6762,3 +6762,83 @@ same three environment variables, same `security-gate.yaml` filename) —
 no code changed, so no test suite applies; the check here is that each
 snippet is a faithful, platform-idiomatic translation of the existing
 GitHub Actions example, not a new invention.
+
+## Symbol-usage reachability (one step beyond import detection)
+
+`docs/competitive-gap-analysis.md` named the open remainder of the
+reachability work as "symbol/call-graph-level reachability analysis, and
+reachability for non-Python ecosystems." The existing import-level check
+(`python_imports.py`, the section above) only answers "is this package
+imported at all" — it cannot distinguish a dead import from one the code
+actually uses. True call-graph reachability — tracing to the *specific*
+vulnerable function, with real type resolution across module boundaries —
+was investigated and confirmed not honestly buildable: no type-inference
+library is a dependency anywhere in this backend, and neither pip-audit's
+nor OSV's data ever names a vulnerable *function* for a PyPI advisory, only
+a vulnerable package/version range. Building "call-graph reachability"
+without either would be overclaiming, which this platform's own rules
+reject. This closes the one honest increment available instead: does the
+code also *call* something bound by the import, still Python-only, still
+no new dependency.
+
+**Delivered.**
+- `ReachabilityVerdict.IMPORTED_AND_CALLED` — a strict refinement of
+  `IMPORTED`, reached when a call to a name bound by a matching import is
+  also found in the same file. `IMPORTED` keeps its prior meaning ("imported,
+  no call confirmed") rather than being redefined, so existing callers
+  checking for it are not silently downgraded.
+- New `CallSite(path, line, statement)` and `ReachabilityAssessment
+  .call_sites` (a 4th field with a default, so the three positional
+  constructors already in the module are unaffected).
+- `assess()` now runs a second, bounded AST pass — only over files that
+  already had a matching import — collecting the locally bound name(s)
+  each import introduces (`import x as y` → `y`; `from x import a, b as c`
+  → `{a, c}`; a star import binds nothing trackable) and matching `ast.Call`
+  nodes against them (`name(...)` or `module_name.attr(...)`).
+- `pip_audit_engine.py`'s `_reachability_impact()` gained an
+  `IMPORTED_AND_CALLED` branch with its own evidence text, and the existing
+  `IMPORTED` branch's wording now says plainly that no call was found —
+  the two verdicts read differently to a report reader, not just to the enum.
+
+**Decisions.**
+- **No severity/confidence change**, continuing the decision already on
+  record in this file's original reachability section — this stays a
+  narrative `impact`-text annotation.
+- **Two new named limitations**, in the same spirit as the module's
+  existing two (dynamic imports; distribution/import-name mismatches):
+  a star import cannot be matched to a call (a false negative, degrades
+  to `IMPORTED`); a local variable or parameter shadowing the module's
+  bound name is indistinguishable from a real call with no scope model
+  (a false *positive* — verified live with a constructed shadowing
+  example before deciding to accept rather than chase it, since fixing it
+  needs real scope resolution, the same "substantially larger project"
+  already declined).
+- **Per-file scope, not cross-file.** This is the semantically correct
+  boundary, not a shortcut: a name an import binds is only directly
+  callable in the file that imported it. Re-export through a local
+  compatibility module, or `__all__`-based re-export, stays invisible —
+  named as a limitation, not solved, the same way the existing module
+  already declines to trace across module boundaries.
+- **Python-only, this pass** — the non-Python half of the gap-analysis
+  item is parsing a different language's syntax, not new architecture,
+  and is deferred to a later increment rather than attempted speculatively
+  alongside this one.
+- **No new dependency.** No type-inference or AST library beyond stdlib
+  `ast` was added — confirmed deliberately, since that is the entire
+  reason this scope is honest about what it is not attempting.
+
+**Deferred, stated plainly.** True call-graph-level reachability to a
+specific vulnerable function, and reachability for non-Python ecosystems
+— both carried forward in `docs/competitive-gap-analysis.md` as a new
+item. Neither is a probe-writing gap but a missing foundation (a
+type-inference toolchain and a vulnerable-function data source,
+respectively, for the former; a non-Python AST walker for the latter).
+
+**Verified.** `ruff check .` and `mypy app` clean. 8 new tests across
+`tests/test_reachability_python_imports.py` (call detection via plain
+import, `from` import, and alias; the no-call regression guard; the
+star-import and shadowing limitations, each asserted rather than left
+untested; the call-sites bound) and `tests/test_sca_reachability.py` (the
+`IMPORTED_AND_CALLED` finding text, distinguishable from the plain
+`IMPORTED` text) — all passing alongside the existing 15. Full backend
+suite re-run to confirm nothing else broke.

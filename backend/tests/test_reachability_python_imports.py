@@ -125,3 +125,88 @@ def test_sites_are_bounded_to_the_reported_maximum(tmp_path: Path) -> None:
     from app.core.appsec.reachability.python_imports import MAX_SITES_REPORTED
 
     assert len(result.sites) == MAX_SITES_REPORTED
+
+
+def test_an_imported_and_called_symbol_is_found(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path, {"app.py": "import yaml\nyaml.safe_load(x)\n"})
+
+    result = assess(workspace, "yaml")
+
+    assert result.verdict is ReachabilityVerdict.IMPORTED_AND_CALLED
+    assert result.call_sites[0].path == "app.py"
+    assert result.call_sites[0].line == 2
+    assert "yaml.safe_load" in result.call_sites[0].statement
+
+
+def test_a_direct_call_of_a_from_imported_name_is_found(tmp_path: Path) -> None:
+    workspace = _workspace(
+        tmp_path, {"app.py": "from yaml import safe_load\nsafe_load(x)\n"}
+    )
+
+    result = assess(workspace, "yaml")
+
+    assert result.verdict is ReachabilityVerdict.IMPORTED_AND_CALLED
+    assert "safe_load" in result.call_sites[0].statement
+
+
+def test_an_aliased_import_call_is_matched_by_the_alias(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path, {"app.py": "import yaml as y\ny.safe_load(x)\n"})
+
+    result = assess(workspace, "yaml")
+
+    assert result.verdict is ReachabilityVerdict.IMPORTED_AND_CALLED
+    assert "y.safe_load" in result.call_sites[0].statement
+
+
+def test_an_import_with_no_call_usage_stays_imported(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path, {"app.py": "import yaml\n"})
+
+    result = assess(workspace, "yaml")
+
+    assert result.verdict is ReachabilityVerdict.IMPORTED
+    assert result.call_sites == ()
+
+
+def test_a_star_import_cannot_be_matched_to_a_call(tmp_path: Path) -> None:
+    """Documents the third named limitation: `from yaml import *` binds no
+    trackable name, so even an obvious call stays at the coarser `IMPORTED`
+    verdict rather than a false `IMPORTED_AND_CALLED`."""
+    workspace = _workspace(tmp_path, {"app.py": "from yaml import *\nsafe_load(x)\n"})
+
+    result = assess(workspace, "yaml")
+
+    assert result.verdict is ReachabilityVerdict.IMPORTED
+    assert result.call_sites == ()
+
+
+def test_a_shadowing_local_variable_is_still_counted_as_called(tmp_path: Path) -> None:
+    """Documents the fourth named limitation as a known, accepted false
+    positive rather than leaving it silently uncovered: a plain AST walk
+    has no scope model, so a local variable shadowing the module's bound
+    name is indistinguishable from a real call to the import."""
+    workspace = _workspace(
+        tmp_path,
+        {
+            "app.py": (
+                "import yaml\n"
+                "def f():\n"
+                "    yaml = 'not the module'\n"
+                "    yaml.safe_load(x)\n"
+            )
+        },
+    )
+
+    result = assess(workspace, "yaml")
+
+    assert result.verdict is ReachabilityVerdict.IMPORTED_AND_CALLED
+
+
+def test_call_sites_are_bounded_to_the_reported_maximum(tmp_path: Path) -> None:
+    files = {f"mod{i}.py": "import yaml\nyaml.safe_load(x)\n" for i in range(10)}
+    workspace = _workspace(tmp_path, files)
+
+    result = assess(workspace, "yaml")
+
+    from app.core.appsec.reachability.python_imports import MAX_SITES_REPORTED
+
+    assert len(result.call_sites) == MAX_SITES_REPORTED

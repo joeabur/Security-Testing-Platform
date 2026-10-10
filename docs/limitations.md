@@ -33,9 +33,16 @@ section names each gap — but a reader who skips that section will
 overestimate what was checked. This is the single biggest way to misread a
 report from this tool.
 
-**Reachability is never assessed.** A vulnerable dependency being present does
-not establish that the affected code path is used. Every SCA and container
-finding says so explicitly.
+**Reachability is checked at the import and symbol-usage level only, for
+Python SCA findings.** A Python dependency can be confirmed statically
+imported, and — one step further — confirmed called somewhere in the same
+file. Neither confirms that the *specific vulnerable function* is the one
+reached: that would need real call-graph analysis (type resolution across
+module boundaries, decorators, dynamic dispatch) this platform does not
+attempt, and a vulnerable-function-level data source that does not exist for
+PyPI advisories either way. Container, IaC, and non-Python SCA findings carry
+no reachability check at all yet. Every finding says plainly which of these
+applies to it.
 
 **Static analysis inherits its tools' limits.** Semgrep, bandit, checkov and the
 rest have their own blind spots and their own false positives. The platform
