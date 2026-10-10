@@ -265,3 +265,43 @@ def _call_sites_in_file(
                 CallSite(path=relative, line=node.lineno, statement=f"{ast.unparse(func)}(...)")
             )
     return found
+
+
+def reachability_impact_text(workspace: Workspace, package_name: str) -> str | None:
+    """Replaces the blanket "reachability was not assessed" disclaimer with
+    what `assess()` actually found — concrete evidence when there is any, or
+    `None` to fall back to the original disclaimer when the check could not
+    be run at all. Shared by every SCA engine that has a `Workspace` to check
+    against (`pip_audit_engine.py`, the PyPI-ecosystem `OsvEngine`) — this is
+    the one place that turns a `ReachabilityAssessment` into finding text, so
+    the wording stays identical regardless of which advisory source found
+    the vulnerable package.
+    """
+    result = assess(workspace, package_name)
+    if result.verdict is ReachabilityVerdict.IMPORTED_AND_CALLED:
+        site = result.sites[0]
+        call = result.call_sites[0]
+        return (
+            f"Statically imported: {site.path}:{site.line} ({site.statement}), and "
+            f"called: {call.path}:{call.line} ({call.statement}). This confirms the "
+            "package is both imported and called by this application's own code; it "
+            "does not confirm the specific vulnerable function is the one called — "
+            "that deeper, call-graph-level question is not assessed."
+        )
+    if result.verdict is ReachabilityVerdict.IMPORTED:
+        site = result.sites[0]
+        return (
+            f"Statically imported: {site.path}:{site.line} ({site.statement}). "
+            "This confirms the package is imported by this application's own code; "
+            "no call to a name from that module was found in the files scanned. It "
+            "does not confirm the specific vulnerable function is reached — that "
+            "deeper, call-graph-level question is not assessed."
+        )
+    if result.verdict is ReachabilityVerdict.NOT_FOUND:
+        return (
+            "No static import of this package was found in the files scanned, which "
+            "suggests it may be an unused transitive dependency. This is not proof of "
+            "unreachability: a dynamic import, or an import name this check's "
+            "distribution-to-module mapping does not cover, would also read this way."
+        )
+    return None

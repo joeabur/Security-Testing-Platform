@@ -186,7 +186,11 @@ Recorded rather than half-built:
   support schedule and the EOL engine skips them. An unpinned base image is a
   real finding of its own — it just is not this engine's.
 * **No SBOM export from these engines** specifically; the dependency inventory
-  that feeds an SBOM comes from `pip-audit`.
+  that feeds an SBOM comes from `pip-audit`. A direct `osv.dev` query now
+  also exists for both npm and exactly-pinned PyPI dependencies
+  (`app/core/appsec/osv/engine.py`), but it is a second, live advisory
+  source alongside `pip-audit`, not a replacement for it or for the SBOM
+  inventory `pip-audit` resolves.
 * **No license policy configuration.** There is no way yet to say "AGPL is
   forbidden here" and have the CI gate fail on it; the findings are reported and
   a human decides.

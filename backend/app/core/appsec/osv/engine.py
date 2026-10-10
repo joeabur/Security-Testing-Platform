@@ -1,4 +1,4 @@
-"""Direct OSV.dev SCA coverage for npm dependencies
+"""Direct OSV.dev SCA coverage for npm and PyPI dependencies
 (`docs/competitive-gap-analysis.md`'s "Direct OSV/NVD/GHSA integration" gap,
 and `docs/BUILD_SPEC.md`'s own Phase 14 table, which names `OSV-Scanner` as
 part of the SCA tool set and was never built).
@@ -20,15 +20,21 @@ a Python-level gate can intercept. This client's calls go through the real
 `ScopeEngine`, the same way the DAST pillar's `EgressGateway` brought real
 containment to Nuclei and ZAP's subprocess traffic.
 
-**Why npm, and not every ecosystem at once.** This platform's only existing
-SCA coverage is Python, via `pip-audit`. Node/npm dependencies currently
-have zero SCA coverage of any kind — not delegated, not direct, simply
-absent — so this closes a real coverage gap rather than duplicating
-`pip-audit`'s own PyPI-advisory matching with a second, redundant source for
-the same ecosystem. Go, Rust, Java and the rest of OSV's supported
-ecosystems remain uncovered; adding them is parsing a different lockfile
-format into the same `PackageQuery` shape, not a new client, and is left
-for a later increment rather than attempted speculatively here.
+**Why npm, then PyPI, and not every ecosystem at once.** Node/npm
+dependencies had zero SCA coverage of any kind when this engine first
+shipped — not delegated, not direct, simply absent — so that pass closed a
+real coverage gap. Python already had coverage through `pip-audit`'s own
+embedded advisory data, so the PyPI path added here is deliberately framed
+differently: a second, *live* source alongside `pip-audit`, not a
+replacement for it and not closing a zero-coverage gap. `pip-audit` keeps
+resolving the dependency inventory that feeds the SBOM (`docs/supply-chain.md`)
+and can audit a constraint `pip-audit` resolves from a real environment
+that a direct query cannot — an unpinned requirement has no single
+resolved version to query here (`pypi_requirements.py`'s own docstring).
+Go, Rust, Java and the rest of OSV's supported ecosystems remain
+uncovered; adding them is parsing a different lockfile format into the
+same `PackageQuery` shape, not a new client, and is left for a later
+increment rather than attempted speculatively here.
 
 **Why not NVD or GHSA's own API too.** NVD's API is keyed by CVE id, not by
 package-and-version — useful for enriching a CVE a finding already names
@@ -43,10 +49,12 @@ than approximated.
 """
 
 import hashlib
+from pathlib import Path
 from typing import Any
 
 from app.core.appsec.contract import EngineMeta, Pillar, code_evidence, severity_from
 from app.core.appsec.identifiers import verified_advisories
+from app.core.appsec.reachability.python_imports import reachability_impact_text
 from app.core.appsec.workspace import Workspace
 from app.core.probes.models import Category, Confidence, ScanResult, Severity
 from app.core.scope.transport import GatedTransport
@@ -54,24 +62,27 @@ from app.core.scope.transport import GatedTransport
 from .client import OsvClient, OsvClientError, PackageQuery
 from .egress import OSV_HOST, osv_egress_context
 from .npm_lockfile import npm_lockfile_packages
+from .pypi_requirements import pypi_requirements_packages
 
 ADVISORY_SERVICE = f"https://{OSV_HOST} (OSV.dev, direct)"
 _NPM_LOCKFILES = ("package-lock.json",)
-_ECOSYSTEM = "npm"
 
 
-class OsvEngine:
-    meta = EngineMeta(
-        id="appsec.sca.osv_npm",
-        version="1.0.0",
-        name="OSV.dev direct query (npm)",
-        pillar=Pillar.SCA,
-        tool="osv.dev",
-        description=(
-            "Parses npm lockfiles and queries osv.dev directly for known "
-            "vulnerabilities, through the platform's own scope-gated transport."
-        ),
-    )
+class _OsvEngineBase:
+    """Everything about querying osv.dev directly that does not depend on
+    which ecosystem a concrete subclass covers: batching, verification,
+    severity/fix-version extraction, and finding shape are all already
+    generic over `PackageQuery.ecosystem`. A subclass supplies only which
+    manifests to look for, how to parse one into `(name, version)` pairs,
+    what text names its ecosystem in a gap finding, and — since only Python
+    has a reachability module today — whether and how to decorate a finding
+    with reachability evidence.
+    """
+
+    meta: EngineMeta
+    _manifest_names: tuple[str, ...]
+    _ecosystem: str
+    _display_name: str
 
     def __init__(
         self, *, allow_advisory_lookup: bool = False, client: OsvClient | None = None
@@ -84,47 +95,53 @@ class OsvEngine:
         # client talks to, since that is fixed in `client.py`, not passed in.
         self._client = client
 
-    def _lockfiles(self, workspace: Workspace) -> list[str]:
+    def _packages_for(self, path: Path) -> list[tuple[str, str]]:
+        raise NotImplementedError
+
+    def _reachability_impact(self, workspace: Workspace, package_name: str) -> str | None:
+        return None
+
+    def _manifests(self, workspace: Workspace) -> list[str]:
         declared = [
             str(path.relative_to(workspace.root))
             for path in workspace.manifests()
-            if path.name in _NPM_LOCKFILES
+            if path.name in self._manifest_names
         ]
         if declared:
             return declared
         return [
             str(path.relative_to(workspace.root))
             for path in workspace.files
-            if path.name in _NPM_LOCKFILES
+            if path.name in self._manifest_names
         ]
 
     def applies_to(self, workspace: Workspace) -> bool:
-        return bool(self._lockfiles(workspace))
+        return bool(self._manifests(workspace))
 
     async def run(self, workspace: Workspace) -> list[ScanResult]:
-        lockfiles = self._lockfiles(workspace)
-        if not lockfiles:
+        manifests = self._manifests(workspace)
+        if not manifests:
             return []
 
         if not self._allow_lookup:
-            return [self._lookup_disabled(lockfiles)]
+            return [self._lookup_disabled(manifests)]
 
         ctx = osv_egress_context()
         client = self._client or OsvClient(transport=GatedTransport())
 
         findings: list[ScanResult] = []
-        for lockfile in lockfiles:
-            packages = npm_lockfile_packages(workspace.root / lockfile)
+        for manifest in manifests:
+            packages = self._packages_for(workspace.root / manifest)
             if not packages:
                 continue
             queries = [
-                PackageQuery(name=name, version=version, ecosystem=_ECOSYSTEM)
+                PackageQuery(name=name, version=version, ecosystem=self._ecosystem)
                 for name, version in packages
             ]
             try:
                 vulnerable = await client.query_vulnerable_ids(ctx, queries)
             except OsvClientError as exc:
-                findings.append(self._query_failed(lockfile, str(exc)))
+                findings.append(self._query_failed(manifest, str(exc)))
                 continue
             if not vulnerable:
                 continue
@@ -135,11 +152,11 @@ class OsvEngine:
             try:
                 details = await client.get_vulnerability_details(ctx, all_ids)
             except OsvClientError as exc:
-                findings.append(self._query_failed(lockfile, str(exc)))
+                findings.append(self._query_failed(manifest, str(exc)))
                 continue
 
             for query, ids in vulnerable.items():
-                findings.extend(self._normalize(query, ids, details, lockfile))
+                findings.extend(self._normalize(query, ids, details, manifest, workspace))
         return findings
 
     def _normalize(
@@ -147,7 +164,8 @@ class OsvEngine:
         query: PackageQuery,
         ids: tuple[str, ...],
         details: dict[str, dict[str, Any]],
-        lockfile: str,
+        manifest: str,
+        workspace: Workspace,
     ) -> list[ScanResult]:
         results: list[ScanResult] = []
         for vuln_id in ids:
@@ -163,6 +181,11 @@ class OsvEngine:
             fixed_versions = _fixed_versions(record, query.name) if record else ()
             summary = (record or {}).get("summary") or f"{primary} affects {query.name}"
             severity = _severity_of(record, fixed_versions)
+            impact = self._reachability_impact(workspace, query.name) or (
+                "Reachability was not assessed. A vulnerable version being "
+                "present does not establish that the affected code path is "
+                "used by this application."
+            )
 
             results.append(
                 ScanResult(
@@ -171,7 +194,7 @@ class OsvEngine:
                     category=Category.INFRASTRUCTURE,
                     severity=severity,
                     confidence=Confidence.HIGH,
-                    endpoint=f"{lockfile}:{query.name}",
+                    endpoint=f"{manifest}:{query.name}",
                     description=(
                         f"{query.name} is resolved at {query.version}, which {primary} "
                         f"identifies as affected: {summary}\n\n"
@@ -184,16 +207,12 @@ class OsvEngine:
                         + f"\n\nAdvisory data retrieved directly from {ADVISORY_SERVICE}."
                     ),
                     evidence=(
-                        f"lockfile: {lockfile}\npackage: {query.name}\n"
+                        f"manifest: {manifest}\npackage: {query.name}\n"
                         f"resolved version: {query.version}\n"
                         f"advisories: {', '.join(advisories)}\n"
                         f"first patched: {', '.join(fixed_versions) or 'none published'}"
                     ),
-                    impact=(
-                        "Reachability was not assessed. A vulnerable version being "
-                        "present does not establish that the affected code path is "
-                        "used by this application."
-                    ),
+                    impact=impact,
                     remediation=(
                         f"Upgrade {query.name} to {fixed_versions[0]} or later."
                         if fixed_versions
@@ -210,11 +229,11 @@ class OsvEngine:
                         f"GET /v1/vulns/{primary} for its detail.",
                     ),
                     fingerprint="sha256:"
-                    + hashlib.sha256(f"{primary}|{lockfile}|{query.name}".encode()).hexdigest(),
+                    + hashlib.sha256(f"{primary}|{manifest}|{query.name}".encode()).hexdigest(),
                     evidence_bundle=code_evidence(
                         self.meta,
                         rule_id=primary,
-                        relative_path=lockfile,
+                        relative_path=manifest,
                         line=None,
                         snippet=f"{query.name}@{query.version}",
                         message=(
@@ -226,21 +245,21 @@ class OsvEngine:
             )
         return results
 
-    def _lookup_disabled(self, lockfiles: list[str]) -> ScanResult:
+    def _lookup_disabled(self, manifests: list[str]) -> ScanResult:
         return ScanResult(
             id="KERVY-APPSEC-000",
-            title="Not tested: npm dependency advisory matching (OSV.dev)",
+            title=f"Not tested: {self._display_name} dependency advisory matching (OSV.dev)",
             category=Category.INFRASTRUCTURE,
             severity=Severity.INFORMATIONAL,
             confidence=Confidence.DESIGN_REVIEW,
             endpoint=Pillar.SCA.value,
             description=(
-                "npm lockfiles were found but not matched against osv.dev, so this "
-                "assessment says nothing about whether the Node dependencies are "
-                "vulnerable."
+                f"{self._display_name} manifests were found but not matched against "
+                "osv.dev, so this assessment says nothing about whether those "
+                "dependencies are vulnerable."
             ),
             evidence=(
-                f"in-scope lockfiles: {', '.join(lockfiles)}\n\n"
+                f"in-scope manifests: {', '.join(manifests)}\n\n"
                 "Advisory matching sends the resolved dependency list to a third-party "
                 f"service ({ADVISORY_SERVICE}). That is a disclosure the operator opts "
                 "into per assessment, so it is off unless enabled."
@@ -251,17 +270,18 @@ class OsvEngine:
             probe_version=self.meta.version,
         )
 
-    def _query_failed(self, lockfile: str, reason: str) -> ScanResult:
+    def _query_failed(self, manifest: str, reason: str) -> ScanResult:
         return ScanResult(
             id="KERVY-APPSEC-000",
-            title="Not tested: npm dependency advisory matching (OSV.dev)",
+            title=f"Not tested: {self._display_name} dependency advisory matching (OSV.dev)",
             category=Category.INFRASTRUCTURE,
             severity=Severity.INFORMATIONAL,
             confidence=Confidence.DESIGN_REVIEW,
             endpoint=Pillar.SCA.value,
             description=(
-                f"osv.dev could not be queried for {lockfile}, so this assessment "
-                "says nothing about whether its Node dependencies are vulnerable."
+                f"osv.dev could not be queried for {manifest}, so this assessment "
+                f"says nothing about whether its {self._display_name} dependencies "
+                "are vulnerable."
             ),
             evidence=reason,
             impact="Unknown — the query did not complete.",
@@ -269,6 +289,55 @@ class OsvEngine:
             probe_id=self.meta.id,
             probe_version=self.meta.version,
         )
+
+
+class OsvEngine(_OsvEngineBase):
+    meta = EngineMeta(
+        id="appsec.sca.osv_npm",
+        version="1.0.0",
+        name="OSV.dev direct query (npm)",
+        pillar=Pillar.SCA,
+        tool="osv.dev",
+        description=(
+            "Parses npm lockfiles and queries osv.dev directly for known "
+            "vulnerabilities, through the platform's own scope-gated transport."
+        ),
+    )
+    _manifest_names = _NPM_LOCKFILES
+    _ecosystem = "npm"
+    _display_name = "npm"
+
+    def _packages_for(self, path: Path) -> list[tuple[str, str]]:
+        return npm_lockfile_packages(path)
+
+    # No reachability wiring: `python_imports.py` only understands Python
+    # import/call syntax, so it cannot assess an npm package. The base
+    # class's `None` default — the original, always-generic `impact` text —
+    # is correct here, not a gap introduced by this refactor.
+
+
+class OsvPypiEngine(_OsvEngineBase):
+    meta = EngineMeta(
+        id="appsec.sca.osv_pypi",
+        version="1.0.0",
+        name="OSV.dev direct query (PyPI)",
+        pillar=Pillar.SCA,
+        tool="osv.dev",
+        description=(
+            "Parses pinned Python requirements files and queries osv.dev "
+            "directly for known vulnerabilities, as a second, live source "
+            "alongside pip-audit's own embedded advisory data."
+        ),
+    )
+    _manifest_names = ("requirements.txt", "requirements.in")
+    _ecosystem = "pypi"
+    _display_name = "PyPI"
+
+    def _packages_for(self, path: Path) -> list[tuple[str, str]]:
+        return pypi_requirements_packages(path)
+
+    def _reachability_impact(self, workspace: Workspace, package_name: str) -> str | None:
+        return reachability_impact_text(workspace, package_name)
 
 
 def _fixed_versions(record: dict[str, Any] | None, package_name: str) -> tuple[str, ...]:
