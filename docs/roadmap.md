@@ -6842,3 +6842,90 @@ untested; the call-sites bound) and `tests/test_sca_reachability.py` (the
 `IMPORTED_AND_CALLED` finding text, distinguishable from the plain
 `IMPORTED` text) — all passing alongside the existing 15. Full backend
 suite re-run to confirm nothing else broke.
+
+## Direct OSV.dev integration (PyPI)
+
+`docs/competitive-gap-analysis.md` item 12 named the open remainder of the
+OSV work after the npm pass above: "OSV/direct-advisory coverage for
+non-npm ecosystems (Python, Go, Rust, Java)." Unlike npm, Python was not a
+zero-coverage ecosystem — `pip-audit` already matches Python dependencies
+against its own embedded advisory data — so this pass is framed
+differently from the npm one: a second, *live* source alongside
+`pip-audit`, not a replacement and not a new-coverage close.
+
+**Delivered.**
+- `app/core/appsec/osv/pypi_requirements.py` (new): parses
+  `requirements.txt`/`requirements.in` into deduplicated, PEP-503-normalized
+  `(name, version)` pairs, but only for an exact `==` pin — a range, an
+  unpinned name, a VCS/URL direct reference, or an `-e`/editable install has
+  no single resolved version to query without a real resolver, which this
+  direct path does not have (`pip-audit` does, via its own environment).
+  Also handles realistic `pip-compile --generate-hashes` output: inline
+  comments, environment markers, extras brackets, backslash continuations,
+  and `--hash=...` continuation lines, all correctly skipped or stripped.
+- `app/core/appsec/osv/engine.py` refactored: the ecosystem-agnostic half of
+  the existing `OsvEngine` (batching, verification, severity/fix-version
+  extraction, finding shape — all of it was already generic over
+  `PackageQuery.ecosystem`) is now `_OsvEngineBase`. `OsvEngine` (npm) is an
+  unchanged-behavior subclass; a new `OsvPypiEngine` subclass supplies the
+  PyPI manifest names, `pypi_requirements_packages`, and — the one thing the
+  npm engine structurally cannot do — a `_reachability_impact` override that
+  calls the reachability module, since `python_imports.py` only understands
+  Python import/call syntax.
+- `app/core/appsec/reachability/python_imports.py`'s impact-text helper
+  (previously private to `pip_audit_engine.py`, as `_reachability_impact`)
+  is now the module's own public `reachability_impact_text()`, so both
+  Python SCA engines — `pip_audit_engine` and the new `OsvPypiEngine` —
+  produce identical reachability wording regardless of which advisory
+  source found the vulnerable package. `pip_audit_engine.py` now imports it
+  under its old local name; no behavioral change there.
+- `registry.py`: `OsvPypiEngine(allow_advisory_lookup=...)` registered as a
+  new peer immediately after `OsvEngine`, under the same disclosure-consent
+  gate.
+
+**Decisions.**
+- **Additive, not a replacement, stated in the engine's own `meta.description`
+  and in `docs/supply-chain.md`.** `pip-audit` keeps resolving the
+  dependency inventory that feeds the SBOM, and can audit a constraint this
+  direct path cannot (an unpinned requirement, resolved from a real
+  environment). A reader comparing the two sources' findings for the same
+  package should expect `pip-audit`'s broader but embedded-data coverage
+  and this engine's narrower but live, directly-queried second opinion —
+  not one superseding the other.
+- **`requirements.txt`/`.in` only, not `pyproject.toml`.** `pyproject.toml`
+  carries version *constraints*, not a resolved version — `pip-audit` can
+  use it because `pip-audit` resolves via its own environment; a direct
+  query has nothing to resolve against, so including it in the manifest
+  list would mean guessing a version, which this engine does not do.
+- **No aggregate "N lines skipped" finding**, unlike the malware-package
+  engine's own coverage finding. An unresolved requirement line is routine
+  and per-file, not a fixed, disclosure-worthy sample the way the malware
+  table is, and nothing in the npm engine has this precedent either (an npm
+  lockfile always carries a resolved version, so the situation never arose
+  there). The limitation is named in `pypi_requirements.py`'s own docstring
+  and here instead.
+- **Shared-base refactor, not a rewrite.** `OsvEngine`'s `meta.id`,
+  constructor signature, and finding text are byte-for-byte unchanged;
+  `tests/test_osv_engine.py` required no edits, confirming the refactor
+  changed nothing observable about the npm path.
+
+**Deferred, stated plainly.** Go, Rust, Java and the rest of OSV's
+supported ecosystems — same "a different lockfile/manifest format into the
+same `PackageQuery` shape, not new client work" reasoning the npm section
+above already gave, now applying to this remainder too.
+
+**Verified.** `ruff check .` and `mypy app` clean. 24 new tests: `tests/
+test_osv_pypi_requirements.py` (14 — exact pin, extras, environment marker,
+inline and whole-line comments, hash-continuation lines, editable/include/
+VCS-reference/unpinned-range skips, name normalization, dedup, blank and
+missing files) and `tests/test_osv_pypi_engine.py` (10 — manifest
+discovery, the disclosure-off informational result, a matched vulnerability
+becoming a finding, reachability evidence replacing the generic disclaimer
+when the workspace has importing Python code, a detail-lookup gap still
+reporting the package, an unverifiable id dropped, a failed query reported
+as a gap). All of `tests/test_osv_engine.py`, `tests/test_osv_npm_lockfile.py`,
+`tests/test_sca_reachability.py` and `tests/test_reachability_python_imports.py`
+re-run unchanged and still pass (68 tests total across all six files),
+confirming the shared-base refactor and the relocated impact-text helper
+changed nothing observable about existing behavior. Full backend suite
+re-run to confirm nothing else broke.
