@@ -6929,3 +6929,93 @@ re-run unchanged and still pass (68 tests total across all six files),
 confirming the shared-base refactor and the relocated impact-text helper
 changed nothing observable about existing behavior. Full backend suite
 re-run to confirm nothing else broke.
+
+## Direct OSV.dev integration (Go, Rust, Java)
+
+`docs/competitive-gap-analysis.md` item 19 (the narrower remainder of item
+12, after the npm and PyPI passes) named the open remainder: "Direct
+NVD/GHSA clients, and OSV/direct-advisory coverage for Go, Rust, Java."
+Unlike PyPI, these three ecosystems had **zero** SCA coverage of any kind
+— the same framing the original npm pass used, not the "second source
+alongside an existing one" framing the PyPI pass needed.
+
+**Delivered.**
+- Three new manifest parsers in `app/core/appsec/osv/`, each mirroring
+  `npm_lockfile.py`'s shape (`list[tuple[str, str]]`, dedup via
+  `sorted(set(...))`, try/except-to-`[]` on any parse failure):
+  - `go_sum.py`'s `go_sum_packages()` parses `go.sum`'s `<module>
+    <version>[/go.mod] <hash>` lines, stripping the `/go.mod` suffix so
+    the two lines Go writes per resolved module (a full-tree hash and a
+    go.mod-only hash) collapse into one query instead of two.
+  - `cargo_lock.py`'s `cargo_lock_packages()` parses `Cargo.lock` (TOML)
+    via the stdlib `tomllib` — **no new dependency**, since this project
+    already requires Python ≥3.12, above `tomllib`'s 3.11 floor. Only
+    `[[package]]` entries whose `source` names the standard crates.io
+    registry string are queried; the workspace's own root crate (no
+    `source` field) and git/path/alternate-registry dependencies are
+    skipped — no crates.io-registry identity to query without risking a
+    name collision with an unrelated public crate.
+  - `gradle_lockfile.py`'s `gradle_lockfile_packages()` parses Gradle's
+    single-file lockfile (`gradle.lockfile`/`buildscript-gradle.lockfile`)
+    — `group:artifact:version=configurations` lines, dropping the
+    configuration list, skipping the generated header comment and the
+    `empty=configuration` sentinel line.
+- Three new thin `_OsvEngineBase` subclasses in `engine.py` —
+  `OsvGoEngine` (`appsec.sca.osv_go`, ecosystem `"Go"`), `OsvRustEngine`
+  (`appsec.sca.osv_rust`, ecosystem `"crates.io"`), `OsvJavaEngine`
+  (`appsec.sca.osv_java`, ecosystem `"Maven"`) — none override
+  `_reachability_impact` (the base's `None` default is correct; only
+  Python has a reachability module). Registered in `registry.py` right
+  after `OsvPypiEngine`, under the same `allow_advisory_lookup` gate.
+- Confirmed via direct lookup, not assumed: `osv.dev`'s ecosystem strings
+  are exact and case-sensitive (`"Go"`, `"crates.io"`, `"Maven"`, never
+  `"Cargo"`), and Maven's queried package `name` is the `groupId:artifactId`
+  string.
+
+**Decisions.**
+- **Gradle's lockfile, not Maven's `pom.xml`.** A `pom.xml` dependency's
+  version is routinely a property reference, inherited from a parent POM,
+  or imported from a BOM — none of which resolve to a single concrete
+  version without actually running Maven's own resolver, the same class
+  of limitation that already keeps `pyproject.toml` out of
+  `pypi_requirements.py`'s scope. Gradle's lockfile is the one JVM-
+  ecosystem manifest format that already carries a fully-resolved version
+  per line. Java/JVM coverage here is therefore scoped to Gradle projects
+  with lock files enabled, not every Maven project — stated plainly in
+  `gradle_lockfile.py`'s own docstring rather than attempting a
+  best-effort `pom.xml` parse that would silently miss property-driven
+  versions.
+- **crates.io-registry-source filter, not a bare name match.** A Cargo.lock
+  entry with no `source` or a non-crates.io `source` has no public
+  registry identity; querying it by name anyway would risk matching an
+  unrelated crate that happens to share the name.
+- **No new client, no new architecture** — exactly what the npm section's
+  own "Why npm only, this pass" decision predicted this increment would
+  be: three new manifest parsers feeding the same `PackageQuery` shape
+  `_OsvEngineBase`, `client.py`, and `egress.py` already generalize over.
+- **Narrower test files for the three new engines than `test_osv_pypi_engine.py`
+  has**, by design: the ecosystem-agnostic behavior (disclosure gate,
+  failed query, unverifiable id, missing detail record) is already
+  exhaustively proven against the same `_OsvEngineBase` by the npm and
+  PyPI test files, so each new engine test file only re-proves manifest
+  discovery, one matched-vulnerability finding, and the no-manifest case.
+
+**Deferred, stated plainly.** Direct NVD/GHSA clients (unchanged from the
+npm/PyPI passes' own deferral), the rest of OSV's supported ecosystems
+beyond these five, and Maven's `pom.xml` itself (see the decision above).
+
+**Verified.** `ruff check .` and `mypy app` clean. 6 new test files (44
+new tests): `test_osv_go_sum.py`, `test_osv_cargo_lock.py`,
+`test_osv_gradle_lockfile.py` (parser edge cases — dedup across the
+`/go.mod` pair, the crates.io-source filter, the header-comment and
+`empty=` sentinel skips, malformed/missing files) and
+`test_osv_go_engine.py`, `test_osv_rust_engine.py`, `test_osv_java_engine.py`
+(manifest discovery, one matched-vulnerability finding per ecosystem, the
+no-manifest case). All of `test_osv_engine.py`, `test_osv_pypi_engine.py`,
+`test_osv_npm_lockfile.py`, `test_osv_pypi_requirements.py`,
+`test_sca_reachability.py`, and `test_reachability_python_imports.py`
+re-run unchanged and still pass (101 tests total), confirming the three
+new subclasses didn't disturb the shared base or either existing
+ecosystem. Full backend suite re-run to confirm nothing else broke.
+Confirmed no `pyproject.toml`/`uv.lock` change was needed — `tomllib` is
+stdlib at this project's Python floor.
