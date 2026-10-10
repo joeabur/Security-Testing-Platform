@@ -6095,11 +6095,14 @@ complete and already covered by backend tests).
   was asked for here. `GET .../remediation` (the board) is reachable today
   only as a raw API call — no `kervy_cli` subcommand wraps it, a real,
   separate gap this pass does not close either.
-- **No modal/confirmation-dialog infrastructure added.** Every existing
-  destructive action in this frontend (cancelling a run, unlinking a
-  duplicate) fires immediately on click with no `window.confirm` or modal —
-  grepped and confirmed empty. Workflow delete follows the same convention
-  rather than introducing a new one for this single feature.
+- **No modal/confirmation-dialog infrastructure added.** Cancelling a run
+  and unlinking a duplicate both fire immediately on click with no modal.
+  Workflow delete follows the same convention rather than introducing a new
+  one for this single feature. (Corrected after the fact: this originally
+  claimed no `window.confirm` exists *anywhere* in this frontend — wrong;
+  `remove-member-button.tsx`/`revoke-invitation-button.tsx` already use it
+  for member/invitation removal. See "Dashboard convenience gaps, round
+  two"'s own Decisions section for the actual rule this codebase follows.)
 
 **Deferred.** None for the three named gaps. A cross-finding remediation
 board page and a gate-config web editor are named above as explicitly
@@ -6118,6 +6121,87 @@ browser walkthrough was run: seeding the org/target/finding/workflow data
 needed to exercise these three pages end-to-end was out of proportion to a
 P2 convenience item, so verification stopped at build, lint, type-check and
 component-rendering tests, stated here rather than left unstated.
+
+## Dashboard convenience gaps, round two: webhook/gate controls and API keys
+
+`docs/competitive-gap-analysis.md` named two more CLI-only operational
+gaps — no dashboard surface for workflow webhook-secret rotation and gate
+run approve/reject, and none for API key create/list/revoke. Same shape as
+the round above: all five backend endpoints
+(`rotate_webhook_secret`/`approve_workflow_run`/`reject_workflow_run` in
+`app/api/v1/routers/workflows.py`, and the full `api_keys.py` router) were
+already complete and tested; this closes both gaps frontend-only.
+
+**Delivered.**
+- **Webhook secret rotation**: `RotateWebhookSecretButton` on each workflow
+  card (`workflows/page.tsx`), gated to Admin+ via the new `lib/roles.ts`
+  helper. Confirms first (rotating invalidates whatever secret a live
+  sender is currently using), then shows the new secret and webhook URL in
+  a one-time reveal panel — never stored, never shown again, the same
+  discipline `RecoveryCodesDisplay` (two-factor-settings.tsx) already
+  follows for 2FA recovery codes.
+- **Gate run approve/reject**: a new nested page,
+  `workflows/[workflowId]/page.tsx` ("run history") — there was no
+  workflow-run list/detail view in the frontend at all before this;
+  `GET .../workflows/{id}/runs` was called only by the CLI. Lists runs
+  newest-first with a status/gate-outcome badge; any run still
+  `awaiting_approval`, for a caller at Security Engineer+ (the same tier
+  `_RUNNER` requires), gets `ApproveRejectRunButtons` — Approve fires
+  immediately (optional reason), Reject expands a required reason field
+  (1-500 chars, submit disabled until non-empty) before firing. Linked from
+  each workflow card via "View run history."
+- **API keys**: a brand-new `api-keys` organization tab and page — nothing
+  referenced "ApiKey" anywhere in the frontend before this.
+  `CreateApiKeyForm` (name, scope checkboxes, optional expiry) reveals the
+  one-time token the same way the webhook-secret rotation does;
+  `RevokeApiKeyButton` confirms, then posts the revoke. No role picker: the
+  effective role is derived server-side from the chosen scopes
+  (`role_for_scopes`), the form does not pretend it's choosable.
+- `frontend/lib/roles.ts` (new) — `ROLE_SENIORITY`/`atLeast` extracted out
+  of `members/page.tsx` (the only other place that logic lived), now typed
+  against the `Role` union instead of bare strings. `lib/types.ts` gains
+  `ApiKey`/`ApiKeyCreated`; `lib/validation.ts` gains `createApiKeySchema`.
+
+**Decisions.**
+- **Confirmation convention, corrected.** The prior "Dashboard convenience
+  gaps" entry claimed no `window.confirm` exists anywhere in this
+  frontend — re-checked while deciding this feature's own convention, and
+  that claim was wrong: `remove-member-button.tsx` and
+  `revoke-invitation-button.tsx` both already gate a DELETE behind
+  `window.confirm`, while `edit-workflow-form.tsx`'s workflow-delete fires
+  immediately with an explicit test pinning "no confirmation dialog." The
+  actual, previously-unstated rule this codebase already follows: confirm
+  before an action that breaks a currently-live credential or integration
+  (member/invitation removal, and now webhook-secret rotation and API-key
+  revocation); skip the dialog when the action already carries its own
+  friction or is a lower-stakes workflow decision (reject already requires
+  typing a reason; approve matches the lowest-friction existing precedent).
+- **No Zod schema for approve/reject.** A single optional/required reason
+  field is simple enough for local `useState`; not every form in this
+  codebase goes through react-hook-form, and this one doesn't need to.
+- **Workflow runs got their own nested route**, not an inline expansion of
+  the existing workflow card — following the `targets/[targetId]`/
+  `findings/[findingId]` nested-detail precedent, and kept clearly distinct
+  from the unrelated, pre-existing top-level "Runs" tab (`Run`, a scan run
+  against a `Target` — no shared fields or endpoint with `WorkflowRun`).
+
+**Deferred, stated plainly.** No live browser walkthrough seeding a real
+`awaiting_approval` run or a real API key was run, same reasoning the prior
+convenience-gaps pass gave: out of proportion to verify end-to-end for a
+P2 item when build/lint/type-check/component tests already cover the real
+request shapes. No Playwright config exists anywhere in this repo to run
+one even if it were in proportion — confirmed, not assumed.
+
+**Verified.** `eslint .`, `tsc --noEmit`, and `next build` all clean
+(the one lint warning present is pre-existing and unrelated —
+`create-workflow-form.tsx`'s React Compiler note on `watch()`). 62 Vitest
+tests pass across 15 files (52 pre-existing plus 10 new, in
+`rotate-webhook-secret-button.test.tsx`,
+`approve-reject-run-buttons.test.tsx`, `create-api-key-form.test.tsx`, and
+`revoke-api-key-button.test.tsx`), including explicit assertions that
+reject is blocked until a reason is typed, that a declined
+`window.confirm` sends no request, and that a one-time secret/token is
+shown once and gone after "Done."
 
 ## Frontend/backend wiring audit: seven fixes
 

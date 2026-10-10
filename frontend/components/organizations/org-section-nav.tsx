@@ -6,6 +6,7 @@ import {
   Bot,
   Crosshair,
   GitBranch,
+  KeyRound,
   LayoutDashboard,
   PlayCircle,
   ShieldAlert,
@@ -25,6 +26,7 @@ const SECTIONS: { slug: string; label: string; icon: LucideIcon }[] = [
   { slug: "findings", label: "Findings", icon: ShieldAlert },
   { slug: "agent", label: "Agent", icon: Bot },
   { slug: "members", label: "Members", icon: Users },
+  { slug: "api-keys", label: "API keys", icon: KeyRound },
 ];
 
 export function OrgSectionNav({ organizationId }: { organizationId: string }) {
