@@ -1,4 +1,4 @@
-"""Direct OSV.dev SCA coverage for npm and PyPI dependencies
+"""Direct OSV.dev SCA coverage for npm, PyPI, Go, Rust, and Java dependencies
 (`docs/competitive-gap-analysis.md`'s "Direct OSV/NVD/GHSA integration" gap,
 and `docs/BUILD_SPEC.md`'s own Phase 14 table, which names `OSV-Scanner` as
 part of the SCA tool set and was never built).
@@ -20,21 +20,26 @@ a Python-level gate can intercept. This client's calls go through the real
 `ScopeEngine`, the same way the DAST pillar's `EgressGateway` brought real
 containment to Nuclei and ZAP's subprocess traffic.
 
-**Why npm, then PyPI, and not every ecosystem at once.** Node/npm
-dependencies had zero SCA coverage of any kind when this engine first
-shipped — not delegated, not direct, simply absent — so that pass closed a
-real coverage gap. Python already had coverage through `pip-audit`'s own
-embedded advisory data, so the PyPI path added here is deliberately framed
-differently: a second, *live* source alongside `pip-audit`, not a
-replacement for it and not closing a zero-coverage gap. `pip-audit` keeps
-resolving the dependency inventory that feeds the SBOM (`docs/supply-chain.md`)
-and can audit a constraint `pip-audit` resolves from a real environment
-that a direct query cannot — an unpinned requirement has no single
-resolved version to query here (`pypi_requirements.py`'s own docstring).
-Go, Rust, Java and the rest of OSV's supported ecosystems remain
-uncovered; adding them is parsing a different lockfile format into the
-same `PackageQuery` shape, not a new client, and is left for a later
-increment rather than attempted speculatively here.
+**Why npm, then PyPI, then Go/Rust/Java.** Node/npm dependencies had zero
+SCA coverage of any kind when this engine first shipped — not delegated,
+not direct, simply absent — so that pass closed a real coverage gap.
+Python already had coverage through `pip-audit`'s own embedded advisory
+data, so the PyPI path is framed differently: a second, *live* source
+alongside `pip-audit`, not a replacement and not closing a zero-coverage
+gap. `pip-audit` keeps resolving the dependency inventory that feeds the
+SBOM (`docs/supply-chain.md`) and can audit a constraint `pip-audit`
+resolves from a real environment that a direct query cannot — an unpinned
+requirement has no single resolved version to query here
+(`pypi_requirements.py`'s own docstring). Go, Rust, and Java had zero SCA
+coverage, the same zero-coverage framing as the original npm pass — each
+gets a thin subclass parsing its own fully-resolved manifest format
+(`go.sum`, `Cargo.lock`, Gradle's `gradle.lockfile`) into the same
+`PackageQuery` shape, exactly as this module's own earlier revision
+predicted would be all that's needed. The rest of OSV's supported
+ecosystems (and Maven's `pom.xml`, which has no fully-resolved-version
+lockfile of its own to parse — see `gradle_lockfile.py`'s own docstring)
+remain uncovered, left for a later increment rather than attempted
+speculatively here.
 
 **Why not NVD or GHSA's own API too.** NVD's API is keyed by CVE id, not by
 package-and-version — useful for enriching a CVE a finding already names
@@ -59,8 +64,11 @@ from app.core.appsec.workspace import Workspace
 from app.core.probes.models import Category, Confidence, ScanResult, Severity
 from app.core.scope.transport import GatedTransport
 
+from .cargo_lock import cargo_lock_packages
 from .client import OsvClient, OsvClientError, PackageQuery
 from .egress import OSV_HOST, osv_egress_context
+from .go_sum import go_sum_packages
+from .gradle_lockfile import gradle_lockfile_packages
 from .npm_lockfile import npm_lockfile_packages
 from .pypi_requirements import pypi_requirements_packages
 
@@ -338,6 +346,70 @@ class OsvPypiEngine(_OsvEngineBase):
 
     def _reachability_impact(self, workspace: Workspace, package_name: str) -> str | None:
         return reachability_impact_text(workspace, package_name)
+
+
+class OsvGoEngine(_OsvEngineBase):
+    meta = EngineMeta(
+        id="appsec.sca.osv_go",
+        version="1.0.0",
+        name="OSV.dev direct query (Go)",
+        pillar=Pillar.SCA,
+        tool="osv.dev",
+        description=(
+            "Parses go.sum and queries osv.dev directly for known "
+            "vulnerabilities, through the platform's own scope-gated transport."
+        ),
+    )
+    _manifest_names = ("go.sum",)
+    _ecosystem = "Go"
+    _display_name = "Go"
+
+    def _packages_for(self, path: Path) -> list[tuple[str, str]]:
+        return go_sum_packages(path)
+
+    # No reachability wiring: `python_imports.py` only understands Python
+    # import/call syntax — the same reason `OsvEngine` (npm) has none.
+
+
+class OsvRustEngine(_OsvEngineBase):
+    meta = EngineMeta(
+        id="appsec.sca.osv_rust",
+        version="1.0.0",
+        name="OSV.dev direct query (Rust)",
+        pillar=Pillar.SCA,
+        tool="osv.dev",
+        description=(
+            "Parses Cargo.lock and queries osv.dev directly for known "
+            "vulnerabilities, through the platform's own scope-gated transport."
+        ),
+    )
+    _manifest_names = ("Cargo.lock",)
+    _ecosystem = "crates.io"
+    _display_name = "Rust"
+
+    def _packages_for(self, path: Path) -> list[tuple[str, str]]:
+        return cargo_lock_packages(path)
+
+
+class OsvJavaEngine(_OsvEngineBase):
+    meta = EngineMeta(
+        id="appsec.sca.osv_java",
+        version="1.0.0",
+        name="OSV.dev direct query (Java/Gradle)",
+        pillar=Pillar.SCA,
+        tool="osv.dev",
+        description=(
+            "Parses a Gradle single-file lockfile and queries osv.dev directly "
+            "for known vulnerabilities, through the platform's own "
+            "scope-gated transport."
+        ),
+    )
+    _manifest_names = ("gradle.lockfile", "buildscript-gradle.lockfile")
+    _ecosystem = "Maven"
+    _display_name = "Java/Gradle"
+
+    def _packages_for(self, path: Path) -> list[tuple[str, str]]:
+        return gradle_lockfile_packages(path)
 
 
 def _fixed_versions(record: dict[str, Any] | None, package_name: str) -> tuple[str, ...]:

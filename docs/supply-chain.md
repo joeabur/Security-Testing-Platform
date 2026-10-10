@@ -187,10 +187,13 @@ Recorded rather than half-built:
   real finding of its own — it just is not this engine's.
 * **No SBOM export from these engines** specifically; the dependency inventory
   that feeds an SBOM comes from `pip-audit`. A direct `osv.dev` query now
-  also exists for both npm and exactly-pinned PyPI dependencies
-  (`app/core/appsec/osv/engine.py`), but it is a second, live advisory
-  source alongside `pip-audit`, not a replacement for it or for the SBOM
-  inventory `pip-audit` resolves.
+  also exists for npm, exactly-pinned PyPI, Go (`go.sum`), Rust
+  (crates.io-sourced `Cargo.lock` entries), and Java/Gradle
+  (`gradle.lockfile`) dependencies (`app/core/appsec/osv/engine.py`), but
+  for PyPI it is a second, live advisory source alongside `pip-audit`, not
+  a replacement for it or for the SBOM inventory `pip-audit` resolves;
+  Go/Rust/Java/npm have no other SCA engine at all, so this is their only
+  coverage.
 * **No license policy configuration.** There is no way yet to say "AGPL is
   forbidden here" and have the CI gate fail on it; the findings are reported and
   a human decides.
