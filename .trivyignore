@@ -131,3 +131,23 @@ CVE-2025-47273
 GHSA-6v7p-g79w-8964
 CVE-2026-97687
 CVE-2026-97689
+
+# CVE-2026-78669 — net/http/internal/http2 (golang.org/x/net/http2):
+# Denial of Service via excessive HTTP/2 SETTINGS frames. Same root
+# cause as the "vulnerable Go toolchain stdlib and vendored-module
+# versions" entries above — the precompiled gitleaks/trivy/nuclei
+# binaries this image downloads directly, not built from source here —
+# disclosed after that pass, so it landed in a fresh scan rather than
+# being caught by it. Affects all three binaries: gitleaks via stdlib
+# (v1.24.11, fixed in 1.26.9/1.27.2); nuclei and trivy via both stdlib
+# (v1.26.5/v1.27.1) and golang.org/x/net (v0.56.0/v0.59.0, fixed in
+# 0.60.0). Verified directly against each project's own latest release
+# (gitleaks/gitleaks, aquasecurity/trivy, projectdiscovery/nuclei) that
+# GITLEAKS_VERSION/TRIVY_VERSION/NUCLEI_VERSION already pin each
+# project's current latest tag — there is no newer release compiled
+# against a patched Go toolchain to bump to yet. Revisit by re-checking
+# those same release pages for a newer tag; do not just re-date this
+# without checking.
+#
+# Added 2026-10-10.
+CVE-2026-78669
