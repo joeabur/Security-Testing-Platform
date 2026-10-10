@@ -17,6 +17,7 @@ an HTTP client of its own, and `tests/security/test_scope_controls.py`
 enforces that across the whole codebase.
 """
 
+from collections.abc import Mapping
 from typing import Any, Protocol, runtime_checkable
 
 from app.core.discovery.openapi import DiscoveredOperation
@@ -37,7 +38,17 @@ class TargetAdapter(Protocol):
 
 @runtime_checkable
 class ConversationalAdapter(TargetAdapter, Protocol):
-    async def send(self, turn: Turn, ctx: RunContext) -> TargetResponse: ...
+    async def send(
+        self, turn: Turn, ctx: RunContext, *, extra_headers: Mapping[str, str] | None = None
+    ) -> TargetResponse:
+        """`extra_headers` carries a synthetic test account's auth header for
+        this one call (docs/BUILD_SPEC.md §10's cross-identity AI probes),
+        resolved fresh per call by the caller and merged over the adapter's
+        own static config headers — never stored on the adapter or in
+        `adapter_config`, the same "credential is never stored" rule
+        `app/core/probes/credentials.py` already enforces for the REST
+        authorization probes."""
+        ...
 
 
 @runtime_checkable

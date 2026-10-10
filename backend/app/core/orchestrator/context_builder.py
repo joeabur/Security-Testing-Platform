@@ -193,9 +193,21 @@ def build_conversational_adapter(
 
 
 def build_ai_probe_target(
-    target: Target, *, safe_mode: bool, trials: int | None = None
+    target: Target,
+    *,
+    safe_mode: bool,
+    trials: int | None = None,
+    accounts: "Sequence[SyntheticAccountRecord]" = (),
+    environ: "Mapping[str, str] | None" = None,
 ) -> AiProbeTarget:
-    """The AI engine's view of the target, including its declared tools."""
+    """The AI engine's view of the target, including its declared tools.
+
+    `accounts` reuses the exact same `SyntheticAccountRecord` rows and
+    `_authorization_plan` resolution `build_probe_target` already uses for
+    the REST authorization probes, so cross-identity AI probes
+    (app/core/probes/ai/cross_identity/) see the identical set of
+    operator-declared test accounts the BOLA probe does.
+    """
     return AiProbeTarget(
         name=target.name,
         surface=f"{(target.adapter_kind or 'chat').upper()} {target.base_url}",
@@ -213,6 +225,7 @@ def build_ai_probe_target(
             if isinstance(tool, dict) and tool.get("name")
         ),
         trials=trials,
+        authorization=_authorization_plan(accounts, environ),
     )
 
 

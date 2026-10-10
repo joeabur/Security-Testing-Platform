@@ -57,6 +57,36 @@ async def test_chat_http_sends_rendered_template_and_extracts_text(
     assert response.observation.status_code == 200
 
 
+async def test_chat_http_extra_headers_override_static_config_headers(
+    fake_dns: FakeDnsResolver,
+) -> None:
+    """`extra_headers` is how a cross-identity probe
+    (app/core/probes/ai/cross_identity/) sends as a specific synthetic
+    account — resolved fresh per call, merged as the highest-precedence
+    layer so an identity's own auth header always wins."""
+    adapter = ChatHttpAdapter(
+        ChatHttpConfig(
+            base_url="https://ai.example.test",
+            endpoint="/api/chat",
+            headers={"Authorization": "Bearer static", "X-Static-Only": "kept"},
+        ),
+        transport=_transport(fake_dns),
+    )
+    ctx = make_context(roe=make_roe(allowed_paths=()))
+
+    with respx.mock() as router:
+        route = router.post("https://ai.example.test/api/chat").mock(
+            return_value=Response(200, json={"message": {"content": "ok"}})
+        )
+        await adapter.send(
+            Turn(content="hi"), ctx, extra_headers={"Authorization": "Bearer account_a"}
+        )
+        sent_headers = route.calls[0].request.headers
+
+    assert sent_headers["Authorization"] == "Bearer account_a"
+    assert sent_headers["X-Static-Only"] == "kept"
+
+
 async def test_chat_http_is_blocked_by_the_scope_engine_for_off_scope_targets(
     fake_dns: FakeDnsResolver,
 ) -> None:
@@ -162,6 +192,33 @@ async def test_openai_compatible_builds_chat_completions_body_and_extracts_text(
     assert response.text == "an answer"
     assert response.usage is not None
     assert (response.usage.tokens_sent, response.usage.tokens_received) == (11, 22)
+
+
+async def test_openai_compatible_extra_headers_override_static_config_headers(
+    fake_dns: FakeDnsResolver,
+) -> None:
+    adapter = OpenAiCompatibleAdapter(
+        OpenAiCompatibleConfig(
+            base_url="https://ai.example.test",
+            model="demo-model",
+            headers={"Authorization": "Bearer static"},
+        ),
+        transport=_transport(fake_dns),
+    )
+    ctx = make_context(roe=make_roe(allowed_paths=()))
+
+    with respx.mock() as router:
+        route = router.post("https://ai.example.test/v1/chat/completions").mock(
+            return_value=Response(
+                200, json={"choices": [{"message": {"role": "assistant", "content": "ok"}}]}
+            )
+        )
+        await adapter.send(
+            Turn(content="hi"), ctx, extra_headers={"Authorization": "Bearer account_a"}
+        )
+        sent_headers = route.calls[0].request.headers
+
+    assert sent_headers["Authorization"] == "Bearer account_a"
 
 
 async def test_openai_compatible_reconciles_budget_with_reported_usage(

@@ -6,6 +6,7 @@ assumptions about the target's wire format beyond "it speaks JSON over HTTP".
 """
 
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urljoin
@@ -79,7 +80,9 @@ class ChatHttpAdapter:
         limitation rather than silently assumed away."""
         return None
 
-    async def send(self, turn: Turn, ctx: RunContext) -> TargetResponse:
+    async def send(
+        self, turn: Turn, ctx: RunContext, *, extra_headers: Mapping[str, str] | None = None
+    ) -> TargetResponse:
         url = urljoin(self._config.base_url, self._config.endpoint)
         body = render_template(self._config.request_template, turn.content)
         payload = json.dumps(body).encode("utf-8")
@@ -89,7 +92,11 @@ class ChatHttpAdapter:
             ctx,
             method=self._config.method,
             url=url,
-            headers={"Content-Type": "application/json", **self._config.headers},
+            headers={
+                "Content-Type": "application/json",
+                **self._config.headers,
+                **(extra_headers or {}),
+            },
             content=payload,
             estimated_tokens_sent=estimated_sent,
         )

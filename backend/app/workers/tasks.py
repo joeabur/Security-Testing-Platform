@@ -311,7 +311,9 @@ async def execute_assessment_run(
         if adapter is not None:
             ai_check = AiSecurityCheck(
                 adapter=adapter,
-                probe_target=build_ai_probe_target(target, safe_mode=run.safe_mode),
+                probe_target=build_ai_probe_target(
+                    target, safe_mode=run.safe_mode, accounts=accounts
+                ),
             )
             checks.append(ai_check)
 
