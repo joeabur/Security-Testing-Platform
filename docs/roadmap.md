@@ -6722,3 +6722,43 @@ registry-wiring check) plus two new tests in `tests/security/test_adapters.py`
 for `extra_headers` precedence — all passing. Full backend suite
 (`pytest -q --cov=app --cov=kervy_cli --cov=mcp_server --cov-fail-under=80`)
 re-run after this change to confirm nothing else broke.
+
+## GitLab CI, Jenkins, and Azure DevOps examples in docs/cicd.md
+
+`docs/competitive-gap-analysis.md` named this as a small, already-scoped
+gap: `kervy-ai` had no GitHub-specific logic in it anywhere — every CI
+system already fails a job on a script step's non-zero exit, so the CLI's
+exit-code contract (`docs/cicd.md`'s own table) already worked everywhere.
+Only the documentation had just one platform's worked example.
+
+**Delivered.**
+- A new `## GitLab CI, Jenkins, Azure DevOps` section in `docs/cicd.md`,
+  placed directly after the existing GitHub Actions "short version" —
+  one `.gitlab-ci.yml` job, one declarative `Jenkinsfile`, and one
+  `azure-pipelines.yml` step, each running the same `kervy-ai ci --target
+  ... --config security-gate.yaml` the GitHub example does.
+- Each snippet points `KERVY_API_KEY` at that platform's own secret
+  mechanism rather than writing it into the pipeline file: a masked,
+  protected GitLab CI/CD variable; a Jenkins `credentials()` binding; an
+  Azure DevOps secret pipeline variable or linked variable group — the
+  same pattern the GitHub example's `secrets.KERVY_API_KEY` already uses.
+
+**Decisions.**
+- No new CLI flag or behavior. The gap was purely documentation —
+  confirmed by re-reading `docs/cicd.md`'s own exit-code table and `ci`
+  description before writing anything, rather than assuming a gap existed
+  in the tool itself.
+- Didn't add a fourth, generic "any other CI system" section. The three
+  named here cover what the gap analysis named; a pipeline on something
+  else can follow any one of the three as a template, since none of them
+  depends on platform-specific CLI behavior.
+
+**Deferred.** None. This closes the item named in the gap analysis
+completely.
+
+**Verified.** Read back against `docs/cicd.md`'s own "The short version"
+and "Typical pipeline shapes" sections for consistency (same `ci` flags,
+same three environment variables, same `security-gate.yaml` filename) —
+no code changed, so no test suite applies; the check here is that each
+snippet is a faithful, platform-idiomatic translation of the existing
+GitHub Actions example, not a new invention.
