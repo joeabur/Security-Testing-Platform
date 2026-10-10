@@ -176,8 +176,11 @@ Recorded rather than half-built:
 * **The malware table is not a live feed.** 50 entries demonstrate the
   mechanism; they are not current coverage. See "Known-malicious packages"
   above.
-* **No reachability analysis.** A vulnerable package being present does not
-  establish that the affected code path is used — every finding says so.
+* **No *call-graph-level* reachability analysis.** A vulnerable Python
+  package being imported, or even called somewhere in the same file, does
+  not establish that the *specific vulnerable function* is the one reached
+  — every finding says so (`app/core/appsec/reachability/python_imports.py`
+  checks import and symbol-usage, not call-graph).
 * **A floating base image tag is not reported.** `FROM python:latest` and a
   digest-only pin declare no version, so there is nothing to compare against a
   support schedule and the EOL engine skips them. An unpinned base image is a
