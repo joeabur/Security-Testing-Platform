@@ -54,6 +54,28 @@ export interface Membership {
   role: Role;
 }
 
+// --- API keys (CI/CD credentials, docs/BUILD_SPEC.md §17.4) ---------------
+
+export type ApiKeyScope = "read" | "triage" | "scan"; // pragma: allowlist secret
+
+export interface ApiKey {
+  id: string;
+  name: string;
+  key_id: string;
+  scopes: string[];
+  role: Role;
+  created_at: string;
+  expires_at: string | null;
+  last_used_at: string | null;
+  revoked_at: string | null;
+}
+
+/** The one response that carries the plaintext token — shown exactly once,
+ * at creation time, and never again afterward. `ApiKey` never includes it. */
+export interface ApiKeyCreated extends ApiKey {
+  token: string;
+}
+
 /** A not-yet-registered address invited to an organization — no `user_id`,
  * which is what distinguishes it from a `Membership` in the response of
  * `POST /organizations/{id}/members` (see InviteMemberForm). */

@@ -8,25 +8,10 @@ import { RevokeInvitationButton } from "@/components/organizations/revoke-invita
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { serverApiFetch } from "@/lib/api-server";
+import { atLeast } from "@/lib/roles";
 import type { Membership, Organization, OrganizationInvitation } from "@/lib/types";
 
 export const metadata: Metadata = { title: "Members — Kervy Security" };
-
-// Mirrors Role.seniority_order in app/models/organization.py — used only to
-// decide which controls this page shows; the backend re-checks every one of
-// these rules itself on each write, so a stale or tampered value here can
-// make a button disappear, never grant an action it wouldn't already allow.
-const ROLE_SENIORITY: Record<string, number> = {
-  viewer: 0,
-  analyst: 1,
-  security_engineer: 2,
-  admin: 3,
-  owner: 4,
-};
-
-function atLeast(role: string, minimum: string): boolean {
-  return (ROLE_SENIORITY[role] ?? 0) >= (ROLE_SENIORITY[minimum] ?? 0);
-}
 
 function formatRole(role: string): string {
   return role

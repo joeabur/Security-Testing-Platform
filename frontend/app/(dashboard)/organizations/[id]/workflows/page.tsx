@@ -1,15 +1,18 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { Workflow as WorkflowIcon } from "lucide-react";
 
 import { CreateWorkflowForm } from "@/components/workflows/create-workflow-form";
 import { EditWorkflowForm } from "@/components/workflows/edit-workflow-form";
+import { RotateWebhookSecretButton } from "@/components/workflows/rotate-webhook-secret-button";
 import { RunWorkflowButton } from "@/components/workflows/run-workflow-button";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { serverApiFetch } from "@/lib/api-server";
 import { ApiError } from "@/lib/errors";
-import type { Target, Workflow } from "@/lib/types";
+import { atLeast } from "@/lib/roles";
+import type { Organization, Target, Workflow } from "@/lib/types";
 
 export const metadata: Metadata = { title: "Workflows — Kervy Security" };
 
@@ -21,7 +24,11 @@ export default async function WorkflowsPage({ params }: { params: Promise<{ id: 
   // role check is still what actually decides access (per §17.2, the
   // frontend's own gating is cosmetic only); this just keeps the expected
   // "you don't have access" case from reading as a broken page.
-  const targets = await serverApiFetch<Target[]>(`/organizations/${id}/targets`);
+  const [organization, targets] = await Promise.all([
+    serverApiFetch<Organization>(`/organizations/${id}`),
+    serverApiFetch<Target[]>(`/organizations/${id}/targets`),
+  ]);
+  const canManageWebhooks = atLeast(organization.role, "admin");
   let workflows: Workflow[] = [];
   let accessDenied = false;
   try {
@@ -81,14 +88,30 @@ export default async function WorkflowsPage({ params }: { params: Promise<{ id: 
                     {targetNames.get(workflow.target_id) ?? workflow.target_id} ·{" "}
                     {workflow.trigger_kind}
                   </p>
-                  <div className="mt-2">
+                  <div className="mt-2 flex items-center gap-2">
                     <Badge tone={workflow.enabled ? "success" : "neutral"} dot>
                       {workflow.enabled ? "Enabled" : "Disabled"}
                     </Badge>
+                    <Badge tone={workflow.webhook_enabled ? "success" : "outline"} dot>
+                      {workflow.webhook_enabled ? "Webhook enabled" : "Webhook disabled"}
+                    </Badge>
                   </div>
+                  <Link
+                    href={`/organizations/${id}/workflows/${workflow.id}`}
+                    className="mt-2 inline-block text-sm text-primary hover:underline"
+                  >
+                    View run history
+                  </Link>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center justify-end gap-2">
                   <RunWorkflowButton organizationId={id} workflowId={workflow.id} />
+                  {canManageWebhooks && (
+                    <RotateWebhookSecretButton
+                      organizationId={id}
+                      workflowId={workflow.id}
+                      workflowName={workflow.name}
+                    />
+                  )}
                   <EditWorkflowForm organizationId={id} workflow={workflow} />
                 </div>
               </CardContent>

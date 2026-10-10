@@ -307,3 +307,14 @@ export const remediationUpsertSchema = z.object({
   notes: z.string().max(4000).optional().or(z.literal("")),
 });
 export type RemediationUpsertInput = z.infer<typeof remediationUpsertSchema>;
+
+export const createApiKeySchema = z.object({
+  name: z.string().min(1, "Name is required").max(200),
+  // Matches ApiKeyScope in app/models/api_key.py. A key with no scopes would
+  // authenticate and be able to do nothing, which is a confusing way to say
+  // "revoked" — the same floor ApiKeyCreate enforces server-side.
+  scopes: z.array(z.enum(["read", "triage", "scan"])).min(1, "Choose at least one scope"),
+  // "" means no expiry; the submit handler maps it to null before sending.
+  expires_at: z.string().optional().or(z.literal("")),
+});
+export type CreateApiKeyInput = z.infer<typeof createApiKeySchema>;
