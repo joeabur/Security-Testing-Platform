@@ -120,6 +120,33 @@ async def test_a_matched_vulnerability_becomes_a_finding(tmp_path: Path) -> None
     assert client.detail_calls == {"GHSA-cwfw-4gq5-mrqx"}
 
 
+async def test_reachability_evidence_decorates_the_finding_when_a_workspace_has_js_source(
+    tmp_path: Path,
+) -> None:
+    """A `Workspace` with JS source lets this engine replace the generic
+    disclaimer with concrete import evidence from `js_imports.py` — the
+    one thing the npm engine can do that `OsvGoEngine`/`OsvRustEngine`/
+    `OsvJavaEngine` cannot, since no reachability module understands their
+    ecosystems yet."""
+    workspace_scope = CodeScope(allowed_paths=("package-lock.json", "*.js"))
+    (tmp_path / "package-lock.json").write_text(json.dumps(_LOCKFILE), encoding="utf-8")
+    (tmp_path / "app.js").write_text('import braces from "braces";\nbraces.expand(x);\n')
+    workspace = resolve_workspace(tmp_path, workspace_scope)
+
+    query = PackageQuery(name="braces", version="2.3.2", ecosystem="npm")
+    client = _FakeClient(
+        vulnerable={query: ("GHSA-cwfw-4gq5-mrqx",)},
+        details={"GHSA-cwfw-4gq5-mrqx": {"aliases": ["CVE-2024-4068"]}},
+    )
+
+    results = await OsvEngine(allow_advisory_lookup=True, client=client).run(workspace)
+
+    assert len(results) == 1
+    assert "Statically imported" in results[0].impact
+    assert "app.js:1" in results[0].impact
+    assert "Reachability was not assessed" not in results[0].impact
+
+
 async def test_no_vulnerability_found_produces_no_findings(tmp_path: Path) -> None:
     workspace = _workspace(tmp_path, _LOCKFILE)
     client = _FakeClient(vulnerable={}, details={})

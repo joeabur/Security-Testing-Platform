@@ -7019,3 +7019,89 @@ new subclasses didn't disturb the shared base or either existing
 ecosystem. Full backend suite re-run to confirm nothing else broke.
 Confirmed no `pyproject.toml`/`uv.lock` change was needed — `tomllib` is
 stdlib at this project's Python floor.
+
+## Reachability analysis (import-level, npm/JS)
+
+`docs/competitive-gap-analysis.md` item 18 named the open remainder of the
+reachability work: "True call-graph-level reachability..., and
+reachability for non-Python ecosystems." The npm `OsvEngine`
+(`app/core/appsec/osv/engine.py`) has carried a code comment since the
+PyPI pass saying plainly it had no reachability wiring, because
+`python_imports.py` only understands Python import/call syntax. This pass
+closes exactly that for the one other ecosystem this platform's direct-OSV
+work covers: JavaScript/TypeScript.
+
+**Delivered.**
+- `app/core/appsec/reachability/shapes.py` (new): `ReachabilityVerdict`,
+  `ImportSite`, `CallSite`, `ReachabilityAssessment`, and
+  `impact_text_from_assessment()` moved out of `python_imports.py`
+  verbatim — none of them were Python-specific (just path/line/statement
+  strings and an enum), and the impact-text wording was already 100%
+  language-agnostic. `python_imports.py` re-exports all four names
+  unchanged, so every existing import path and test needed zero edits;
+  confirmed by re-running the full existing reachability/SCA test suite
+  unchanged.
+- `app/core/appsec/reachability/js_imports.py` (new): the same two
+  bounded questions `python_imports.py` answers for Python — is this npm
+  package statically imported/required anywhere in scope, and, if so, is
+  a name it bound also called in the same file — now for JS/TS. A
+  line-by-line regex scanner (not a real parser; see Decisions below)
+  covering ES `import` (default, named, aliased, namespace, side-effect-
+  only), CommonJS `require` (bound and bare), and dynamic `import()`.
+  Scoped (`@babel/core`) and submodule (`lodash/debounce`,
+  `@babel/core/lib/x`) specifiers resolve to their base package the same
+  way Node's own module resolution does — no name-mapping table needed,
+  unlike Python's distribution-name-vs-import-name mismatch, since
+  `npm_lockfile_packages()` already returns the exact specifier string.
+- `OsvEngine` (npm) now overrides `_reachability_impact()`, calling
+  `js_imports.reachability_impact_text()` — replacing its former "no
+  reachability wiring" comment with the real thing. `OsvGoEngine`/
+  `OsvRustEngine`/`OsvJavaEngine` keep the base's `None` default; no
+  reachability module understands those ecosystems yet.
+
+**Decisions.**
+- **Regex/line-based, not a real JS/TS parser — confirmed, not assumed.**
+  Grepped `pyproject.toml`/`uv.lock` for esprima/acorn/tree-sitter/babel/
+  esbuild and found none; nothing else in this codebase parses JS import
+  syntax either. Adding a JS AST parser dependency to a Python backend for
+  this alone would be out of proportion — the same "no new dependency"
+  reasoning behind every other manifest/reachability parser this codebase
+  has written by hand (`npm_lockfile.py`, `pypi_requirements.py`,
+  `go_sum.py`, `cargo_lock.py`, `gradle_lockfile.py`).
+- **A TypeScript `import type {...}` is excluded entirely, not merely
+  downgraded.** A type-only import erases completely at compile time and
+  has zero runtime presence; recording it as "imported" would be a false
+  claim about reachability, not an incomplete one.
+- **Three new named limitations**, same "named, not hidden" idiom
+  `python_imports.py`'s own docstring already uses: (1) a line-level regex
+  scan misses multi-line import statements, template-literal dynamic
+  specifiers, and import-like text inside comments/strings; (2) a dynamic
+  `import("pkg")` call's binding isn't reliably extractable at line-regex
+  granularity, so it degrades to `IMPORTED` rather than
+  `IMPORTED_AND_CALLED` — a false negative, mirroring Python's star-import
+  limitation; (3) a local variable shadowing a bound import's name is
+  indistinguishable from a real call with no scope model — a false
+  positive, mirroring Python's fourth limitation, doubly true with no AST
+  at all. Verified live (not just asserted) via a constructed shadowing
+  test, same discipline the Python symbol-usage pass used.
+- **No severity/confidence change** — this stays a narrative-only
+  `impact`-text annotation, the same architectural boundary every prior
+  reachability pass has preserved.
+
+**Deferred, stated plainly.** True call-graph-level reachability (tracing
+to the specific vulnerable function) and reachability for Go/Rust/Java
+remain open, carried forward in `docs/competitive-gap-analysis.md`.
+
+**Verified.** `ruff check .` and `mypy app` clean. New
+`tests/test_reachability_js_imports.py` (18 tests: default/named/aliased/
+namespace/side-effect-only ES imports, bound/destructured/bare CommonJS
+requires, scoped and submodule package matching, the `import type`
+exclusion, the dynamic-import and shadowing limitations each asserted
+live, bounded sites/call-sites) plus a new reachability-decoration test in
+`tests/test_osv_engine.py`. All of `tests/test_reachability_python_imports.py`,
+`tests/test_sca_reachability.py`, and `tests/test_osv_pypi_engine.py`
+re-run unchanged and still pass (63 tests total across the six files),
+confirming the `shapes.py` extraction broke nothing in the Python path.
+Full backend suite re-run to confirm nothing else broke. Confirmed no
+`pyproject.toml`/`uv.lock` change was needed — no new dependency, the
+whole point of the regex approach.

@@ -112,10 +112,10 @@ async def test_a_matched_vulnerability_becomes_a_finding(tmp_path: Path) -> None
 async def test_reachability_evidence_decorates_the_finding_when_a_workspace_has_code(
     tmp_path: Path,
 ) -> None:
-    """The one real difference from the npm engine: a `Workspace` with
-    Python source lets this engine replace the generic disclaimer with
-    concrete import evidence, the same way `pip_audit_engine.py` already
-    does for its own findings."""
+    """A `Workspace` with Python source lets this engine replace the
+    generic disclaimer with concrete import evidence, the same way
+    `pip_audit_engine.py` already does for its own findings (and the npm
+    `OsvEngine` now does too, via `js_imports.py`, for JS/TS source)."""
     workspace = _workspace(
         tmp_path,
         {

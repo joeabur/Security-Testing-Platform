@@ -59,6 +59,9 @@ from typing import Any
 
 from app.core.appsec.contract import EngineMeta, Pillar, code_evidence, severity_from
 from app.core.appsec.identifiers import verified_advisories
+from app.core.appsec.reachability.js_imports import (
+    reachability_impact_text as js_reachability_impact_text,
+)
 from app.core.appsec.reachability.python_imports import reachability_impact_text
 from app.core.appsec.workspace import Workspace
 from app.core.probes.models import Category, Confidence, ScanResult, Severity
@@ -83,8 +86,8 @@ class _OsvEngineBase:
     generic over `PackageQuery.ecosystem`. A subclass supplies only which
     manifests to look for, how to parse one into `(name, version)` pairs,
     what text names its ecosystem in a gap finding, and — since only Python
-    has a reachability module today — whether and how to decorate a finding
-    with reachability evidence.
+    and npm/JS have a reachability module today — whether and how to
+    decorate a finding with reachability evidence.
     """
 
     meta: EngineMeta
@@ -318,10 +321,8 @@ class OsvEngine(_OsvEngineBase):
     def _packages_for(self, path: Path) -> list[tuple[str, str]]:
         return npm_lockfile_packages(path)
 
-    # No reachability wiring: `python_imports.py` only understands Python
-    # import/call syntax, so it cannot assess an npm package. The base
-    # class's `None` default — the original, always-generic `impact` text —
-    # is correct here, not a gap introduced by this refactor.
+    def _reachability_impact(self, workspace: Workspace, package_name: str) -> str | None:
+        return js_reachability_impact_text(workspace, package_name)
 
 
 class OsvPypiEngine(_OsvEngineBase):
@@ -367,8 +368,8 @@ class OsvGoEngine(_OsvEngineBase):
     def _packages_for(self, path: Path) -> list[tuple[str, str]]:
         return go_sum_packages(path)
 
-    # No reachability wiring: `python_imports.py` only understands Python
-    # import/call syntax — the same reason `OsvEngine` (npm) has none.
+    # No reachability wiring: neither `python_imports.py` nor
+    # `js_imports.py` understands Go import/call syntax.
 
 
 class OsvRustEngine(_OsvEngineBase):
