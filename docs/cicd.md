@@ -31,6 +31,73 @@ The distinction between 1 and 2–4 is the important one. A gate that reported
 "no findings" because it could not authenticate would be worse than no gate
 at all, so a refusal never exits 0.
 
+## GitLab CI, Jenkins, Azure DevOps
+
+Nothing above is GitHub-specific — `kervy-ai` is a plain CLI exit-code
+contract, and every CI system already fails a job on a non-zero exit from
+a script step, so there's no special-case handling to add anywhere below.
+These are the same three environment variables and the same `ci` command
+as "The short version" above, in each platform's own syntax.
+
+**GitLab CI** (`.gitlab-ci.yml`) — set `KERVY_API_KEY` as a masked,
+protected CI/CD variable in the project's own Settings → CI/CD → Variables
+rather than in this file; GitLab injects it as an environment variable
+automatically, the same way `secrets.KERVY_API_KEY` works in the GitHub
+Actions example:
+
+```yaml
+kervy-security-gate:
+  stage: test
+  image: python:3.12-slim
+  variables:
+    KERVY_BASE_URL: https://kervy.internal/api/v1
+    KERVY_ORGANIZATION: your-org-slug
+  script:
+    - pip install kervy-security-backend
+    - kervy-ai ci --target "$KERVY_TARGET" --config security-gate.yaml
+```
+
+**Jenkins** (`Jenkinsfile`, declarative pipeline) — `credentials()` binds a
+secret already stored in the Jenkins Credentials store to an environment
+variable for the stage; it is never written into the `Jenkinsfile` itself:
+
+```groovy
+pipeline {
+    agent any
+    environment {
+        KERVY_BASE_URL     = 'https://kervy.internal/api/v1'
+        KERVY_ORGANIZATION = 'your-org-slug'
+        KERVY_API_KEY      = credentials('kervy-api-key')
+    }
+    stages {
+        stage('Security gate') {
+            steps {
+                sh 'pip install kervy-security-backend'
+                sh 'kervy-ai ci --target "$KERVY_TARGET" --config security-gate.yaml'
+            }
+        }
+    }
+}
+```
+
+**Azure DevOps** (`azure-pipelines.yml`) — `$(KERVY_API_KEY)` resolves from
+a secret pipeline variable or a linked variable group (marked "Keep this
+value secret" in the UI), mapped into the step's environment the same way
+`secrets.KERVY_API_KEY` is mapped in the GitHub Actions example:
+
+```yaml
+steps:
+  - script: |
+      pip install kervy-security-backend
+      kervy-ai ci --target "$KERVY_TARGET" --config security-gate.yaml
+    env:
+      KERVY_BASE_URL: https://kervy.internal/api/v1
+      KERVY_ORGANIZATION: your-org-slug
+      KERVY_API_KEY: $(KERVY_API_KEY)
+      KERVY_TARGET: $(KERVY_TARGET)
+    displayName: Kervy security gate
+```
+
 ## Why the gate ignores some findings
 
 `kervy-ai gate` will **not** fail a build on:
