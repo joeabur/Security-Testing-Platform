@@ -7311,3 +7311,125 @@ else broke. Confirmed no `pyproject.toml`/`uv.lock` change was needed —
 no new dependency for either NVD or GHSA, same plain `GatedTransport`
 OSV already uses. Confirmed no Alembic migration was needed — `code_scope`
 was already a JSON column.
+
+## Supply-chain "freshly-published dependency version" signal
+
+`docs/supply-chain.md` names a real, still-open gap: "no registry lookup,
+so no true dependency-confusion detection... and no 'package published
+yesterday by a brand-new maintainer' signal." Researched both halves
+before picking one to build, the same way item 20 (NVD/GHSA) was picked
+last time:
+
+- **Dependency-confusion detection is blocked on a missing primitive.**
+  Confirmed via a full search of `RulesOfEngagement`/`code_scope`/every
+  schema: there is no existing concept anywhere of "which dependency
+  names are private/internal to this operator." Without that, a registry
+  lookup has nothing to flag — every dependency in a lockfile already
+  "exists publicly" by definition, since it was resolved from a public
+  registry. Left open, carried forward in `docs/supply-chain.md`.
+- **The "freshly-published version" signal has no such blocker and is
+  confirmed buildable.** Verified live against all four registries this
+  platform's OSV engines already resolve exact versions from: npm's
+  packument (`GET /<name>` → `time["<version>"]`), PyPI's per-version
+  JSON API (`GET /pypi/<name>/<version>/json` →
+  `urls[*].upload_time_iso_8601`), the Go module proxy
+  (`GET /<escaped-module>/@v/<version>.info` → `Time`), and crates.io
+  (`GET /api/v1/crates/<name>/<version>` → `version.created_at`).
+
+**Delivered.** A new `app/core/appsec/supplychain/freshness/` package,
+mirroring the `osv/` family's exact shape (`_FreshnessEngineBase` + one
+subclass per ecosystem) and the `enrichment/` package's exact shape
+(fixed-host egress context + thin typed-error `GatedTransport` client per
+host):
+- `egress.py`: four fixed-host contexts — `registry.npmjs.org`,
+  `pypi.org`, `proxy.golang.org`, `crates.io`. crates.io gets its own
+  narrower budget and a descriptive User-Agent
+  (`kervy-security (+https://github.com/joeabur/Security-Testing-Platform)`)
+  since it is the one registry here with a real, stated anonymous-use
+  policy (confirmed via research: ~1 req/s, and a bare HTTP-library
+  User-Agent risks being blocked outright).
+- `npm_client.py` / `pypi_client.py` / `go_client.py` / `crates_client.py`:
+  one thin client per registry. The Go client implements the module
+  proxy's own case-escaping protocol rule (`BurntSushi` → `!burnt!sushi`)
+  — confirmed live: the unescaped form returns `400 invalid escaped
+  module path`. The crates.io client's `get_version_detail()` returns a
+  richer shape than the other three, because crates.io's own per-version
+  endpoint also reports `published_by.created_at` — the publishing
+  GitHub account's own creation date. Neither npm's packument nor PyPI's
+  JSON API exposes an equivalent field through an unauthenticated call
+  (confirmed via research) — a genuine, confirmed asymmetry across
+  ecosystems, not an oversight in the other two clients.
+- `engine.py`: `_FreshnessEngineBase` + `FreshnessNpmEngine`/
+  `FreshnessPypiEngine`/`FreshnessGoEngine`/`FreshnessRustEngine`. Each
+  reuses the **existing** `osv/npm_lockfile.py` /
+  `osv/pypi_requirements.py` / `osv/go_sum.py` / `osv/cargo_lock.py`
+  parsers rather than re-parsing lockfiles a second time. Gated by
+  `allow_advisory_lookup` — reused, not a new flag, because the
+  disclosure shape is identical to what this flag already gates for
+  pip-audit and every OSV engine (sending a resolved dependency's name
+  and version to a third party), and because this flag is now actually
+  operator-settable in production after the previous pass. A version
+  published within `FRESHNESS_WINDOW` (7 days) of "now" is flagged in one
+  aggregated finding per run (`KERVY-SUPPLY-050`), mirroring
+  `NameConfusionEngine`'s own aggregation style rather than OSV's
+  one-per-vulnerability granularity. `allow_advisory_lookup=False`, or a
+  total registry failure, both report the universal `KERVY-APPSEC-000`
+  disclosure/gap marker `OsvEngine` already uses for the same concept —
+  not a new code for the same idea. A single dependency's lookup missing
+  or failing while others succeed is silently skipped, never its own gap.
+  Bounded at `MAX_FRESHNESS_LOOKUPS = 50` distinct dependencies per run.
+
+**Decisions.**
+- **7-day window, not npm/pnpm's own 24-hour install-time cooldown.**
+  pnpm 11 and Yarn Berry 4.x both default to a 24-hour `minimumReleaseAge`
+  specifically to let a bad release get caught and pulled before an
+  install picks it up (confirmed via research) — but that gates an
+  install outright. This is a scan of an already-resolved lockfile after
+  the fact, so the longer, more conservative 7-day default (the same
+  order of magnitude JFrog's own documented stricter-than-default
+  example uses) gives a real review signal without flagging every
+  routine dependency bump.
+- **`Confidence.MEDIUM`, not `DESIGN_REVIEW` like `NameConfusionEngine`.**
+  `NameConfusionEngine` picks `DESIGN_REVIEW` because, in its own words,
+  "nothing was executed and no registry was consulted." This engine does
+  consult a live registry — the publish date is a confirmed, observed
+  fact, even though what it implies about risk stays circumstantial,
+  which is why severity stays at `LOW` regardless.
+- **One aggregated finding per run, not one per dependency** — the same
+  circumstantial-signal-not-individually-actionable-vulnerability
+  reasoning `NameConfusionEngine` already applies, avoiding finding-count
+  explosion on an ordinary dependency-bump day.
+- **The publisher-account-age clause is additive text only, never its own
+  finding and never a severity change** — the same rule NVD/GHSA
+  enrichment already established for narrative-only detail, now reused
+  for a second feature in a row.
+
+**Deferred, stated plainly.** Dependency-confusion detection (blocked on
+the missing private-name primitive, not attempted). Java/Maven: not
+covered by this pass — Maven Central's own API shape was not researched
+here, left for a later increment rather than attempted speculatively
+alongside the four ecosystems that were.
+
+**Verified.** `ruff check .` clean; `mypy app kervy_cli` clean (matching
+this repository's own CI/release mypy scope — `tests/` is not mypy-checked
+by either workflow, a pre-existing scope choice this pass did not change).
+New `tests/test_freshness_npm_client.py`,
+`tests/test_freshness_pypi_client.py`, `tests/test_freshness_go_client.py`,
+`tests/test_freshness_crates_client.py` (34 tests total, including the
+real-`ScopeEngine` "permits exactly this host / refuses every other host"
+pair for each of the four registries, and the Go client's case-escaping
+function unit-tested directly) and `tests/test_freshness_engine.py` (17
+tests: manifest discovery per ecosystem, the disclosure-consent gate, a
+fresh version flagged, an old or unknown version producing nothing, a
+mixed fresh/old lockfile only naming the fresh one, a total registry
+failure producing the gap, the `MAX_FRESHNESS_LOOKUPS` bound, and Rust's
+publisher-account clause appearing only when the account is itself
+recent). `tests/test_appsec_engines.py` and `tests/test_supplychain_engines.py`
+re-run unchanged and still pass (105 tests), confirming the four new
+engines slot into the existing `CodeScanCheck`/`appsec_engines()` wiring
+with no further change needed there. Full backend suite re-run to
+confirm nothing else broke. Confirmed no `pyproject.toml`/`uv.lock`
+change was needed — plain `GatedTransport`, same as every other registry
+client in this codebase. Confirmed no Alembic migration, schema, API, or
+CLI change was needed — this rides entirely on the `allow_advisory_lookup`
+plumbing the previous pass finished wiring end-to-end.

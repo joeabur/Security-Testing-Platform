@@ -163,10 +163,30 @@ is verified to be a real CVE/GHSA/OSV shape before it reaches a finding.
 
 Recorded rather than half-built:
 
-* **No registry lookup**, so no true dependency-confusion detection (does this
-  private name also exist publicly?) and no "package published yesterday by a
-  brand-new maintainer" signal. Both need an authorized outbound path and an
-  operator's disclosure decision.
+* **No dependency-confusion detection** (does this *private* name also exist
+  publicly?). This needs an operator-declared concept of which dependency
+  names are internal — nothing in this codebase's schema has that today —
+  so a lookup against the public registry has nothing to flag; every
+  dependency already "exists publicly" by definition, having been resolved
+  from one. A real, scoped feature for a later increment, not attempted
+  here.
+* **The "published yesterday" half of the registry-lookup gap is now
+  closed**, scoped to the publish-recency signal only: a new
+  `app/core/appsec/supplychain/freshness/` package (four engines, one per
+  ecosystem) flags a resolved npm/PyPI/Go/Rust dependency whose exact
+  version was published within the last 7 days, via a direct,
+  unauthenticated query to each ecosystem's own public registry — gated by
+  the same `allow_advisory_lookup` consent flag pip-audit's and the OSV
+  engines' own lookups already require, since this is the same disclosure
+  decision: sending a resolved dependency's name and version to a third
+  party. The "brand-new maintainer" half is **only buildable for Rust**:
+  crates.io's own per-version endpoint reports the publishing account's
+  creation date, confirmed live before relying on it, but neither npm's
+  packument nor PyPI's JSON API exposes an equivalent field through an
+  unauthenticated call (confirmed via research, not assumed) — a genuine,
+  stated asymmetry across ecosystems, not an oversight. Java/Maven is not
+  covered by this pass either; see `docs/roadmap.md`'s own section for the
+  full reasoning.
 * **No image-layer scan**, per above.
 * **No malware *behaviour* analysis.** The name-confusion engine reports
   *where* install-time code runs; it does not analyse what that code does.
