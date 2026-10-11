@@ -6,6 +6,7 @@ in a run just by existing in the package.
 """
 
 from app.core.probes.api.authentication import (
+    JwtSignatureBypassProbe,
     KeyMaterialInUrlProbe,
     TransportSecurityProbe,
     UnauthenticatedAccessProbe,
@@ -39,6 +40,7 @@ def api_probes() -> list[Probe]:
         UnauthenticatedAccessProbe(),
         TransportSecurityProbe(),
         KeyMaterialInUrlProbe(),
+        JwtSignatureBypassProbe(),
         BrokenObjectLevelAuthorizationProbe(),
         BrokenFunctionLevelAuthorizationProbe(),
         MassAssignmentProbe(),
