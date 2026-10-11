@@ -18,10 +18,12 @@ from app.core.config import get_settings
 from app.core.csrf import anon as csrf_anon
 from app.core.csrf.enforce import HEADER_NAME
 from app.core.probes.models import Category, Confidence, Severity
-from app.core.vcs.service import findings_for_run
+from app.core.vcs.contract import RepoRef
+from app.core.vcs.service import _existing_check_run_id, findings_for_run, publish
 from app.models.audit import AuditEvent
 from app.models.finding import Finding, Stability
 from app.models.vcs import PullRequestPost, VcsConnection
+from tests.test_vcs import client_for
 
 TOKEN = "ghp_exampleexampleexampleexample5678"  # pragma: allowlist secret
 TOKEN_ENV = "KERVY_TEST_VCS_TOKEN"  # pragma: allowlist secret
@@ -490,3 +492,230 @@ async def test_another_organizations_run_cannot_be_published(
         headers=headers_b,
     )
     assert response.status_code == 404
+
+
+async def _connection_row(db_session: AsyncSession, connection_id: str) -> VcsConnection:
+    return (
+        await db_session.execute(
+            select(VcsConnection).where(VcsConnection.id == uuid.UUID(connection_id))
+        )
+    ).scalar_one()
+
+
+async def test_republishing_for_the_same_head_sha_updates_the_check_run_in_place(
+    client: AsyncClient, strong_password: str, db_session: AsyncSession
+) -> None:
+    """The HTTP `/publish` route has no way to inject a test double, so this
+    calls `app.core.vcs.service.publish()` directly — the only way to assert
+    that a second publish for a head SHA this repo already has a check run
+    for `PATCH`es that run instead of `POST`ing a second one."""
+    org_id, headers = await _owner(client, strong_password, "p")
+    connection_id = (
+        await client.post(
+            f"/api/v1/organizations/{org_id}/vcs-connections",
+            json=connection_payload(),
+            headers=headers,
+        )
+    ).json()["id"]
+    connection = await _connection_row(db_session, connection_id)
+    run_id = await _run(client, org_id, headers, db_session)
+    finding = _finding_row(
+        organization_id=uuid.UUID(org_id),
+        run_id=uuid.UUID(run_id),
+        fingerprint="sha256:" + "c" * 64,
+    )
+    db_session.add(finding)
+    await db_session.commit()
+
+    repo = RepoRef("acme", "api")
+    head_sha = "a" * 40
+
+    first_client, _ = client_for(
+        [
+            (200, []),
+            (201, {"id": 111, "html_url": "https://github.com/acme/api/runs/111"}),
+        ]
+    )
+    first_post, first_outcome = await publish(
+        db_session,
+        connection,
+        repo=repo,
+        pull_number=7,
+        head_sha=head_sha,
+        findings=[finding],
+        run_id=uuid.UUID(run_id),
+        client=first_client,
+    )
+    assert first_outcome.posted
+    assert first_post.check_run_id == 111
+
+    second_client, second_transport = client_for(
+        [
+            (200, []),
+            (200, {"id": 111, "html_url": "https://github.com/acme/api/runs/111"}),
+        ]
+    )
+    second_post, second_outcome = await publish(
+        db_session,
+        connection,
+        repo=repo,
+        pull_number=7,
+        head_sha=head_sha,
+        findings=[finding],
+        run_id=uuid.UUID(run_id),
+        client=second_client,
+    )
+    assert second_outcome.posted
+    assert second_post.id != first_post.id
+    assert second_post.check_run_id == 111
+    # One GET (the diff) then one PATCH to the exact run the first publish
+    # created — never a second POST, which would be a duplicate comment.
+    assert [call["method"] for call in second_transport.calls] == ["GET", "PATCH"]
+    assert str(second_transport.calls[1]["url"]).endswith("/check-runs/111")
+
+
+async def test_republishing_for_a_different_head_sha_creates_a_fresh_check_run(
+    client: AsyncClient, strong_password: str, db_session: AsyncSession
+) -> None:
+    """A new commit on the same pull request has nothing yet to update — the
+    lookup must not reuse the previous SHA's check run."""
+    org_id, headers = await _owner(client, strong_password, "q")
+    connection_id = (
+        await client.post(
+            f"/api/v1/organizations/{org_id}/vcs-connections",
+            json=connection_payload(),
+            headers=headers,
+        )
+    ).json()["id"]
+    connection = await _connection_row(db_session, connection_id)
+    run_id = await _run(client, org_id, headers, db_session)
+    finding = _finding_row(
+        organization_id=uuid.UUID(org_id),
+        run_id=uuid.UUID(run_id),
+        fingerprint="sha256:" + "d" * 64,
+    )
+    db_session.add(finding)
+    await db_session.commit()
+
+    repo = RepoRef("acme", "api")
+
+    first_client, _ = client_for(
+        [
+            (200, []),
+            (201, {"id": 111, "html_url": "https://github.com/acme/api/runs/111"}),
+        ]
+    )
+    await publish(
+        db_session,
+        connection,
+        repo=repo,
+        pull_number=7,
+        head_sha="a" * 40,
+        findings=[finding],
+        run_id=uuid.UUID(run_id),
+        client=first_client,
+    )
+
+    second_client, second_transport = client_for(
+        [
+            (200, []),
+            (201, {"id": 222, "html_url": "https://github.com/acme/api/runs/222"}),
+        ]
+    )
+    second_post, second_outcome = await publish(
+        db_session,
+        connection,
+        repo=repo,
+        pull_number=7,
+        head_sha="b" * 40,
+        findings=[finding],
+        run_id=uuid.UUID(run_id),
+        client=second_client,
+    )
+    assert second_outcome.posted
+    assert second_post.check_run_id == 222
+    assert [call["method"] for call in second_transport.calls] == ["GET", "POST"]
+
+
+async def test_existing_check_run_id_ignores_other_shas_and_failed_posts(
+    client: AsyncClient, strong_password: str, db_session: AsyncSession
+) -> None:
+    """Unit-level coverage of the lookup itself: it is scoped to the exact
+    connection, repo, pull request and head SHA, and a post that never got a
+    check run (every attempt failed before GitHub answered) is not a match."""
+    org_id, headers = await _owner(client, strong_password, "s")
+    connection_row_id = (
+        await client.post(
+            f"/api/v1/organizations/{org_id}/vcs-connections",
+            json=connection_payload(),
+            headers=headers,
+        )
+    ).json()["id"]
+    org_id = uuid.UUID(org_id)
+    connection_id = uuid.UUID(connection_row_id)
+    repo = RepoRef("acme", "api")
+
+    async def _none_for(head_sha: str) -> int | None:
+        return await _existing_check_run_id(
+            db_session,
+            connection_id=connection_id,
+            repo=repo,
+            pull_number=7,
+            head_sha=head_sha,
+        )
+
+    assert await _none_for("a" * 40) is None
+
+    failed = PullRequestPost(
+        organization_id=org_id,
+        connection_id=connection_id,
+        repo_slug=repo.slug,
+        pull_number=7,
+        head_sha="a" * 40,
+        conclusion="neutral",
+        findings_total=0,
+        fingerprints=[],
+    )
+    db_session.add(failed)
+    # Committed, not merely flushed: `created_at` is `func.now()`, which
+    # Postgres resolves once per transaction — the lookup's "most recent
+    # wins" ordering needs each post in its own transaction to mean anything,
+    # exactly as it does in production, where each publish() is its own
+    # request.
+    await db_session.commit()
+    # Never posted: `check_run_id` stays unset, so it must not be matched.
+    assert await _none_for("a" * 40) is None
+
+    older = PullRequestPost(
+        organization_id=org_id,
+        connection_id=connection_id,
+        repo_slug=repo.slug,
+        pull_number=7,
+        head_sha="a" * 40,
+        conclusion="neutral",
+        findings_total=0,
+        fingerprints=[],
+        check_run_id=111,
+    )
+    db_session.add(older)
+    await db_session.commit()
+    assert await _none_for("a" * 40) == 111
+
+    newer = PullRequestPost(
+        organization_id=org_id,
+        connection_id=connection_id,
+        repo_slug=repo.slug,
+        pull_number=7,
+        head_sha="a" * 40,
+        conclusion="neutral",
+        findings_total=0,
+        fingerprints=[],
+        check_run_id=222,
+    )
+    db_session.add(newer)
+    await db_session.commit()
+    # The most recent post for this exact SHA wins.
+    assert await _none_for("a" * 40) == 222
+    # A different head SHA on the same pull request is a different commit —
+    # nothing to update yet.
+    assert await _none_for("b" * 40) is None

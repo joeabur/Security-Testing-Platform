@@ -1,10 +1,13 @@
 """The GitHub REST calls this platform makes, and only those.
 
-Three of them: read a pull request's changed files, create a check run, post a
-review comment. There is no method here that merges, pushes, updates a
-reference or writes a file, and the egress context refuses the HTTP verbs those
-would need — so the boundary is enforced by the scope engine rather than by
-this module remembering.
+Four of them: read a pull request's changed files, create a check run,
+update one already created, post a review comment. There is no method
+here that merges, pushes, updates a branch reference, deletes a file, or
+edits the pull request resource itself, and the egress context refuses
+the HTTP verbs and paths those would need — so the boundary is enforced
+by the scope engine rather than by this module remembering (see
+`app/core/vcs/egress.py`'s own docstring for why `update_check_run`'s
+`PATCH` required exact-path scoping, not just a new allowed verb).
 
 Every request goes through `GatedTransport`. Nothing here constructs an HTTP
 client, and `tests/security/test_scope_controls.py` keeps it that way.
@@ -32,7 +35,6 @@ from app.core.vcs.contract import (
     RepoRef,
     VcsError,
 )
-from app.core.vcs.egress import vcs_egress_context
 
 API_VERSION = "2022-11-28"
 PER_PAGE = 100
@@ -181,6 +183,33 @@ class GitHubClient:
             detail=f"check run created (HTTP {status})",
         )
 
+    async def update_check_run(
+        self, ctx: Any, repo: RepoRef, check_run_id: int, request: CheckRunRequest
+    ) -> PostOutcome:
+        """Re-publishing for a head SHA this repo already has a check run
+        for updates it in place, rather than posting a second one — see
+        `app/core/vcs/service.py::publish()` for where `check_run_id` is
+        looked up, and `CheckRunRequest.as_update_payload()` for why
+        annotations are not part of this call."""
+        status, payload = await self._request(
+            ctx,
+            method="PATCH",
+            path=f"/repos/{repo.owner}/{repo.name}/check-runs/{check_run_id}",
+            body=request.as_update_payload(),
+        )
+        body = payload if isinstance(payload, dict) else {}
+        run_id = body.get("id")
+        return PostOutcome(
+            posted=True,
+            check_run_id=int(run_id) if isinstance(run_id, int) else check_run_id,
+            check_run_url=str(body.get("html_url")) if body.get("html_url") else None,
+            # Not `len(request.annotations)`: the update call does not send
+            # any, so reporting a count here would claim something this
+            # specific call did not do.
+            annotations_posted=0,
+            detail=f"check run updated (HTTP {status})",
+        )
+
     async def post_review(
         self,
         ctx: Any,
@@ -205,7 +234,3 @@ class GitHubClient:
             path=f"/repos/{pull.repo.owner}/{pull.repo.name}/pulls/{pull.number}/reviews",
             body=payload,
         )
-
-
-def context_for(destination: Destination) -> Any:
-    return vcs_egress_context(destination)

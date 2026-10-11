@@ -148,20 +148,26 @@ def test_a_missing_token_variable_is_a_refusal_naming_the_variable() -> None:
 # --- egress: what the scope engine permits ----------------------------------
 
 
+REPO = RepoRef("o", "r")
+
+
 def test_the_egress_context_allowlists_only_the_api_host() -> None:
     destination = resolve_destination(VcsProvider.GITHUB, "KERVY_TEST_GH_TOKEN", environ=ENV)
-    ctx = vcs_egress_context(destination)
+    ctx = vcs_egress_context(destination, REPO, 1)
     assert ctx.roe.allowed_domains == (GITHUB_API_HOST,)
     assert ctx.roe.allowed_ip_ranges == ()
 
 
-@pytest.mark.parametrize("method", ["PUT", "PATCH", "DELETE"])
+@pytest.mark.parametrize("method", ["PUT", "DELETE"])
 async def test_the_write_verbs_that_would_merge_or_push_are_refused(method: str) -> None:
-    """`contract.py` promises this layer never merges, pushes or edits a file.
-
-    The scope engine is what enforces it: those operations need PUT, PATCH or
-    DELETE, and the context does not permit them — so the promise survives a
-    future contributor adding a method that tries.
+    """`contract.py` promises this layer never merges, pushes or deletes a
+    file. The scope engine is what enforces it: those operations need PUT
+    or DELETE, and the context does not permit either at all, against any
+    path — including one otherwise in the allowlist for `GET`/`POST`/
+    `PATCH`, which is what isolates this assertion to the method check
+    rather than the path check also refusing it for an unrelated reason.
+    `PATCH` is tested separately below: it is now permitted, but only
+    against the one check-run resource a publish may update.
     """
     from app.core.scope.engine import ScopeEngine
 
@@ -171,17 +177,22 @@ async def test_the_write_verbs_that_would_merge_or_push_are_refused(method: str)
 
     destination = resolve_destination(VcsProvider.GITHUB, "KERVY_TEST_GH_TOKEN", environ=ENV)
     decision = await ScopeEngine().explain(
-        vcs_egress_context(destination),
+        vcs_egress_context(destination, REPO, 1),
         dns_resolver=Resolver(),
         method=method,
-        url=f"https://{GITHUB_API_HOST}/repos/o/r/merges",
+        url=f"https://{GITHUB_API_HOST}/repos/o/r/check-runs",
     )
     assert not decision.allowed
     assert decision.rule == "method_not_allowed"
 
 
-@pytest.mark.parametrize("method", ["GET", "POST"])
-async def test_read_and_create_are_permitted(method: str) -> None:
+async def test_patch_is_refused_against_the_pull_request_resource_itself() -> None:
+    """The one path `PATCH` must never reach: GitHub's own endpoint for
+    editing a pull request's title, body, state or base branch — closing
+    it, in the worst case. Refused by path, not method, since `PATCH` is
+    now an allowed verb; see `egress.py`'s own docstring for why a
+    wildcard prefix was rejected specifically because it would have
+    matched this path too."""
     from app.core.scope.engine import ScopeEngine
 
     class Resolver:
@@ -190,9 +201,102 @@ async def test_read_and_create_are_permitted(method: str) -> None:
 
     destination = resolve_destination(VcsProvider.GITHUB, "KERVY_TEST_GH_TOKEN", environ=ENV)
     decision = await ScopeEngine().explain(
-        vcs_egress_context(destination),
+        vcs_egress_context(destination, REPO, 1, check_run_id=99),
         dns_resolver=Resolver(),
-        method=method,
+        method="PATCH",
+        url=f"https://{GITHUB_API_HOST}/repos/o/r/pulls/1",
+    )
+    assert not decision.allowed
+    assert decision.rule == "path_not_allowlisted"
+
+
+async def test_patch_is_refused_against_a_check_run_this_context_did_not_name() -> None:
+    """Not "any check run in this repo" — the one this publish actually
+    created, looked up before the context is built
+    (`service.py::_existing_check_run_id`)."""
+    from app.core.scope.engine import ScopeEngine
+
+    class Resolver:
+        async def resolve(self, hostname: str) -> list[object]:
+            return [ipaddress.ip_address("140.82.121.6")]
+
+    destination = resolve_destination(VcsProvider.GITHUB, "KERVY_TEST_GH_TOKEN", environ=ENV)
+    decision = await ScopeEngine().explain(
+        vcs_egress_context(destination, REPO, 1, check_run_id=99),
+        dns_resolver=Resolver(),
+        method="PATCH",
+        url=f"https://{GITHUB_API_HOST}/repos/o/r/check-runs/12345",
+    )
+    assert not decision.allowed
+    assert decision.rule == "path_not_allowlisted"
+
+
+async def test_patch_is_refused_entirely_when_no_check_run_id_is_known() -> None:
+    """A first publish for a head SHA has nothing yet to update — `PATCH`
+    has no legitimate target at all until `check_run_id` is passed."""
+    from app.core.scope.engine import ScopeEngine
+
+    class Resolver:
+        async def resolve(self, hostname: str) -> list[object]:
+            return [ipaddress.ip_address("140.82.121.6")]
+
+    destination = resolve_destination(VcsProvider.GITHUB, "KERVY_TEST_GH_TOKEN", environ=ENV)
+    decision = await ScopeEngine().explain(
+        vcs_egress_context(destination, REPO, 1),
+        dns_resolver=Resolver(),
+        method="PATCH",
+        url=f"https://{GITHUB_API_HOST}/repos/o/r/check-runs/12345",
+    )
+    assert not decision.allowed
+    assert decision.rule == "path_not_allowlisted"
+
+
+async def test_patch_is_permitted_against_the_named_check_run() -> None:
+    from app.core.scope.engine import ScopeEngine
+
+    class Resolver:
+        async def resolve(self, hostname: str) -> list[object]:
+            return [ipaddress.ip_address("140.82.121.6")]
+
+    destination = resolve_destination(VcsProvider.GITHUB, "KERVY_TEST_GH_TOKEN", environ=ENV)
+    decision = await ScopeEngine().explain(
+        vcs_egress_context(destination, REPO, 1, check_run_id=99),
+        dns_resolver=Resolver(),
+        method="PATCH",
+        url=f"https://{GITHUB_API_HOST}/repos/o/r/check-runs/99",
+    )
+    assert decision.allowed, decision.reason
+
+
+async def test_reading_the_diff_is_permitted() -> None:
+    from app.core.scope.engine import ScopeEngine
+
+    class Resolver:
+        async def resolve(self, hostname: str) -> list[object]:
+            return [ipaddress.ip_address("140.82.121.6")]
+
+    destination = resolve_destination(VcsProvider.GITHUB, "KERVY_TEST_GH_TOKEN", environ=ENV)
+    decision = await ScopeEngine().explain(
+        vcs_egress_context(destination, REPO, 1),
+        dns_resolver=Resolver(),
+        method="GET",
+        url=f"https://{GITHUB_API_HOST}/repos/o/r/pulls/1/files",
+    )
+    assert decision.allowed, decision.reason
+
+
+async def test_creating_a_check_run_is_permitted() -> None:
+    from app.core.scope.engine import ScopeEngine
+
+    class Resolver:
+        async def resolve(self, hostname: str) -> list[object]:
+            return [ipaddress.ip_address("140.82.121.6")]
+
+    destination = resolve_destination(VcsProvider.GITHUB, "KERVY_TEST_GH_TOKEN", environ=ENV)
+    decision = await ScopeEngine().explain(
+        vcs_egress_context(destination, REPO, 1),
+        dns_resolver=Resolver(),
+        method="POST",
         url=f"https://{GITHUB_API_HOST}/repos/o/r/check-runs",
     )
     assert decision.allowed, decision.reason
@@ -214,13 +318,39 @@ async def test_an_enterprise_host_on_an_internal_address_is_still_refused() -> N
         environ=ENV,
     )
     decision = await ScopeEngine().explain(
-        vcs_egress_context(destination),
+        vcs_egress_context(destination, REPO, 1),
         dns_resolver=InternalResolver(),
         method="GET",
         url="https://git.internal.test/api/v3/repos/o/r/pulls/1/files",
     )
     assert not decision.allowed
     assert decision.rule == "blocked_ip"
+
+
+async def test_an_enterprise_hosts_api_v3_prefix_is_part_of_the_allowed_path() -> None:
+    """The exact-path allowlist has to match an Enterprise Server URL too,
+    not only github.com's — derived from `destination.api_base`, not
+    hardcoded, for exactly this reason (`egress.py`'s own docstring)."""
+    from app.core.scope.engine import ScopeEngine
+
+    class Resolver:
+        async def resolve(self, hostname: str) -> list[object]:
+            return [ipaddress.ip_address("140.82.121.6")]
+
+    destination = resolve_destination(
+        VcsProvider.GITHUB_ENTERPRISE,
+        "KERVY_TEST_GH_TOKEN",
+        api_host="git.internal.test",
+        operator_hosts=["git.internal.test"],
+        environ=ENV,
+    )
+    decision = await ScopeEngine().explain(
+        vcs_egress_context(destination, REPO, 1),
+        dns_resolver=Resolver(),
+        method="GET",
+        url="https://git.internal.test/api/v3/repos/o/r/pulls/1/files",
+    )
+    assert decision.allowed, decision.reason
 
 
 # --- diff parsing -----------------------------------------------------------
@@ -410,7 +540,9 @@ def client_for(responses: list[tuple[int, object]]) -> tuple[GitHubClient, FakeT
 async def test_the_token_travels_in_a_header_and_nowhere_else() -> None:
     api, transport = client_for([(200, [])])
     ctx = vcs_egress_context(
-        resolve_destination(VcsProvider.GITHUB, "KERVY_TEST_GH_TOKEN", environ=ENV)
+        resolve_destination(VcsProvider.GITHUB, "KERVY_TEST_GH_TOKEN", environ=ENV),
+        RepoRef("o", "r"),
+        7,
     )
     await api.pull_request_files(
         ctx, PullRequestRef(repo=RepoRef("o", "r"), number=7, head_sha="a" * 40)
@@ -427,7 +559,9 @@ async def test_file_paging_stops_on_a_short_page() -> None:
     page = [{"filename": f"src/{index}.py", "patch": "@@ -1 +1 @@\n+x\n"} for index in range(3)]
     api, transport = client_for([(200, page)])
     ctx = vcs_egress_context(
-        resolve_destination(VcsProvider.GITHUB, "KERVY_TEST_GH_TOKEN", environ=ENV)
+        resolve_destination(VcsProvider.GITHUB, "KERVY_TEST_GH_TOKEN", environ=ENV),
+        RepoRef("o", "r"),
+        7,
     )
     files = await api.pull_request_files(
         ctx, PullRequestRef(repo=RepoRef("o", "r"), number=7, head_sha="a" * 40)
@@ -440,7 +574,9 @@ async def test_file_paging_stops_on_a_short_page() -> None:
 async def test_an_http_error_names_the_status_but_not_the_body() -> None:
     api, transport = client_for([(403, {"message": "Resource not accessible", "token": TOKEN})])
     ctx = vcs_egress_context(
-        resolve_destination(VcsProvider.GITHUB, "KERVY_TEST_GH_TOKEN", environ=ENV)
+        resolve_destination(VcsProvider.GITHUB, "KERVY_TEST_GH_TOKEN", environ=ENV),
+        RepoRef("o", "r"),
+        7,
     )
     with pytest.raises(VcsError) as exc:
         await api.pull_request_files(
@@ -455,7 +591,9 @@ async def test_a_review_is_always_a_comment_never_an_approval() -> None:
     """A scanner must never approve a pull request."""
     api, transport = client_for([(200, {"id": 1})])
     ctx = vcs_egress_context(
-        resolve_destination(VcsProvider.GITHUB, "KERVY_TEST_GH_TOKEN", environ=ENV)
+        resolve_destination(VcsProvider.GITHUB, "KERVY_TEST_GH_TOKEN", environ=ENV),
+        RepoRef("o", "r"),
+        7,
     )
     await api.post_review(
         ctx, PullRequestRef(repo=RepoRef("o", "r"), number=7, head_sha="a" * 40), body="hello"
@@ -468,7 +606,9 @@ async def test_a_review_is_always_a_comment_never_an_approval() -> None:
 async def test_the_check_run_is_created_with_the_head_sha() -> None:
     api, transport = client_for([(201, {"id": 99, "html_url": "https://example.test/run"})])
     ctx = vcs_egress_context(
-        resolve_destination(VcsProvider.GITHUB, "KERVY_TEST_GH_TOKEN", environ=ENV)
+        resolve_destination(VcsProvider.GITHUB, "KERVY_TEST_GH_TOKEN", environ=ENV),
+        RepoRef("o", "r"),
+        7,
     )
     request, _, _ = check_run_for([finding()], passing(), head_sha="b" * 40, diff={})
     outcome = await api.create_check_run(ctx, RepoRef("o", "r"), request)
@@ -481,7 +621,10 @@ async def test_the_check_run_is_created_with_the_head_sha() -> None:
 
 def test_no_client_method_writes_to_the_repository() -> None:
     """Pinned: there is no merge, push, ref-update or file-write method here,
-    and adding one would have to change this test."""
+    and adding one would have to change this test. `update_check_run` is
+    the one deliberate exception to "no PATCH at all" — pinned by name
+    here, and required to target `check-runs` specifically, never a merge,
+    a ref, or the pull request resource itself."""
     import inspect
 
     methods = {
@@ -489,8 +632,18 @@ def test_no_client_method_writes_to_the_repository() -> None:
         for name, _ in inspect.getmembers(GitHubClient, inspect.isfunction)
         if not name.startswith("_")
     }
-    assert methods == {"pull_request_files", "create_check_run", "post_review"}
+    assert methods == {
+        "pull_request_files",
+        "create_check_run",
+        "update_check_run",
+        "post_review",
+    }
 
     source = inspect.getsource(GitHubClient)
-    for forbidden in ("/merge", "/git/refs", 'method="PUT"', 'method="PATCH"', "DELETE"):
+    for forbidden in ("/merge", "/git/refs", 'method="PUT"', "DELETE"):
         assert forbidden not in source, forbidden
+    assert 'method="PATCH"' in source  # update_check_run, and only it
+    assert source.count('method="PATCH"') == 1
+    patch_source = inspect.getsource(GitHubClient.update_check_run)
+    assert "check-runs" in patch_source
+    assert "/pulls/" not in patch_source

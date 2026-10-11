@@ -162,6 +162,30 @@ class CheckRunRequest:
             payload["details_url"] = self.details_url
         return payload
 
+    def as_update_payload(self) -> dict[str, object]:
+        """The same check run, for `PATCH .../check-runs/{id}` rather than
+        `POST .../check-runs` — everything `as_payload()` sends **except
+        `output.annotations`**.
+
+        That omission is deliberate, not an oversight: GitHub's own update
+        endpoint's exact behaviour when annotations are sent again — replace
+        the existing set, or add to it — was not something this change could
+        verify against a real repository before shipping, and the two
+        readings fail in different, both-bad ways: replace would silently
+        drop annotations GitHub already has if a later update sent fewer, and
+        accumulate would duplicate every annotation on every re-publish for
+        the same commit. Omitting the field sidesteps the question entirely
+        — whichever behaviour is real, a field that is not present is not
+        acted on. The conclusion, summary and title still update correctly;
+        only the annotation set does not change on a re-publish, a stated
+        and deliberate narrower scope rather than a guess either way.
+        """
+        payload = self.as_payload()
+        output = payload.get("output")
+        if isinstance(output, dict):
+            output.pop("annotations", None)
+        return payload
+
 
 @dataclass(frozen=True)
 class PostOutcome:
