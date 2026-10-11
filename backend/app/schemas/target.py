@@ -51,6 +51,12 @@ class CodeScopeIn(BaseModel):
     # Required before a remote repository can be cloned. Left empty, only a
     # local checkout is possible — which is the safe default.
     allowed_repo_hosts: list[str] = Field(default_factory=list, max_length=20)
+    # A separate consent from the paths/hosts above: whether the AppSec
+    # engines may send verified advisory ids to osv.dev/NVD/GHSA for
+    # discovery and enrichment. Off by default, the same "declaring a scope
+    # is not itself authorization to reach the network" rule
+    # `ContainerScopeIn.allow_live_pull` already applies.
+    allow_advisory_lookup: bool = False
 
 
 class TargetCodeUpdate(BaseModel):

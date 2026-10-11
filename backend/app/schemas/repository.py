@@ -45,6 +45,10 @@ class RepositoryCreate(BaseModel):
     # false rather than defaulted or ignored — the checkbox has to be
     # checked, not merely present.
     authorized: bool = False
+    # A second, separate consent: connecting a repository for scanning does
+    # not by itself consent to a *different* disclosure — sending its
+    # dependency/advisory ids to osv.dev/NVD/GHSA. Off by default.
+    allow_advisory_lookup: bool = False
 
     @field_validator("authorized")
     @classmethod

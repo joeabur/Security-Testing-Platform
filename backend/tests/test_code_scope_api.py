@@ -96,6 +96,66 @@ async def test_code_scope_is_declared_and_read_back(
     assert body["code_build_manifest_paths"] == ["requirements.txt"]
 
 
+async def test_allow_advisory_lookup_is_stored_in_code_scope(
+    client: AsyncClient, strong_password: str, db_session
+) -> None:
+    """A separate consent from the paths/hosts above: whether the AppSec
+    engines may send verified advisory ids to osv.dev/NVD/GHSA. Reached
+    through the real persisted `code_scope` dict, since `TargetRead` does
+    not surface it directly."""
+    import uuid as _uuid
+
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+
+    from app.models.target import Target
+
+    org_id, target_id, headers = await _target(client, strong_password, "f")
+
+    response = await client.put(
+        f"/api/v1/organizations/{org_id}/targets/{target_id}/code",
+        json={**CODE, "code_scope": {**CODE["code_scope"], "allow_advisory_lookup": True}},
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    target = (
+        await db_session.execute(
+            select(Target)
+            .where(Target.id == _uuid.UUID(target_id))
+            .options(selectinload(Target.rules_of_engagement))
+        )
+    ).scalar_one()
+    assert target.rules_of_engagement.code_scope["allow_advisory_lookup"] is True
+
+
+async def test_allow_advisory_lookup_defaults_to_false(
+    client: AsyncClient, strong_password: str, db_session
+) -> None:
+    import uuid as _uuid
+
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+
+    from app.models.target import Target
+
+    org_id, target_id, headers = await _target(client, strong_password, "g")
+
+    response = await client.put(
+        f"/api/v1/organizations/{org_id}/targets/{target_id}/code", json=CODE, headers=headers
+    )
+
+    assert response.status_code == 200
+    target = (
+        await db_session.execute(
+            select(Target)
+            .where(Target.id == _uuid.UUID(target_id))
+            .options(selectinload(Target.rules_of_engagement))
+        )
+    ).scalar_one()
+    assert target.rules_of_engagement.code_scope["allow_advisory_lookup"] is False
+
+
 async def test_an_empty_allowlist_is_rejected_at_the_api_boundary(
     client: AsyncClient, strong_password: str
 ) -> None:

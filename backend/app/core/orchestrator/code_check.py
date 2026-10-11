@@ -10,12 +10,17 @@ Unlike the other two checks, nothing here goes through `GatedTransport` —
 these engines read files. Where an engine's tool would reach the network, it
 is launched with an explicit offline configuration (see
 `app/core/appsec/tooling.py`), which is how §6.3's rule applies to a
-subprocess.
+subprocess. The one exception is advisory-detail enrichment, gated by
+`allow_advisory_lookup`: it reaches `osv.dev`/NVD/GHSA through its own
+fixed-host contexts (`app/core/appsec/enrichment/egress.py`), the same
+pattern the OSV engines already use — not through this method's own
+`transport` parameter, which stays unused either way.
 """
 
 from dataclasses import dataclass, field
 
 from app.core.appsec.contract import AppSecEngine
+from app.core.appsec.enrichment.advisory_detail import enrich_findings
 from app.core.appsec.workspace import Workspace
 from app.core.orchestrator.checks import CheckResult
 from app.core.probes.models import Category, Confidence, ScanResult, Severity
@@ -33,6 +38,9 @@ class CodeScanCheck:
     # to skip them, though an operator cancellation still is.
     requires_network: bool = False
     scan_results: list[ScanResult] = field(default_factory=list)
+    # Operator opt-in to sending verified advisory ids to osv.dev/NVD/GHSA
+    # for enrichment (docs/BUILD_SPEC.md §6.3's disclosure-consent rule).
+    allow_advisory_lookup: bool = False
 
     async def run(self, ctx: RunContext, transport: GatedTransport) -> list[CheckResult]:
         results: list[CheckResult] = []
@@ -71,6 +79,10 @@ class CodeScanCheck:
                     ),
                 )
             )
+
+        if self.allow_advisory_lookup and not ctx.kill_switch.tripped:
+            self.scan_results = await enrich_findings(self.scan_results)
+
         return results
 
 

@@ -116,6 +116,69 @@ async def test_security_engineer_can_add_a_repository(
     assert body["latest_scan"] is None
 
 
+async def test_allow_advisory_lookup_reaches_the_stored_code_scope(
+    client: AsyncClient, strong_password: str, db_session
+) -> None:
+    """A separate consent from `authorized` above: connecting a repository
+    does not by itself consent to sending its dependency/advisory ids to
+    osv.dev/NVD/GHSA. Reached through the real persisted `code_scope` dict,
+    since `RepositoryRead`/`RepositoryDetail` do not surface it directly."""
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+
+    from app.models.target import Target
+
+    org_id, owner_headers = await _make_org_with_owner(client, strong_password, "al")
+
+    response = await client.post(
+        f"/api/v1/organizations/{org_id}/repositories",
+        json={
+            "name": "Example repo",
+            "url": REPO_URL,
+            "authorized": True,
+            "allow_advisory_lookup": True,
+        },
+        headers=owner_headers,
+    )
+
+    assert response.status_code == 201, response.text
+    target = (
+        await db_session.execute(
+            select(Target)
+            .where(Target.id == uuid.UUID(response.json()["id"]))
+            .options(selectinload(Target.rules_of_engagement))
+        )
+    ).scalar_one()
+    assert target.rules_of_engagement.code_scope["allow_advisory_lookup"] is True
+
+
+async def test_allow_advisory_lookup_defaults_to_false(
+    client: AsyncClient, strong_password: str, db_session
+) -> None:
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+
+    from app.models.target import Target
+
+    org_id, owner_headers = await _make_org_with_owner(client, strong_password, "am")
+
+    response = await client.post(
+        f"/api/v1/organizations/{org_id}/repositories",
+        json={"name": "Example repo", "url": REPO_URL, "authorized": True},
+        headers=owner_headers,
+    )
+
+    assert response.status_code == 201, response.text
+    target = (
+        await db_session.execute(
+            select(Target)
+            .where(Target.id == uuid.UUID(response.json()["id"]))
+            .options(selectinload(Target.rules_of_engagement))
+        )
+    ).scalar_one()
+    assert target.rules_of_engagement.code_scope["allow_advisory_lookup"] is False
+
+
 async def test_adding_a_repository_requires_the_authorized_affirmation(
     client: AsyncClient, strong_password: str
 ) -> None:
