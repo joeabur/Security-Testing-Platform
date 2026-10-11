@@ -7463,3 +7463,62 @@ called again to confirm only the primary remains. `tests/test_vcs_api.py`
 Full backend suite re-run. Confirmed no `pyproject.toml`/`uv.lock`
 change, no Alembic migration, and no schema/API/CLI change needed — this
 is a one-line query filter.
+
+## The output-handling probe gets a shell/command-injection sink
+
+`docs/ai-security-testing.md`'s own comparison table and
+`docs/competitive-gap-analysis.md`'s gap table both named this plainly:
+`app/core/probes/ai/output_handling.py`'s `_SINKS` tuple covered
+html/markdown-image/template/sql, but not the shell sink
+`docs/BUILD_SPEC.md:525` itself lists as in scope for LLM10 improper
+output handling. The probe's whole design — one inert structural marker
+per sink, `plan()`/`report()` both generic over `_SINKS` — means this was
+never a missing capability, only a missing table entry.
+
+**Delivered.** One new entry: `("shell_fragment", "'; : kervy-probe-{canary} #",
+"a shell-shaped fragment reaches the caller unescaped")`. The marker
+mirrors the existing `sql_fragment` entry's own design — a quote
+breakout followed by a no-op and a comment, so the fragment is inert even
+in the hypothetical worst case where something downstream actually
+executed it: `'` ends whatever quoted argument it landed inside, `:` is
+the shell's own no-op builtin, and `#` comments out anything that
+follows. `CWE-78` (OS command injection) added to the probe's
+`Mappings.cwe` alongside the existing `CWE-79`/`CWE-116`. No other code
+changed — `plan()`, `detect()`, and `report()` are already generic over
+`_SINKS`, which is the point of that design.
+
+**Decisions.**
+
+- **No lab app change needed, confirmed by reading it first.**
+  `tests/lab/ai_handlers.py`'s `vulnerable_chat` echoes whatever payload
+  follows "repeat the following text back to me exactly" generically, and
+  `hardened_chat` refuses outright: both apps react to *any*
+  `KERVY-CANARY-...`-shaped prompt the same way regardless of what sink
+  the surrounding text represents, so a fifth sink is exercised by the
+  existing handlers with zero changes to the lab.
+- **The marker had to contain a character `hardened_chat` actually
+  escapes, or it would have — checked, not assumed.** Read
+  `hardened_chat` before picking the marker text: it short-circuits on
+  `_CANARY.search(prompt)` before it ever reaches the escaping branch, so
+  in practice any marker shape is already refused there; the `'`
+  breakout was still chosen deliberately to keep the new sink
+  structurally consistent with `sql_fragment` rather than relying on
+  that short-circuit alone.
+- **One new test, not a new file.** This probe has no dedicated
+  per-probe unit-test file — `output_handling.py`'s only test coverage
+  anywhere in the repository is the Phase 6 acceptance test
+  (`tests/test_ai_engine.py`) running the real driver against the real
+  lab apps, so a new assertion was added there rather than introducing a
+  standalone unit-test file the rest of the `ai/` package doesn't have.
+
+**Verified.** `ruff check .` and `mypy app` clean. New
+`tests/test_ai_engine.py::test_output_handling_probe_detects_every_declared_sink`
+asserts all five sink names appear in the `KERVY-AI-012` finding against
+the vulnerable lab app; the existing
+`test_hardened_control_app_produces_no_ai_findings` (unchanged) confirms
+the hardened app still produces nothing. All 24 tests in
+`tests/test_ai_engine.py` and `tests/test_ai_engine_e2e.py` pass. Full
+backend suite re-run to confirm nothing else broke. Confirmed no
+`pyproject.toml`/`uv.lock` change, no Alembic migration, and no
+schema/API/CLI change needed — this is one new tuple in an existing,
+already-generic table.
