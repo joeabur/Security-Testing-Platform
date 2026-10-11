@@ -25,7 +25,7 @@ from collections.abc import Sequence
 from datetime import date
 
 from app.core.gate.evaluate import evaluate
-from app.core.gate.model import GateConfig, GateDecision, GateFinding
+from app.core.gate.model import GateConfig, GateDecision, GateFinding, license_bands_from_mappings
 from app.core.probes.models import Confidence, Severity
 from app.models.finding import Finding
 
@@ -53,6 +53,7 @@ def gate_finding(finding: Finding) -> GateFinding:
         confidence=Confidence(str(getattr(finding.confidence, "value", finding.confidence))),
         stability=str(getattr(finding.stability, "value", finding.stability) or "single_shot"),
         status=str(getattr(finding.status, "value", finding.status) or "new"),
+        license_bands=license_bands_from_mappings(finding.mappings),
     )
 
 

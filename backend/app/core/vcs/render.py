@@ -70,6 +70,13 @@ class PublishableFinding:
     severity_rationale: str = ""
     remediation: str = ""
     is_new: bool = True
+    # Which `LicenseRisk` bands (if any) this finding carries — see
+    # `app/core/gate/model.py::license_bands_from_mappings`. Threaded
+    # through here, not just read where the gate itself runs, so a PR
+    # check run's verdict cannot disagree with the CLI gate's on the same
+    # finding (`app/core/vcs/service.py`'s own module docstring states that
+    # invariant; a licence-band finding is no exception to it).
+    license_bands: tuple[str, ...] = ()
 
     @property
     def location(self) -> tuple[str | None, int | None]:

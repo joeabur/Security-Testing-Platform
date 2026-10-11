@@ -230,6 +230,18 @@ Recorded rather than half-built:
   a replacement for it or for the SBOM inventory `pip-audit` resolves;
   Go/Rust/Java/npm have no other SCA engine at all, so this is their only
   coverage.
-* **No license policy configuration.** There is no way yet to say "AGPL is
-  forbidden here" and have the CI gate fail on it; the findings are reported and
-  a human decides.
+* **License policy configuration is now closed.** `security-gate.yaml`'s
+  `forbidden_license_bands` lets an operator say "`network_copyleft` is
+  forbidden here" and have `kervy-ai gate` fail the build on it,
+  independently of severity — `strong_copyleft` and `weak_copyleft` are
+  `LOW`/`INFORMATIONAL` by design (see "Licence risk" above), so neither
+  would ever reach even the gate's most permissive `fail_on` threshold on
+  severity alone. `LicenseRiskEngine` tags each finding it reports with the
+  band it classified (`LICENSE-BAND:<band>`, carried on `ScanResult.frameworks`
+  the same way a CWE or OWASP mapping is); the gate reads it back off
+  `mappings["other"]`, since no finding anywhere in this codebase has a
+  dedicated "which rule fired" field and this rides on the one generic
+  bucket that already survives the full pipeline unchanged. A finding a
+  human already triaged (`accepted_risk`, `false_positive`, `closed`) or an
+  active `ignore` entry still excludes it — a licence policy is a second,
+  independent reason to block, not a bypass of triage.

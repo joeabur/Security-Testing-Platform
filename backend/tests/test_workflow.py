@@ -197,6 +197,23 @@ def test_a_low_finding_passes_the_default_gate_and_a_critical_does_not() -> None
     assert not decide([finding(severity=Severity.CRITICAL)], DEFAULT_GATE).passed
 
 
+def test_the_gate_reads_a_findings_license_bands_from_its_mappings() -> None:
+    """There is no dedicated column for this: `gate_finding()` reads the same
+    `mappings` column `LicenseRiskEngine` tags with `LICENSE-BAND:<band>`
+    (`app/core/gate/model.py::license_bands_from_mappings`)."""
+    gated = gate_finding(finding(mappings={"other": ["LICENSE-BAND:network_copyleft"]}))
+    assert gated.license_bands == ("network_copyleft",)
+
+
+def test_a_forbidden_license_band_fails_the_workflow_gate_at_low_severity() -> None:
+    config = GateConfig(forbidden_license_bands=("network_copyleft",))
+    decision = decide(
+        [finding(severity=Severity.LOW, mappings={"other": ["LICENSE-BAND:network_copyleft"]})],
+        config,
+    )
+    assert not decision.passed
+
+
 def test_the_decision_function_takes_no_recommendation_parameter() -> None:
     """The phase's acceptance criterion, asserted structurally: there is no seam
     through which an AI draft could reach the decision."""

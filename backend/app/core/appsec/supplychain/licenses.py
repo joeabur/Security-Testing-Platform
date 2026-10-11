@@ -34,6 +34,17 @@ class LicenseRisk(StrEnum):
     PROPRIETARY_OR_UNKNOWN = "proprietary_or_unknown"
 
 
+#: `ScanResult.frameworks` tag `LicenseRiskEngine` attaches to each finding it
+#: reports, carrying the band it classified. There is no dedicated schema
+#: field for this anywhere in the findings pipeline — `frameworks` already
+#: flows through unchanged to `Finding.mappings["other"]` and from there to
+#: the findings API `kervy-ai gate` reads, which is what lets the gate match
+#: on a licence band (`GateConfig.forbidden_license_bands`) without a
+#: migration. Kept here, next to `LicenseRisk` itself, so the engine and the
+#: gate both read the one definition rather than each spelling the prefix out.
+LICENSE_BAND_FRAMEWORK_PREFIX = "LICENSE-BAND:"
+
+
 #: SPDX identifiers, lowercased, without the `-only`/`-or-later` suffix which is
 #: stripped before lookup. Not exhaustive and not meant to be: an identifier
 #: that is not here lands in `proprietary_or_unknown`, which is the safe way to

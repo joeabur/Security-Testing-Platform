@@ -142,6 +142,7 @@ security_gate:
   max_medium: 5
   min_confidence: medium
   require_stability: [deterministic, probabilistic]
+  forbidden_license_bands: [network_copyleft]
   ignore:
     - fingerprint: sha256:...
       reason: "accepted risk, TICKET-987"
@@ -160,6 +161,15 @@ Notes that have bitten people:
   have.
 - `reason` and `expires` on an ignore are both required. An exclusion nobody
   revisits is how a gate quietly stops covering the thing it was added for.
+- `forbidden_license_bands` is independent of `fail_on`/`max_high`/
+  `max_medium` too, and for the same reason: a `LicenseRiskEngine` finding's
+  severity reflects how legally weighty the obligation is, not whether this
+  operator has decided to forbid it outright, so a `strong_copyleft` or
+  `weak_copyleft` match (`LOW`/`INFORMATIONAL` by design) blocks the build
+  even though neither would ever reach a severity floor on its own. Valid
+  values: `public_domain`, `permissive`, `weak_copyleft`, `strong_copyleft`,
+  `network_copyleft`, `proprietary_or_unknown` — an unknown name is a
+  configuration error, the same as `fail_on: [enormous]`.
 
 ## API keys
 
