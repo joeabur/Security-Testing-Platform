@@ -1503,10 +1503,12 @@ vulnerability. "Is this the package you meant" has no identifier at all.
   forbidden here" and have the CI gate fail on it; findings are reported and a
   human decides. The gate already thresholds on severity, so wiring this means
   deciding whether a policy breach is a severity or a separate gate dimension.
-- **A floating base image tag (`FROM python:latest`) or a digest-only pin is not
-  reported**: neither declares a version, so there is nothing to compare against
-  a support schedule. An unpinned base image is a real finding, just not this
-  engine's.
+- **A floating base image tag (`FROM python:latest`) or a digest-only pin
+  declares no version**, so there is nothing to compare against a support
+  schedule — this engine skips both. A floating tag *is* reported elsewhere,
+  though: see "Checkov already covers the floating base image tag gap"
+  below. A digest pin correctly triggers nothing anywhere, since it is
+  fully reproducible rather than floating.
 - **Trivy is not installed in CI**, so `KERVY-CONTAINER-001` parsing is
   exercised only against the "tool absent" path there. The test asserts the
   honest-gap behaviour when Trivy is missing and the real parse when it is
@@ -7522,3 +7524,67 @@ backend suite re-run to confirm nothing else broke. Confirmed no
 `pyproject.toml`/`uv.lock` change, no Alembic migration, and no
 schema/API/CLI change needed — this is one new tuple in an existing,
 already-generic table.
+
+## Checkov already covers the floating base image tag gap
+
+`docs/supply-chain.md` and this file both named "a floating base image tag
+is not reported" as an open gap, attributed to the end-of-life engine
+skipping `FROM python:latest` (correct: a floating tag declares no
+human-readable version, so there is nothing to compare against a support
+schedule). What neither doc checked was whether *anything else* in the
+platform reported it. Something does: `CheckovEngine`
+(`app/core/appsec/iac/checkov_engine.py`) already runs Checkov against
+every in-scope Dockerfile, and Checkov ships its own built-in
+`CKV_DOCKER_7` ("Ensure the base image uses a non latest version tag"),
+which fires for a bare `FROM python` or an explicit `FROM python:latest`
+and surfaces through the existing, generic parse path as
+`KERVY-IAC-CKV_DOCKER_7` — confirmed by running `checkov` directly against
+a one-line Dockerfile before changing anything, not assumed from reading
+the check's source. The gap was real only in the sense that nobody had
+verified the claim; the capability itself required no new code.
+
+**Delivered.** No production code changed. `docs/supply-chain.md`'s "What
+is not built" bullet and this file's matching EOL-section bullet both
+corrected to point at `CheckovEngine`/`CKV_DOCKER_7` instead of claiming
+no coverage exists, and both are now explicit that a digest pin
+(`image@sha256:...`) is deliberately exempt from both checks — it is the
+opposite of floating, not an oversight shared with the `latest` case.
+
+**Decisions.**
+
+- **Verify before correcting, the same discipline this session already
+  applies before building.** The original gap bullet was plausible on its
+  face — the EOL engine really does skip floating tags — but "the EOL
+  engine doesn't report X" is not the same claim as "nothing reports X",
+  and only the live run against `checkov`'s own `ReferenceLatestTag` check
+  settled which one was true.
+- **A test file, not just a doc fix.** `CheckovEngine` had zero dedicated
+  tests anywhere in the suite before this — its only prior coverage was
+  `test_appsec_engines.py` asserting it ran and returned `ok` results
+  against the main lab repo, never what it actually finds. That gap in
+  test coverage is plausibly *why* the stale claim went unnoticed in the
+  first place, so the fix closes both: a corrected doc, and a test file
+  that would catch the next regression of this specific behaviour.
+- **Covers the full three-way distinction, not just the headline case.**
+  Tests pin down all of: a bare `FROM python` (floating, flagged, since
+  Docker treats a tagless reference as `:latest`), an explicit
+  `FROM python:latest` (floating, flagged), a pinned version tag (not
+  flagged), and a digest pin (not flagged) — so the corrected docs' claim
+  about each of the four cases is backed by a passing test, not only by
+  this session's own manual `checkov` run.
+
+**Verified.** Live `checkov --directory . --output json --skip-download`
+run against hand-built one-line Dockerfiles for all four cases above,
+confirming `CKV_DOCKER_7` fires only for the two floating cases, before
+writing any test. New `tests/test_checkov_engine.py` (6 tests): the four
+`FROM`-line cases through the real `CheckovEngine().run()` (real
+`checkov` subprocess, no mocking), plus two tests of
+`CheckovEngine.parse()` directly against a hand-captured real payload
+shape — one confirming the engine's documented severity default applies
+when checkov's free tier reports no severity for a Dockerfile-only check,
+one confirming a result outside the code scope is dropped. `ruff check .`
+and `mypy app` clean. Full backend suite re-run to confirm nothing else
+broke. Confirmed no `pyproject.toml`/`uv.lock` change, no Alembic
+migration, and no schema/API/CLI change needed — this PR adds test
+coverage and corrects two doc claims; it does not change what any engine
+reports.
