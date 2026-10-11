@@ -85,6 +85,7 @@ POST   /api/v1/organizations/{org}/workflows/{id}/webhook-secret          admin
 POST   /api/v1/organizations/{org}/workflows/{id}/runs/{run_id}/approve   security engineer
 POST   /api/v1/organizations/{org}/workflows/{id}/runs/{run_id}/reject    security engineer
 POST   /api/v1/webhooks/workflows/{id}                                    HMAC signature (see below)
+POST   /api/v1/webhooks/github/workflows/{id}                             GitHub HMAC signature (see below)
 ```
 
 Creating one:
@@ -160,6 +161,40 @@ refused (503), never silently accepted as unseen — the opposite choice from
 the rate limiter's own deliberate fail-open, because replay protection
 exists specifically to refuse something that looks legitimate.
 
+**The GitHub-native inbound webhook.** `POST /api/v1/webhooks/github/workflows/{id}`
+— a second receiver, reusing the same `webhook-secret` and the same
+`trigger_from`/`start_and_maybe_pause`/`finish` pipeline above, but
+speaking GitHub's own webhook scheme (`X-Hub-Signature-256`) instead of
+this platform's, so a GitHub repository's own webhook settings can point
+straight at it: no custom CI step translating GitHub's payload into the
+platform's minimal shape first. Push a repository's own webhook secret
+in at GitHub's "Settings → Webhooks → Add webhook", pointed at this URL,
+Content type `application/json`.
+
+* `push` → `repository_change`, from `ref`/`after`. A push that deletes a
+  branch (`deleted: true`, or `after` all zeros) triggers nothing — there
+  is nothing left to scan.
+* `pull_request` → `pull_request`, from `pull_request.head.ref`/`.sha`/
+  `.number`, but only for the actions that mean new or changed code
+  (`opened`, `synchronize`, `reopened`). GitHub sends this event for many
+  other actions (`labeled`, `assigned`, review events, …); those are
+  accepted (so GitHub never sees a failed delivery) but trigger nothing.
+* `ping` (sent once, when the webhook is first saved in GitHub's UI) and
+  any other event type a repository happens to also be subscribed to are
+  accepted the same way — a real, valid delivery this route simply has
+  nothing to act on, not an error.
+
+**Replay protection here is weaker than the native route's, and that is
+stated rather than glossed over**: GitHub's `X-Hub-Signature-256` has no
+timestamp inside it the way this platform's own scheme does, so a captured
+delivery's signature does not expire on its own. The dedup key is
+`X-GitHub-Delivery` (a fresh id per distinct event; GitHub reuses the same
+id, and therefore the same signature, when it retries a *failed*
+delivery, which this correctly still rejects as seen) with a 24-hour
+window — long enough to cover GitHub's own redelivery attempts, but a
+bounded window rather than the airtight "replay is impossible past this
+point" the native route's timestamp check gives it.
+
 ## The approval gate for unattended triggers
 
 Every other target-touching action on this platform requires a human
@@ -207,9 +242,12 @@ Stated rather than implied:
   `docs/roadmap.md` records this as the phase's deliberate boundary; Phase 8's
   scheduler and webhook both still go through `queue_run()` rather than a
   second path, once a run is (or needs no) approval.
-* **No vendor-specific webhook translators.** The inbound endpoint accepts
-  this platform's own minimal, HMAC-signed shape only — translating GitHub's
-  or GitLab's own webhook payload into it is a separate, later increment.
+* **GitHub's own webhook shape is now accepted directly** — see "The
+  GitHub-native inbound webhook" above. **GitLab, Bitbucket and Azure
+  DevOps are not**: each has its own signature scheme and event-payload
+  shape, and only GitHub's was built, matching the fact that GitHub is
+  also the only VCS provider this platform posts check runs back to
+  (`docs/pull-requests.md`).
 * **No CLI for any workflow operation.** `kervy-ai` has no `workflow`
   subcommand group at all yet, scheduling and webhooks included.
 * **No rate limit on the inbound webhook.** `app.core.ratelimit`'s

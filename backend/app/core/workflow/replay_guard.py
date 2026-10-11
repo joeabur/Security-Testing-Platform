@@ -15,10 +15,21 @@ proven fresh is refused, never accepted as if it were.
 The dedup key is the signature string itself, not a caller-supplied
 delivery-id header: `signing.sign()` covers the timestamp and the exact
 body bytes, so two distinct legitimate deliveries will not collide, and a
-replay of the exact same signed request will. The TTL is double
+replay of the exact same signed request will. The default TTL is double
 `signing.DEFAULT_TOLERANCE_SECONDS` so nothing inside the accepted
 timestamp window can be replayed after this key expires and a stale replay
 independently fails the timestamp check first.
+
+**That reasoning does not hold for GitHub's inbound webhook**
+(`app/core/integrations/github_signing.py`), which signs no timestamp at
+all — a captured delivery's signature stays valid to replay for as long as
+the secret does. The GitHub route passes its own, much longer `ttl_seconds`
+and keys on `X-GitHub-Delivery` rather than the signature, so this guard is
+its *only* defense against replay there, not a backstop on top of an
+independent timestamp check. That is a real, stated asymmetry, not an
+oversight: GitHub's own scheme gives a receiver nothing else to check an
+age against, and a longer-but-finite window is still strictly better than
+none.
 """
 
 from __future__ import annotations
@@ -38,7 +49,8 @@ class WebhookReplayGuardUnavailable(Exception):
 
 
 class WebhookReplayed(Exception):
-    """This exact signature was already accepted once."""
+    """This exact key (a signature, or a delivery id) was already accepted
+    once."""
 
 
 def _key(signature: str) -> str:
@@ -55,16 +67,19 @@ class WebhookReplayGuard:
             self._client = redis_async.Redis.from_url(self._url, decode_responses=True)
         return self._client
 
-    async def mark_seen_or_raise(self, signature: str) -> None:
-        """Atomically claim this signature. Raises `WebhookReplayed` if it
-        was already claimed, `WebhookReplayGuardUnavailable` if Redis cannot
-        be reached — never silently proceeds either way."""
+    async def mark_seen_or_raise(self, key: str, *, ttl_seconds: int = TTL_SECONDS) -> None:
+        """Atomically claim this key (a signature, or another caller-chosen
+        unique-per-delivery token — see the module docstring for why the
+        GitHub route passes its own `ttl_seconds` and a delivery id rather
+        than the default). Raises `WebhookReplayed` if it was already
+        claimed, `WebhookReplayGuardUnavailable` if Redis cannot be reached
+        — never silently proceeds either way."""
         try:
             # `SET ... NX EX` in one round trip: the claim and the TTL are
             # set together, so there is no window where a key exists
             # without an expiry attached to it.
-            claimed = await self._connect().set(_key(signature), "1", nx=True, ex=TTL_SECONDS)
+            claimed = await self._connect().set(_key(key), "1", nx=True, ex=ttl_seconds)
         except (redis_async.RedisError, OSError) as exc:
             raise WebhookReplayGuardUnavailable(str(exc)) from exc
         if not claimed:
-            raise WebhookReplayed(f"signature {signature!r} was already accepted")
+            raise WebhookReplayed(f"{key!r} was already accepted")

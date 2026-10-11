@@ -7685,3 +7685,94 @@ re-run to confirm nothing else broke. Confirmed no `pyproject.toml`/
 `uv.lock` change, no Alembic migration, and no new API endpoint needed —
 this rides entirely on the `mappings` column and endpoint every finding
 already has.
+
+## A GitHub-native inbound webhook for workflow triggers
+
+`docs/workflows.md`'s own "What is not built" section named this
+plainly: the inbound webhook (pentest-module Phase 8) only ever accepted
+this platform's own minimal, HMAC-signed shape, so pointing a GitHub
+repository's webhook settings straight at it required a custom CI step
+to translate GitHub's payload first. GitHub is also the only VCS
+provider this platform posts check runs back to
+(`app/core/vcs/github.py`), so closing this makes the loop — GitHub event
+→ workflow trigger → scan → check run posted back to the same
+repository — complete with zero glue code for the one provider that
+exists today.
+
+**Delivered.** `POST /api/v1/webhooks/github/workflows/{id}`, a second
+receiver alongside the existing one, sharing the one secret
+`POST .../webhook-secret` already issues. `app/core/integrations/
+github_signing.py` verifies GitHub's own `X-Hub-Signature-256` scheme
+(`sha256=<hex>` over the raw body — no timestamp, unlike this platform's
+own `signing.py`). `push` and `pull_request` (only the
+`opened`/`synchronize`/`reopened` actions) events map onto the same
+`InboundWebhookTrigger` shape and the exact same
+`trigger_from`/`start_and_maybe_pause`/`finish` pipeline the native route
+already calls — refactored out of the original handler into a shared
+`_trigger_and_respond` helper so both routes call one implementation,
+not two that could drift. `ping` and any other GitHub event type a
+repository happens to also be subscribed to are accepted (202) and
+trigger nothing, rather than GitHub ever seeing a failed delivery for an
+event this route has nothing to do with.
+
+**Decisions.**
+
+- **Verified the egress/scope boundary was never in play before
+  designing anything**, because this platform's outbound VCS calls
+  (`app/core/vcs/egress.py`) deliberately refuse `PATCH`/`PUT`/`DELETE` —
+  an earlier candidate for this session's "next gap" (updating a check
+  run on republish, to avoid posting a duplicate for the same head SHA)
+  touches exactly that boundary and was set aside for a dedicated pass
+  rather than folded in here. This feature is the opposite direction —
+  inbound, a brand-new receiver — and shares no code or trust boundary
+  with that one at all; confirmed before writing anything; so it carries
+  none of that risk.
+- **Replay protection could not just reuse the native route's reasoning
+  unchanged, and the module docstring now says why.**
+  `replay_guard.py`'s existing TTL is safe to let expire specifically
+  *because* a stale replay independently fails `signing.py`'s own
+  timestamp check first — GitHub's scheme has no timestamp, so that
+  backstop does not exist here. `WebhookReplayGuard.mark_seen_or_raise`
+  gained an optional `ttl_seconds` parameter (default unchanged, so the
+  native route's behaviour is identical to before) and the GitHub route
+  passes a 24-hour window keyed on `X-GitHub-Delivery` instead of the
+  signature — long enough to cover GitHub's own redelivery attempts,
+  stated plainly as a bounded-but-not-airtight window rather than implying
+  it is as strong as the native route's.
+- **`pull_request` action filtering is deliberate, not an oversight.**
+  GitHub sends this event for every action on a pull request — label
+  changes, review requests, assignment — not only code changes. Only
+  `opened`/`synchronize`/`reopened` represent new or changed code; the
+  rest are accepted (so a webhook an operator configured broadly never
+  shows a failed delivery in GitHub's UI) but trigger nothing, mirroring
+  a deliberate choice rather than a narrower one made by accident.
+- **No new schema, no new secret, no new enable flag.** Both routes read
+  the same `Workflow.webhook_enabled`/`webhook_secret_encrypted` columns;
+  an operator picks whichever URL matches where the delivery is coming
+  from, and enabling one does not imply or require the other.
+
+**Deferred, stated plainly.** GitLab, Bitbucket and Azure DevOps webhook
+shapes — each needs its own signature scheme and payload mapping, and
+only GitHub has a provider to post results back to today. Updating a
+check run in place on republish for the same head SHA (another named gap,
+`docs/pull-requests.md`) — set aside deliberately, since it would require
+loosening the outbound VCS egress context's deliberate `PATCH` refusal
+with path-level precision, a change that deserves its own dedicated,
+careful pass rather than riding in on an unrelated feature.
+
+**Verified.** `ruff check .` and `mypy app kervy_cli` clean. New
+`tests/test_workflow_automation.py` tests (14): missing delivery/event
+headers; unknown or disabled workflow; bad signature; `ping` triggers
+nothing; a `push` triggers `repository_change`; a branch-deletion push
+triggers nothing; `pull_request` `opened` triggers a `pull_request` run
+with the right `pull_number`; `labeled`/`assigned`/`closed`/
+`review_requested` actions are each a no-op; an unrecognised event type
+(`issues`) is a no-op; a replayed delivery id is refused (409); a
+native-scheme signature does not authenticate the GitHub route and a
+GitHub-scheme signature does not authenticate the native route, even
+against the same stored secret. All 21 pre-existing tests in the same
+file re-run unchanged and still pass, confirming the shared-helper
+refactor did not alter the native route's behaviour. Full backend suite
+re-run to confirm nothing else broke. Confirmed no `pyproject.toml`/
+`uv.lock` change, no Alembic migration, and no change to the outbound
+VCS egress/scope boundary — this is a new inbound receiver only.
