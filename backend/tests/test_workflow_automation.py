@@ -15,6 +15,8 @@ file concentrates on what is new:
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import time
 import uuid
@@ -27,7 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.core.csrf import anon as csrf_anon
 from app.core.csrf.enforce import HEADER_NAME
-from app.core.integrations import signing
+from app.core.integrations import github_signing, signing
 from app.core.probes.models import Category, Confidence, Severity
 from app.core.runs import service as runs_service
 from app.core.workflow.contract import WorkflowStatus
@@ -716,3 +718,316 @@ async def test_one_workflows_secret_does_not_verify_anothers_webhook(
 
     response = await _post_webhook(client, workflow_b, body, _signed_headers(secret_a, body))
     assert response.status_code == 401
+
+
+# --- the GitHub-native inbound webhook --------------------------------------
+
+
+def _github_headers(
+    secret: str, body: bytes, *, event: str = "push", delivery: str | None = None
+) -> dict[str, str]:
+    digest = hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
+    return {
+        github_signing.SIGNATURE_HEADER: f"sha256={digest}",
+        github_signing.EVENT_HEADER: event,
+        github_signing.DELIVERY_HEADER: delivery or str(uuid.uuid4()),
+    }
+
+
+async def _post_github_webhook(
+    client: AsyncClient, workflow_id: str, body: bytes, headers: dict[str, str]
+) -> object:
+    # Same reasoning as `_post_webhook`: a real sender carries no session
+    # cookie, so clear the one `_setup`'s own registration call left behind.
+    client.cookies.clear()
+    return await client.post(
+        f"/api/v1/webhooks/github/workflows/{workflow_id}", content=body, headers=headers
+    )
+
+
+_PUSH_BODY = json.dumps(
+    {"ref": "refs/heads/main", "after": "b" * 40, "deleted": False}
+).encode("utf-8")
+
+
+async def test_github_webhook_requires_delivery_and_event_headers(
+    client: AsyncClient, strong_password: str
+) -> None:
+    org_id, target_id, headers = await _setup(client, strong_password, "u")
+    workflow_id = (
+        await client.post(
+            f"/api/v1/organizations/{org_id}/workflows",
+            json={"name": "gh-headers", "target_id": target_id},
+            headers=headers,
+        )
+    ).json()["id"]
+
+    response = await _post_github_webhook(client, workflow_id, _PUSH_BODY, {})
+    assert response.status_code == 400
+
+
+async def test_github_webhook_rejects_an_unknown_or_disabled_workflow(
+    client: AsyncClient, strong_password: str
+) -> None:
+    org_id, target_id, headers = await _setup(client, strong_password, "v")
+    workflow_id = (
+        await client.post(
+            f"/api/v1/organizations/{org_id}/workflows",
+            json={"name": "gh-not-enabled", "target_id": target_id},
+            headers=headers,
+        )
+    ).json()["id"]
+
+    response = await _post_github_webhook(
+        client, workflow_id, _PUSH_BODY, _github_headers("no-such-secret", _PUSH_BODY)
+    )
+    assert response.status_code == 404
+
+
+async def test_github_webhook_rejects_a_bad_signature(
+    client: AsyncClient, strong_password: str
+) -> None:
+    org_id, target_id, headers = await _setup(client, strong_password, "w")
+    workflow_id = (
+        await client.post(
+            f"/api/v1/organizations/{org_id}/workflows",
+            json={"name": "gh-bad-sig", "target_id": target_id},
+            headers=headers,
+        )
+    ).json()["id"]
+    await _enable_webhook(client, org_id, workflow_id, headers)
+
+    response = await _post_github_webhook(
+        client, workflow_id, _PUSH_BODY, _github_headers("wrong-secret", _PUSH_BODY)
+    )
+    assert response.status_code == 401
+
+
+async def test_github_webhook_ping_is_accepted_but_triggers_nothing(
+    client: AsyncClient, strong_password: str
+) -> None:
+    org_id, target_id, headers = await _setup(client, strong_password, "x")
+    workflow_id = (
+        await client.post(
+            f"/api/v1/organizations/{org_id}/workflows",
+            json={"name": "gh-ping", "target_id": target_id},
+            headers=headers,
+        )
+    ).json()["id"]
+    secret, _url = await _enable_webhook(client, org_id, workflow_id, headers)
+    body = json.dumps({"zen": "Responsive is better than fast."}).encode("utf-8")
+
+    response = await _post_github_webhook(
+        client, workflow_id, body, _github_headers(secret, body, event="ping")
+    )
+    assert response.status_code == 202
+    assert response.json()["status"] == "ignored"
+
+    runs = (
+        await client.get(
+            f"/api/v1/organizations/{org_id}/workflows/{workflow_id}/runs", headers=headers
+        )
+    ).json()
+    assert runs == []
+
+
+async def test_github_webhook_a_push_triggers_a_repository_change(
+    client: AsyncClient, strong_password: str
+) -> None:
+    org_id, target_id, headers = await _setup(client, strong_password, "y")
+    workflow_id = (
+        await client.post(
+            f"/api/v1/organizations/{org_id}/workflows",
+            json={"name": "gh-push", "target_id": target_id},
+            headers=headers,
+        )
+    ).json()["id"]
+    secret, _url = await _enable_webhook(client, org_id, workflow_id, headers)
+
+    response = await _post_github_webhook(
+        client, workflow_id, _PUSH_BODY, _github_headers(secret, _PUSH_BODY)
+    )
+    assert response.status_code == 202, response.text
+
+    runs = (
+        await client.get(
+            f"/api/v1/organizations/{org_id}/workflows/{workflow_id}/runs", headers=headers
+        )
+    ).json()
+    assert len(runs) == 1
+    assert runs[0]["trigger"]["kind"] == "repository_change"
+    assert runs[0]["trigger"]["unattended"] is True
+    assert runs[0]["trigger"]["actor"] == f"webhook:github:{workflow_id}"
+
+
+async def test_github_webhook_a_branch_deletion_push_triggers_nothing(
+    client: AsyncClient, strong_password: str
+) -> None:
+    org_id, target_id, headers = await _setup(client, strong_password, "z")
+    workflow_id = (
+        await client.post(
+            f"/api/v1/organizations/{org_id}/workflows",
+            json={"name": "gh-delete", "target_id": target_id},
+            headers=headers,
+        )
+    ).json()["id"]
+    secret, _url = await _enable_webhook(client, org_id, workflow_id, headers)
+    body = json.dumps(
+        {"ref": "refs/heads/gone", "after": "0" * 40, "deleted": True}
+    ).encode("utf-8")
+
+    response = await _post_github_webhook(
+        client, workflow_id, body, _github_headers(secret, body)
+    )
+    assert response.status_code == 202
+    assert response.json()["status"] == "ignored"
+
+    runs = (
+        await client.get(
+            f"/api/v1/organizations/{org_id}/workflows/{workflow_id}/runs", headers=headers
+        )
+    ).json()
+    assert runs == []
+
+
+async def test_github_webhook_pull_request_opened_triggers_a_pull_request_run(
+    client: AsyncClient, strong_password: str
+) -> None:
+    org_id, target_id, headers = await _setup(client, strong_password, "aa")
+    workflow_id = (
+        await client.post(
+            f"/api/v1/organizations/{org_id}/workflows",
+            json={"name": "gh-pr-opened", "target_id": target_id},
+            headers=headers,
+        )
+    ).json()["id"]
+    secret, _url = await _enable_webhook(client, org_id, workflow_id, headers)
+    body = json.dumps(
+        {
+            "action": "opened",
+            "pull_request": {
+                "number": 42,
+                "head": {"ref": "feature/x", "sha": "c" * 40},
+            },
+        }
+    ).encode("utf-8")
+
+    response = await _post_github_webhook(
+        client, workflow_id, body, _github_headers(secret, body, event="pull_request")
+    )
+    assert response.status_code == 202, response.text
+
+    runs = (
+        await client.get(
+            f"/api/v1/organizations/{org_id}/workflows/{workflow_id}/runs", headers=headers
+        )
+    ).json()
+    assert len(runs) == 1
+    assert runs[0]["trigger"]["kind"] == "pull_request"
+    assert runs[0]["trigger"]["pull_number"] == 42
+
+
+@pytest.mark.parametrize("action", ["labeled", "assigned", "closed", "review_requested"])
+async def test_github_webhook_a_non_triggering_pull_request_action_is_a_noop(
+    client: AsyncClient, strong_password: str, action: str
+) -> None:
+    org_id, target_id, headers = await _setup(client, strong_password, f"ab{action}")
+    workflow_id = (
+        await client.post(
+            f"/api/v1/organizations/{org_id}/workflows",
+            json={"name": f"gh-pr-{action}", "target_id": target_id},
+            headers=headers,
+        )
+    ).json()["id"]
+    secret, _url = await _enable_webhook(client, org_id, workflow_id, headers)
+    body = json.dumps(
+        {
+            "action": action,
+            "pull_request": {"number": 1, "head": {"ref": "x", "sha": "d" * 40}},
+        }
+    ).encode("utf-8")
+
+    response = await _post_github_webhook(
+        client, workflow_id, body, _github_headers(secret, body, event="pull_request")
+    )
+    assert response.status_code == 202
+    assert response.json()["status"] == "ignored"
+
+    runs = (
+        await client.get(
+            f"/api/v1/organizations/{org_id}/workflows/{workflow_id}/runs", headers=headers
+        )
+    ).json()
+    assert runs == []
+
+
+async def test_github_webhook_an_unrecognised_event_is_a_noop_not_an_error(
+    client: AsyncClient, strong_password: str
+) -> None:
+    org_id, target_id, headers = await _setup(client, strong_password, "ac")
+    workflow_id = (
+        await client.post(
+            f"/api/v1/organizations/{org_id}/workflows",
+            json={"name": "gh-issues", "target_id": target_id},
+            headers=headers,
+        )
+    ).json()["id"]
+    secret, _url = await _enable_webhook(client, org_id, workflow_id, headers)
+    body = json.dumps({"action": "opened", "issue": {"number": 1}}).encode("utf-8")
+
+    response = await _post_github_webhook(
+        client, workflow_id, body, _github_headers(secret, body, event="issues")
+    )
+    assert response.status_code == 202
+    assert response.json()["status"] == "ignored"
+
+
+async def test_github_webhook_rejects_a_replayed_delivery(
+    client: AsyncClient, strong_password: str
+) -> None:
+    org_id, target_id, headers = await _setup(client, strong_password, "ad")
+    workflow_id = (
+        await client.post(
+            f"/api/v1/organizations/{org_id}/workflows",
+            json={"name": "gh-replay", "target_id": target_id},
+            headers=headers,
+        )
+    ).json()["id"]
+    secret, _url = await _enable_webhook(client, org_id, workflow_id, headers)
+    signed = _github_headers(secret, _PUSH_BODY)
+
+    first = await _post_github_webhook(client, workflow_id, _PUSH_BODY, signed)
+    assert first.status_code == 202, first.text
+
+    second = await _post_github_webhook(client, workflow_id, _PUSH_BODY, signed)
+    assert second.status_code == 409
+
+
+async def test_a_github_secret_does_not_verify_the_native_webhook_and_vice_versa(
+    client: AsyncClient, strong_password: str
+) -> None:
+    """Both routes read the same stored secret, but each must still only
+    accept its own signature scheme — a correctly-signed-for-the-other-route
+    delivery is not a valid delivery here."""
+    org_id, target_id, headers = await _setup(client, strong_password, "ae")
+    workflow_id = (
+        await client.post(
+            f"/api/v1/organizations/{org_id}/workflows",
+            json={"name": "gh-cross-scheme", "target_id": target_id},
+            headers=headers,
+        )
+    ).json()["id"]
+    secret, _url = await _enable_webhook(client, org_id, workflow_id, headers)
+
+    native_signed_for_github = await _post_github_webhook(
+        client, workflow_id, _PUSH_BODY, _signed_headers(secret, _PUSH_BODY)
+    )
+    assert native_signed_for_github.status_code in (400, 401)
+
+    github_signed_for_native = await _post_webhook(
+        client,
+        workflow_id,
+        _PUSH_BODY,
+        _github_headers(secret, _PUSH_BODY),
+    )
+    assert github_signed_for_native.status_code == 401
