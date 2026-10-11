@@ -7,23 +7,32 @@ platform does.
 
 ## What this layer can and cannot do
 
-**Can:** read a pull request's changed files, create a check run, post a
-`COMMENT` review.
+**Can:** read a pull request's changed files, create a check run, update a
+check run this platform already created, post a `COMMENT` review.
 
-**Cannot:** push a commit, open or merge a pull request, update a branch
-reference, write or delete a file, approve a review, or request changes.
+**Cannot:** push a commit, open, merge or edit a pull request itself (close it,
+change its title, body, state or base branch — all a `PATCH` on a different
+resource), update a branch reference, write or delete a file, approve a
+review, or request changes.
 
 That is not a list of things we chose not to build and might add. It is
 enforced three ways:
 
 1. **There is no method for it.** `GitHubClient` exposes exactly
-   `pull_request_files`, `create_check_run` and `post_review`.
+   `pull_request_files`, `create_check_run`, `update_check_run` and
+   `post_review` — nothing that merges, pushes, or edits the pull request
+   resource itself.
 2. **A static test pins that.** `tests/security/test_scope_controls.py` greps
-   `app/core/vcs` for `PUT`/`PATCH`/`DELETE` and for the `/merges`,
-   `/git/refs`, `/git/commits` and `/contents` endpoints, and fails if any
-   appears. It was verified against a planted violation.
-3. **The scope engine refuses the verbs.** The egress context allows `GET` and
-   `POST` only, so a call added in future is refused before it leaves the
+   `app/core/vcs` for `PUT`/`DELETE` and for the `/merges`, `/git/refs`,
+   `/git/commits` and `/contents` endpoints, and fails if any appears. The one
+   `PATCH` the module makes is required to carry `check-runs` within a few
+   lines of it, so a `PATCH` added against any other resource fails the same
+   test. It was verified against a planted violation.
+3. **The scope engine refuses everything else.** The egress context allows
+   `GET` and `POST` on the host generally, and `PATCH` only against the exact,
+   pre-computed check-run path this one publish may update — never a
+   wildcard, and never the pull request resource itself (see "Egress" below).
+   A call added in future that does not match is refused before it leaves the
    process rather than relying on review to catch it.
 
 An "autofix" that pushes a commit to a customer's repository stays out of
@@ -44,6 +53,19 @@ caller can widen it:
 * `allowed_ip_ranges` is empty, so sanctioning a host does **not** sanction an
   internal address behind it. A self-hosted instance on RFC1918 is a deliberate
   widening of the rules of engagement, not something this context grants quietly.
+* `PATCH` is admitted only together with an exact-path allowlist, never a
+  wildcard. A pattern like `/repos/{owner}/{repo}/pulls/*` would have covered
+  both of today's `pulls`-rooted `GET`/`POST` calls in one entry, but it would
+  *also* match GitHub's own `PATCH /repos/{owner}/{repo}/pulls/{number}` —
+  the endpoint for editing a pull request's title, body, state or base
+  branch. So every path is instead the complete, exact string a real call
+  constructs: `.../check-runs` for creating one, and `.../check-runs/{id}`
+  for updating it, with `{id}` only ever the one this exact publish already
+  created for this exact head SHA (`app/core/vcs/service.py`'s own lookup,
+  below) — never present, and `PATCH` therefore never reachable at all, on a
+  first publish. The GitHub Enterprise `/api/v3` prefix is derived from the
+  connection's own `Destination` rather than hardcoded, so this stays correct
+  for a self-hosted host too.
 
 ## Credentials
 
@@ -81,6 +103,18 @@ code, a finding with no line, an HTTP surface like `GET /orders/{id}` that is
 not a file, or an overflow past GitHub's 50-annotation cap — moves into the check
 run's body, where a reviewer still sees it. Both counts are recorded, so
 "12 of 30 annotated" is a fact rather than something to infer.
+
+**Publishing twice for the same commit updates the check run instead of
+duplicating it.** Before posting, `publish()` looks up whether this exact
+`(connection, repo, pull request, head SHA)` already has a check run from a
+prior, successful publish — the most recent one, if there is more than one —
+and `PATCH`es that run rather than `POST`ing a second. A new commit on the
+same pull request has nothing yet to update, so it still creates one, the
+same as a first publish ever did. The update omits annotations: GitHub's real
+behavior on a repeated annotation submission to the same check run (does it
+accumulate or replace?) could not be verified against a live repository
+before shipping, so the safer, explicitly scoped choice is to send none on an
+update rather than guess — the summary and conclusion are still refreshed.
 
 **New findings are separated from pre-existing ones.** A pull request touching
 one file is not presented as having introduced eighty issues the repository
@@ -139,9 +173,6 @@ exists to prevent.
   bolted on.
 * **No GitLab, Bitbucket or Azure DevOps.** The contract is provider-shaped, so
   adding one is an adapter, but only GitHub exists today.
-* **No re-posting or de-duplication.** Publishing twice for the same head SHA
-  creates two check runs. The post history records both; nothing updates the
-  first.
 * **No review comments in addition to annotations.** `post_review` exists and is
   tested, but `publish` uses the check run alone: two writes mean two chances to
   half-succeed, and a review comment on a line the check run already annotated

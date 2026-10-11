@@ -134,6 +134,36 @@ def destination_for(
     )
 
 
+async def _existing_check_run_id(
+    db: AsyncSession,
+    *,
+    connection_id: uuid.UUID,
+    repo: RepoRef,
+    pull_number: int,
+    head_sha: str,
+) -> int | None:
+    """The check run a prior, successful publish already created for this
+    exact `(connection, repo, pull_number, head_sha)`, if any — `None` for
+    a commit this connection has never published for, or whose only prior
+    attempts all failed before a check run existed (`check_run_id` is only
+    ever set once `create_check_run`/`update_check_run` actually returns
+    one). The most recent such post wins, in the ordinary case where there
+    is exactly one."""
+    result = await db.execute(
+        select(PullRequestPost.check_run_id)
+        .where(
+            PullRequestPost.connection_id == connection_id,
+            PullRequestPost.repo_slug == repo.slug,
+            PullRequestPost.pull_number == pull_number,
+            PullRequestPost.head_sha == head_sha,
+            PullRequestPost.check_run_id.is_not(None),
+        )
+        .order_by(PullRequestPost.created_at.desc())
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
+
+
 async def publish(
     db: AsyncSession,
     connection: VcsConnection,
@@ -148,10 +178,23 @@ async def publish(
     environ: Mapping[str, str] | None = None,
     client: GitHubClient | None = None,
 ) -> tuple[PullRequestPost, PostOutcome]:
-    """Post one check run, record it, and audit it."""
+    """Post one check run, record it, and audit it.
+
+    A **second** publish for the same `(connection, repo, pull_number,
+    head_sha)` updates the check run the first one created rather than
+    posting a duplicate — looked up before this call's own audit row
+    exists, so that row is never mistaken for a prior one. See
+    `app/core/vcs/egress.py`'s own docstring for why the `check_run_id`
+    found here, not a wildcard, is what makes `PATCH` to that one resource
+    reachable at all for this call and no other.
+    """
     app_settings = settings or get_settings()
     publishables = [publishable(finding, run_id) for finding in findings]
     decision: GateDecision = evaluate(gate_findings(publishables), config or DEFAULT_GATE)
+
+    existing_check_run_id = await _existing_check_run_id(
+        db, connection_id=connection.id, repo=repo, pull_number=pull_number, head_sha=head_sha
+    )
 
     post = PullRequestPost(
         organization_id=connection.organization_id,
@@ -171,7 +214,9 @@ async def publish(
     try:
         destination = destination_for(connection, settings=app_settings, environ=environ)
         api = client or GitHubClient(destination)
-        ctx = vcs_egress_context(destination)
+        ctx = vcs_egress_context(
+            destination, repo, pull_number, check_run_id=existing_check_run_id
+        )
         pull = PullRequestRef(repo=repo, number=pull_number, head_sha=head_sha)
 
         # Before deciding what to say: where can it be said?
@@ -187,7 +232,11 @@ async def publish(
                 else None
             ),
         )
-        outcome = await api.create_check_run(ctx, repo, request)
+        outcome = (
+            await api.update_check_run(ctx, repo, existing_check_run_id, request)
+            if existing_check_run_id is not None
+            else await api.create_check_run(ctx, repo, request)
+        )
         post.conclusion = request.conclusion.value
         post.check_run_id = outcome.check_run_id
         post.check_run_url = outcome.check_run_url

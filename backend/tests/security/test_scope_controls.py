@@ -584,32 +584,53 @@ def test_smtplib_is_used_in_exactly_one_sanctioned_module() -> None:
 
 
 def test_the_code_host_client_cannot_write_to_a_repository() -> None:
-    """`app/core/vcs` reads a pull request and posts a check run. It must never
-    merge, push, update a ref or write a file — and the point of pinning it
-    statically is that a future contributor adding such a call has to delete
-    this test to do it, rather than slipping past review."""
+    """`app/core/vcs` reads a pull request, creates or updates a check run,
+    and posts a review comment. It must never merge, push, update a ref or
+    write a file — and the point of pinning it statically is that a future
+    contributor adding such a call has to delete or rewrite this test to do
+    it, rather than slipping past review.
+
+    `PATCH` alone is no longer blanket-forbidden — `update_check_run`
+    legitimately uses it — so this checks the narrower, still-absolute
+    thing: every `PATCH` call in this package targets a `check-runs` path,
+    checked line-by-line rather than by the mere presence of the word
+    "PATCH" anywhere in the file, which the egress context's own
+    exact-path allowlist (`egress.py`) is what actually enforces at
+    runtime; this is the static belt alongside that brace.
+    """
     import pathlib
     import re
 
     vcs_root = pathlib.Path(__file__).resolve().parents[2] / "app" / "core" / "vcs"
-    # The HTTP verbs GitHub uses for those operations, as this codebase spells
-    # them when calling the transport.
-    forbidden = re.compile(r'method\s*=\s*"(PUT|PATCH|DELETE)"')
+    forbidden_verb = re.compile(r'method\s*=\s*"(PUT|DELETE)"')
+    patch_verb = re.compile(r'method\s*=\s*"PATCH"')
     paths = re.compile(r'"/repos/[^"]*/(merges|git/refs|git/commits|contents)')
 
     offenders = []
     for path in vcs_root.rglob("*.py"):
         text = path.read_text(encoding="utf-8")
-        if forbidden.search(text) or paths.search(text):
+        if forbidden_verb.search(text) or paths.search(text):
             offenders.append(str(path))
+            continue
+        lines = text.splitlines()
+        for index, line in enumerate(lines):
+            if patch_verb.search(line) and "check-runs" not in "\n".join(
+                lines[index : index + 3]
+            ):
+                offenders.append(str(path))
+                break
 
     assert offenders == [], f"Found repository-write calls in app/core/vcs: {offenders}"
 
 
-def test_the_code_host_egress_context_permits_only_read_and_create() -> None:
+def test_the_code_host_egress_context_never_permits_a_merge_or_a_push() -> None:
     """The static check above is belt; this is braces. Even if such a call were
-    added, the scope engine would refuse its verb."""
-    from app.core.vcs.contract import Destination, VcsProvider
+    added, the scope engine would refuse its verb — `PUT` and `DELETE`
+    (merge, delete-a-file) are never in the allowed set at all, and `PATCH`
+    is admitted only together with an exact-path allowlist narrow enough to
+    exclude the pull request resource itself (`egress.py`'s own docstring),
+    never host-wide."""
+    from app.core.vcs.contract import Destination, RepoRef, VcsProvider
     from app.core.vcs.egress import vcs_egress_context
 
     ctx = vcs_egress_context(
@@ -617,9 +638,14 @@ def test_the_code_host_egress_context_permits_only_read_and_create() -> None:
             provider=VcsProvider.GITHUB,
             host="api.github.com",
             api_base="https://api.github.com",
-        )
+        ),
+        RepoRef("o", "r"),
+        1,
     )
-    assert set(ctx.roe.allowed_methods) == {"GET", "POST"}
+    assert set(ctx.roe.allowed_methods) == {"GET", "POST", "PATCH"}
+    assert "PUT" not in ctx.roe.allowed_methods
+    assert "DELETE" not in ctx.roe.allowed_methods
+    assert ctx.roe.allowed_paths  # PATCH's narrowing has teeth only if this is non-empty
     assert ctx.roe.allowed_domains == ("api.github.com",)
     assert ctx.roe.allowed_ip_ranges == ()
 

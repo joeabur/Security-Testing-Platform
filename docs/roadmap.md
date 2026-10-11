@@ -7776,3 +7776,89 @@ refactor did not alter the native route's behaviour. Full backend suite
 re-run to confirm nothing else broke. Confirmed no `pyproject.toml`/
 `uv.lock` change, no Alembic migration, and no change to the outbound
 VCS egress/scope boundary — this is a new inbound receiver only.
+
+## Republishing to a pull request updates its check run instead of duplicating it
+
+The previous item set this one aside deliberately rather than folding it
+in: `docs/pull-requests.md`'s own "What is not built" section named it
+plainly — publishing twice for the same head SHA created two check runs,
+and nothing updated the first. It deserved its own careful pass because
+it touches the one deliberate refusal in `app/core/vcs/egress.py`:
+`PATCH`, `PUT` and `DELETE` are all refused outright, so widening it
+needed to not become a way to reach GitHub's real `PATCH
+/repos/{owner}/{repo}/pulls/{number}` — the endpoint that edits, closes
+or re-bases a pull request — by accident.
+
+**Delivered.** `GitHubClient.update_check_run()`, a fourth client
+method alongside the three that already existed, calling `PATCH
+/repos/{owner}/{repo}/check-runs/{id}`. `app/core/vcs/service.py::publish()`
+now looks up, before creating its own audit row, whether this exact
+`(connection, repo, pull request, head SHA)` already has a check run
+from a prior successful publish (`_existing_check_run_id()`, most recent
+wins) and `PATCH`es that run instead of `POST`ing a second one; a new
+head SHA still creates one, same as before. `CheckRunRequest
+.as_update_payload()` sends everything `as_payload()` does except
+`output.annotations`.
+
+**Decisions.**
+
+- **Exact paths, never a wildcard, and said why in the code.**
+  `vcs_egress_context()` gained a `check_run_id` parameter: when set (an
+  update), the allowlist gains exactly `.../check-runs/{check_run_id}`;
+  when absent (a first publish), `PATCH` has no legitimate target in the
+  allowlist at all. A pattern like `/repos/{owner}/{repo}/pulls/*` would
+  have covered today's two `pulls`-rooted calls (`.../files`,
+  `.../reviews`) in one entry, but `path_matches()`
+  (`app/core/scope/hostmatch.py`) only supports a trailing `/*` prefix
+  match — so that same pattern would *also* match the bare
+  `.../pulls/{number}` edit/close endpoint. Widening `PATCH` reachability
+  and then accidentally also reaching the pull request resource itself
+  would have been a far worse regression than the one this closes, so
+  the wildcard was never used; every path is the complete, exact string a
+  real call constructs, and `egress.py`'s own docstring states this
+  reasoning rather than leaving it to be rediscovered later.
+- **The GitHub Enterprise `/api/v3` prefix is derived, not hardcoded.**
+  `destination.api_base` already carries that prefix for an Enterprise
+  connection and has no path component at all for github.com
+  (`policy.py::resolve_destination`); `urlsplit(destination.api_base)
+  .path` is read once when building the allowlist rather than assuming
+  `/repos/...` is the whole path for every provider. Caught by reasoning
+  about `Destination`'s construction before any test did, and pinned by
+  a regression test (`test_an_enterprise_hosts_api_v3_prefix_is_part
+  _of_the_allowed_path`) so it stays caught.
+- **The update omits annotations, stated as a scope limit, not a
+  guess.** Whether GitHub accumulates or replaces `output.annotations`
+  on a repeated submission to the same check run could not be verified
+  against a live repository in this environment. Rather than guess in
+  either direction — risking either silently duplicated annotations or
+  silently dropped ones — `as_update_payload()` sends none; the summary
+  and conclusion, which are unambiguously replace-in-place by GitHub's
+  own documented behaviour, are still refreshed. `docs/pull-requests.md`
+  states this as a deliberate, narrow scope limit.
+- **The lookup runs before this publish's own `PullRequestPost` row is
+  created**, so a call never matches its own not-yet-posted audit row as
+  a prior post. "Most recent wins" when more than one prior post exists
+  for the same SHA (normally there is at most one); a post whose every
+  attempt failed before GitHub ever answered has no `check_run_id` set
+  and is correctly never matched.
+
+**Deferred.** Nothing new — this closes exactly the gap
+`docs/pull-requests.md` already named, with no new scope opened.
+
+**Verified.** `ruff check .` and `mypy app kervy_cli` clean. New tests in
+`tests/test_vcs_api.py` drive `app.core.vcs.service.publish()` directly
+with a fake `GitHubClient` (the HTTP route has no way to inject one):
+republishing for the same head SHA sends one `GET` then one `PATCH` to
+the exact check-run path the first publish created, never a second
+`POST`; republishing for a different head SHA still creates a fresh
+check run; `_existing_check_run_id()` is covered directly — it ignores a
+different head SHA, ignores a post whose `check_run_id` was never set,
+and picks the most recent match when more than one prior post exists for
+the same SHA. `tests/test_vcs.py` and `tests/security/
+test_scope_controls.py` updated for the new egress signature and the new
+client method, including a dedicated test that `PATCH` is refused
+against the pull request resource itself, against a check run this
+context did not name, and entirely when no check run id is known at
+all — and permitted only against the one named check run. Full backend
+suite re-run to confirm nothing else broke. Confirmed no
+`pyproject.toml`/`uv.lock` change and no Alembic migration.
