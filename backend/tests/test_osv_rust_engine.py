@@ -69,3 +69,30 @@ async def test_a_matched_vulnerability_becomes_a_finding(tmp_path: Path) -> None
     assert "ecosystem: crates.io" in finding.reproduction[0]
     assert finding.severity is Severity.MEDIUM
     assert "Reachability was not assessed" in finding.impact
+
+
+async def test_reachability_evidence_decorates_the_finding_when_a_workspace_has_rust_source(
+    tmp_path: Path,
+) -> None:
+    """A `Workspace` with Rust source lets this engine replace the
+    generic disclaimer with concrete import evidence from
+    `rust_imports.py`."""
+    workspace_scope = CodeScope(allowed_paths=("Cargo.lock", "*.rs"))
+    (tmp_path / "Cargo.lock").write_text(_CARGO_LOCK, encoding="utf-8")
+    (tmp_path / "main.rs").write_text(
+        "use serde::Deserialize;\nserde::Deserialize::deserialize(x);\n"
+    )
+    workspace = resolve_workspace(tmp_path, workspace_scope)
+
+    query = PackageQuery(name="serde", version="1.0.195", ecosystem="crates.io")
+    client = _FakeClient(
+        vulnerable={query: ("GHSA-vwqx-pm7j-mmm3",)},
+        details={"GHSA-vwqx-pm7j-mmm3": {"aliases": ["CVE-2024-99992"]}},
+    )
+
+    results = await OsvRustEngine(allow_advisory_lookup=True, client=client).run(workspace)
+
+    assert len(results) == 1
+    assert "Statically imported" in results[0].impact
+    assert "main.rs:1" in results[0].impact
+    assert "Reachability was not assessed" not in results[0].impact

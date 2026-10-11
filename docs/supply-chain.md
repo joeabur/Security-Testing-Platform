@@ -176,13 +176,17 @@ Recorded rather than half-built:
 * **The malware table is not a live feed.** 50 entries demonstrate the
   mechanism; they are not current coverage. See "Known-malicious packages"
   above.
-* **No *call-graph-level* reachability analysis.** A vulnerable Python or
-  npm/JS package being imported, or even called somewhere in the same
-  file, does not establish that the *specific vulnerable function* is the
-  one reached — every finding says so (`app/core/appsec/reachability/
-  python_imports.py` and `js_imports.py` each check import and
-  symbol-usage, not call-graph; Go/Rust/Java have no reachability check
-  at all).
+* **No *call-graph-level* reachability analysis.** A vulnerable Python,
+  npm/JS, Go, or Rust package being imported, or even called somewhere in
+  the same file, does not establish that the *specific vulnerable
+  function* is the one reached — every finding says so
+  (`app/core/appsec/reachability/python_imports.py`, `js_imports.py`,
+  `go_imports.py`, and `rust_imports.py` each check import and
+  symbol-usage, not call-graph). **Java has no reachability check at
+  all, by deliberate decision**: a Maven `artifactId` has no derivable
+  relationship to the Java package(s) it produces, unlike Go's
+  import-path or Rust's deterministic hyphen-to-underscore crate-name
+  mapping, so there is nothing to build the same kind of check on.
 * **A floating base image tag is not reported.** `FROM python:latest` and a
   digest-only pin declare no version, so there is nothing to compare against a
   support schedule and the EOL engine skips them. An unpinned base image is a

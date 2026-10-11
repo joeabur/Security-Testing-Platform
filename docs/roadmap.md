@@ -7105,3 +7105,83 @@ confirming the `shapes.py` extraction broke nothing in the Python path.
 Full backend suite re-run to confirm nothing else broke. Confirmed no
 `pyproject.toml`/`uv.lock` change was needed — no new dependency, the
 whole point of the regex approach.
+
+## Reachability analysis (import-level, Go/Rust)
+
+`docs/competitive-gap-analysis.md` item 21 named the open remainder:
+reachability for Go, Rust, and Java. `OsvGoEngine`/`OsvRustEngine`/
+`OsvJavaEngine` (`app/core/appsec/osv/engine.py`) all used the base
+`_OsvEngineBase._reachability_impact`'s `None` default — no reachability
+module understood their syntax yet. This pass closes **Go and Rust**.
+**Java is deliberately excluded, not deferred by oversight** — see
+Decisions below.
+
+**Delivered.**
+- `app/core/appsec/reachability/go_imports.py` (new): a line scanner
+  aware of Go's grouped-import-block style (`import (\n\t"fmt"\n\talias
+  "path"\n)`, not just single-line), matching a `go.sum` module path by
+  prefix the same way npm's scoped/submodule matching works. An import
+  with no explicit alias gets a best-effort bound name — the import
+  path's last segment, with a Go-modules `/vN` semantic-import-versioning
+  suffix stripped first (a defined Go modules rule, not a guess).
+- `app/core/appsec/reachability/rust_imports.py` (new): seeds every
+  file's bound-name set with the crate's own Rust path name
+  (`_rust_path_name()`, Cargo's own deterministic hyphen-to-underscore
+  mapping, confirmed from the Rust reference) — reflecting the one real
+  structural difference Rust has: a declared dependency's crate root is
+  always addressable via a fully-qualified path with no `use` statement
+  at all, so "imported" and "called" can be the same textual event here.
+- `OsvGoEngine`/`OsvRustEngine` now override `_reachability_impact()`,
+  calling their respective modules' `reachability_impact_text()`.
+  `OsvJavaEngine` keeps the base's `None` default, now with an explicit
+  comment stating why (see Decisions).
+
+**Decisions.**
+- **Java is excluded, stated as a decision, not left silent.** A Maven
+  `artifactId` has no derivable relationship to the Java package(s) it
+  produces — confirmed via research, not assumed: `com.google.guava:guava`
+  produces package `com.google.common`, not `com.google.guava`; no
+  formula connects an artifactId to a package name the way a Go import
+  path or a Rust crate name (hyphens→underscores) does. A hand-curated
+  Java mapping table, the same idiom `python_imports.py`'s
+  `_IMPORT_NAME_OVERRIDES` uses, would not be an exception list on top of
+  a working default the way Python's is — it would be the *entire*
+  mechanism, with near-zero coverage against Maven's real ecosystem size.
+  That is a qualitatively weaker foundation than Go/Rust have, so it is
+  named as a structural limitation rather than attempted and overclaimed.
+- **Go's import-path-to-package-name heuristic has a documented
+  exception class** (`gopkg.in/yaml.v3`'s real package is `yaml`, not
+  `yaml.v3` — Go's own blog names this as the best-known mismatch). The
+  *import site* is still found correctly regardless (module-path matching
+  doesn't depend on the guessed name), but the call-usage layer, which
+  has to guess the bound identifier, misses the call and degrades
+  `IMPORTED_AND_CALLED` down to plain `IMPORTED` — verified live with a
+  constructed `gopkg.in`-shaped test rather than just asserted.
+- **Rust needs no Python/Go-style name-mismatch limitation** — the
+  hyphen-to-underscore mapping is Cargo's own deterministic build rule,
+  not a heuristic, confirmed from the Rust reference before relying on it.
+- **No severity/confidence change** — same narrative-only `impact`-text
+  annotation every prior reachability pass has preserved.
+
+**Deferred, stated plainly.** Java reachability (excluded by decision,
+not a gap — see above) and true call-graph-level reachability (tracing to
+the specific vulnerable function) remain open, carried forward in
+`docs/competitive-gap-analysis.md`.
+
+**Verified.** `ruff check .` and `mypy app` clean. New
+`tests/test_reachability_go_imports.py` (12 tests: single-line and
+grouped-block imports, blank/dot-import limitations, submodule and
+`/vN`-suffix matching, the `gopkg.in`-style limitation asserted live,
+shadowing, bounded sites/call-sites) and
+`tests/test_reachability_rust_imports.py` (11 tests: hyphenated-crate
+underscore mapping, named/braced/aliased `use` imports, a fully-qualified
+call with **no** `use` statement at all, the glob-import limitation
+asserted live, shadowing, bounded sites/call-sites), plus one new
+reachability-decoration test each in `tests/test_osv_go_engine.py` and
+`tests/test_osv_rust_engine.py`. All of `tests/test_reachability_js_imports.py`,
+`tests/test_reachability_python_imports.py`, `tests/test_sca_reachability.py`,
+`tests/test_osv_engine.py`, `tests/test_osv_pypi_engine.py`, and
+`tests/test_osv_java_engine.py` re-run unchanged and still pass (100
+tests total across the ten reachability/OSV files). Full backend suite
+re-run to confirm nothing else broke. Confirmed no `pyproject.toml`/
+`uv.lock` change was needed — no new dependency for either language.

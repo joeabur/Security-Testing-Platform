@@ -34,19 +34,25 @@ overestimate what was checked. This is the single biggest way to misread a
 report from this tool.
 
 **Reachability is checked at the import and symbol-usage level only, for
-Python and npm/JS SCA findings.** A Python or npm/JS dependency can be
-confirmed statically imported, and — one step further — confirmed called
-somewhere in the same file. Neither confirms that the *specific vulnerable
-function* is the one reached: that would need real call-graph analysis
-(type resolution across module boundaries, decorators, dynamic dispatch)
-this platform does not attempt, and a vulnerable-function-level data source
-that does not exist for PyPI/OSV advisories either way. The JS/TS check is
-also regex/line-based rather than a real parse — no JS AST parser
-dependency exists in this backend — so a multi-line import statement or a
-dynamic `import()`'s binding can be missed; see
-`app/core/appsec/reachability/js_imports.py`'s own docstring. Container,
-IaC, and Go/Rust/Java SCA findings carry no reachability check at all yet.
-Every finding says plainly which of these applies to it.
+Python, npm/JS, Go, and Rust SCA findings.** A dependency in one of these
+four ecosystems can be confirmed statically imported, and — one step
+further — confirmed called somewhere in the same file. Neither confirms
+that the *specific vulnerable function* is the one reached: that would
+need real call-graph analysis (type resolution across module boundaries,
+decorators, dynamic dispatch) this platform does not attempt, and a
+vulnerable-function-level data source that does not exist for PyPI/OSV
+advisories either way. The JS/TS, Go, and Rust checks are also regex/
+line-based rather than a real parse — no parser dependency for any of
+them exists in this backend — so a multi-line statement, a dynamic
+`import()`'s binding, or (Go only) an import path whose last segment
+doesn't match the real package name can be missed; see each module's own
+docstring (`js_imports.py`, `go_imports.py`, `rust_imports.py`). **Java
+has no reachability check, by deliberate decision rather than omission**:
+a Maven `artifactId` has no derivable relationship to the Java package(s)
+it produces, so there is no equivalent of Go's import-path or Rust's
+hyphen-to-underscore mapping to build on. Container and IaC findings
+carry no reachability check at all yet either. Every finding says
+plainly which of these applies to it.
 
 **Static analysis inherits its tools' limits.** Semgrep, bandit, checkov and the
 rest have their own blind spots and their own false positives. The platform

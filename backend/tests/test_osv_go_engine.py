@@ -73,3 +73,29 @@ async def test_a_matched_vulnerability_becomes_a_finding(tmp_path: Path) -> None
     assert "ecosystem: Go" in finding.reproduction[0]
     assert finding.severity is Severity.MEDIUM  # no fix info: the conservative default
     assert "Reachability was not assessed" in finding.impact
+
+
+async def test_reachability_evidence_decorates_the_finding_when_a_workspace_has_go_source(
+    tmp_path: Path,
+) -> None:
+    """A `Workspace` with Go source lets this engine replace the generic
+    disclaimer with concrete import evidence from `go_imports.py`."""
+    workspace_scope = CodeScope(allowed_paths=("go.sum", "*.go"))
+    (tmp_path / "go.sum").write_text(_GO_SUM, encoding="utf-8")
+    (tmp_path / "main.go").write_text(
+        'import "github.com/pkg/errors"\nerrors.New("x")\n'
+    )
+    workspace = resolve_workspace(tmp_path, workspace_scope)
+
+    query = PackageQuery(name="github.com/pkg/errors", version="v0.9.1", ecosystem="Go")
+    client = _FakeClient(
+        vulnerable={query: ("GHSA-vwqx-pm7j-mmm2",)},
+        details={"GHSA-vwqx-pm7j-mmm2": {"aliases": ["CVE-2024-99991"]}},
+    )
+
+    results = await OsvGoEngine(allow_advisory_lookup=True, client=client).run(workspace)
+
+    assert len(results) == 1
+    assert "Statically imported" in results[0].impact
+    assert "main.go:1" in results[0].impact
+    assert "Reachability was not assessed" not in results[0].impact

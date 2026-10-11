@@ -59,10 +59,16 @@ from typing import Any
 
 from app.core.appsec.contract import EngineMeta, Pillar, code_evidence, severity_from
 from app.core.appsec.identifiers import verified_advisories
+from app.core.appsec.reachability.go_imports import (
+    reachability_impact_text as go_reachability_impact_text,
+)
 from app.core.appsec.reachability.js_imports import (
     reachability_impact_text as js_reachability_impact_text,
 )
 from app.core.appsec.reachability.python_imports import reachability_impact_text
+from app.core.appsec.reachability.rust_imports import (
+    reachability_impact_text as rust_reachability_impact_text,
+)
 from app.core.appsec.workspace import Workspace
 from app.core.probes.models import Category, Confidence, ScanResult, Severity
 from app.core.scope.transport import GatedTransport
@@ -85,8 +91,8 @@ class _OsvEngineBase:
     severity/fix-version extraction, and finding shape are all already
     generic over `PackageQuery.ecosystem`. A subclass supplies only which
     manifests to look for, how to parse one into `(name, version)` pairs,
-    what text names its ecosystem in a gap finding, and — since only Python
-    and npm/JS have a reachability module today — whether and how to
+    what text names its ecosystem in a gap finding, and — since not every
+    ecosystem has a reachability module today — whether and how to
     decorate a finding with reachability evidence.
     """
 
@@ -368,8 +374,8 @@ class OsvGoEngine(_OsvEngineBase):
     def _packages_for(self, path: Path) -> list[tuple[str, str]]:
         return go_sum_packages(path)
 
-    # No reachability wiring: neither `python_imports.py` nor
-    # `js_imports.py` understands Go import/call syntax.
+    def _reachability_impact(self, workspace: Workspace, package_name: str) -> str | None:
+        return go_reachability_impact_text(workspace, package_name)
 
 
 class OsvRustEngine(_OsvEngineBase):
@@ -391,6 +397,9 @@ class OsvRustEngine(_OsvEngineBase):
     def _packages_for(self, path: Path) -> list[tuple[str, str]]:
         return cargo_lock_packages(path)
 
+    def _reachability_impact(self, workspace: Workspace, package_name: str) -> str | None:
+        return rust_reachability_impact_text(workspace, package_name)
+
 
 class OsvJavaEngine(_OsvEngineBase):
     meta = EngineMeta(
@@ -411,6 +420,17 @@ class OsvJavaEngine(_OsvEngineBase):
 
     def _packages_for(self, path: Path) -> list[tuple[str, str]]:
         return gradle_lockfile_packages(path)
+
+    # No reachability wiring, deliberately: unlike Go's import-path and
+    # Rust's hyphen-to-underscore mapping, a Maven artifactId has no
+    # derivable relationship to the Java package(s) it produces
+    # (`com.google.guava:guava` -> package `com.google.common`, not
+    # `com.google.guava` — no formula connects them). A hand-curated
+    # mapping table here would not be an exception list on top of a
+    # working default the way `python_imports.py`'s import-name
+    # overrides are; it would be the entire mechanism, with near-zero
+    # coverage against Maven's real ecosystem size. Named as a structural
+    # limitation rather than attempted.
 
 
 def _fixed_versions(record: dict[str, Any] | None, package_name: str) -> tuple[str, ...]:
