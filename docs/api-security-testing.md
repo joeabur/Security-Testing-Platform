@@ -12,6 +12,7 @@ produces a short result list rather than an error.
 | `KERVY-API-001` | Authenticated endpoint answers unauthenticated requests | API2 |
 | `KERVY-API-002` | API served over plaintext HTTP | API8 |
 | `KERVY-API-003` | Credentials passed in the URL | API8 |
+| `KERVY-API-004` | Endpoint accepts a JWT whose signature was never checked | API2 |
 | `KERVY-API-010` | Security response headers missing | API8 |
 | `KERVY-API-011` | Permissive CORS policy | API8 |
 | `KERVY-API-012` | Error responses expose internal details | API8 |
@@ -53,6 +54,25 @@ exchange that showed it.
 Configure accounts and you get authorization coverage. Skip them and the report
 says `KERVY-API-000 — not tested`, which is the honest outcome rather than a
 silently missing category.
+
+## JWT signature bypass needs one synthetic account, not two
+
+`KERVY-API-004` is a narrower check than BOLA: it asks whether the target
+verifies a JWT's signature at all, not whether it authorizes correctly once
+it has. One configured synthetic account is enough — the probe reads that
+account's own token's header and payload (decoded, never verified; both are
+base64, not encrypted, so this needs no secret), forges three variants from
+them — `alg: "none"`, a case-mutated `"None"`, and the original header with
+its signature segment stripped — and resends each to an endpoint the real
+token already succeeded on. If a forged variant gets the same success, the
+server is not checking signatures: it is treating *having a token* as proof
+enough. The real signing secret is never read, never guessed and never
+needed, so this is safe to run even when the account's credential is a
+production-shaped token.
+
+A credential that is not JWT-shaped (three dot-separated segments) is
+outside what this check can test — most API keys are opaque strings, not
+JWTs — and it declines with `KERVY-API-000` rather than reporting anything.
 
 ## Analysis mode
 

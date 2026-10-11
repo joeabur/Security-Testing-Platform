@@ -329,11 +329,13 @@ Deferred out of Phase 5, with reasons:
   shipping an SSRF probe without it would mean either no way to observe the
   callback, or pointing someone's API at a host we do not control. Neither is
   acceptable, so the probe waits for the lab.
-- **JWT-specific authentication tests are not implemented** — `alg:none`,
-  unsigned tokens, absent expiry. These need a token to manipulate, which
-  means the synthetic-account credential, and the useful version of the check
-  reasons about the token's structure. It belongs with the credential
-  handling work rather than bolted onto the unauthenticated-access probe.
+- **JWT expiry is not tested.** `alg:none` and signature-stripping are
+  covered (`KERVY-API-004`, a later section below) — the blocker this
+  bullet originally named, needing a token to manipulate and therefore the
+  synthetic-account credential, no longer holds once that credential
+  handling existed. Whether the server actually rejects an *expired* token
+  is a separate question (a live clock check, not a structural forgery)
+  and stays open.
 - **Spec/production drift and stale API versions (API9) are not
   implemented** — the parser records the declared surface and the probes
   exercise it, but nothing yet compares what the spec declares against what
@@ -8014,3 +8016,81 @@ already use. All pre-existing tests in `test_agent_tools.py`,
 and `tests/security/test_rate_limit.py` re-run unchanged and still pass.
 Full backend suite re-run to confirm nothing else broke. Confirmed no
 `pyproject.toml`/`uv.lock` change and no Alembic migration.
+
+## A JWT signature-bypass probe (`KERVY-API-004`)
+
+An earlier roadmap entry (§10's authentication phase, above) deferred
+`alg:none`/unsigned-token testing specifically because it needed "a token
+to manipulate" — the synthetic-account credential — which did not exist
+yet at the time that entry was written. Verified it does now: the
+authorization probes (BOLA, function-level) have used
+`SyntheticAccount`/`CredentialSet`/`AuthorizationTestPlan`
+(`app/core/probes/credentials.py`) since they shipped, and `pyjwt>=2.14`
+is already a dependency (`app/auth/security.py`'s own token issuance).
+Confirmed via `grep` that no code anywhere decoded a JWT with
+`verify_signature: False` before this — the gap was real, not stale.
+
+**Delivered.** `JwtSignatureBypassProbe`
+(`app/core/probes/api/authentication.py`), OWASP API2:2023 / CWE-347.
+Reuses one already-configured synthetic account (not two, unlike BOLA —
+this tests the authentication layer itself, not an authorization
+decision between two identities): decodes that account's own token with
+`jwt.get_unverified_header()`/`jwt.decode(options={"verify_signature":
+False})` — both read only base64, never the signing secret — and forges
+three variants built from the decoded header and payload: `alg: "none"`,
+a case-mutated `"None"` (a classic library bug — some JWT libraries
+compared the algorithm case-insensitively), and the original header with
+its signature segment stripped to empty. Each is resent against an
+operation the real, signed token already got a 2xx from; a forged
+variant getting the same 2xx is the finding. Registered in
+`api_probes()` (`app/core/probes/api/registry.py`), `KERVY-API-004`, the
+next free code in the authentication family's block.
+
+**Decisions.**
+
+- **One confirmed bypass stops the probe, rather than testing every
+  operation.** Whether a server checks a JWT's signature is a property of
+  its authentication middleware, not of one route — once one operation
+  proves it, testing the rest spends budget to learn nothing new. A
+  single operation that rejects every forgery does **not** stop the
+  probe from trying the next one, though: a route with its own,
+  different auth handling is still worth checking.
+- **The forged token is built by hand (plain base64url + `json.dumps`),
+  not via `jwt.encode(..., algorithm="none")`.** This sidesteps any
+  version-specific quirk in how PyJWT itself handles the `none` algorithm
+  for *signing*, which this probe has no reason to depend on — it only
+  ever needs PyJWT's decode side, a far more stable surface.
+- **A credential that is not JWT-shaped declines, rather than guessing.**
+  Most API keys are opaque strings, not JWTs; `_JWT_SHAPE`'s three-segment
+  regex is the same shape check a real JWT parser would use, so a
+  non-JWT credential gets `KERVY-API-000 — not tested`, never a forced
+  attempt at decoding something that was never a token.
+- **No seeded flaw added to `tests/lab/`.** The lab's existing synthetic
+  tokens (`TOKEN_A`/`TOKEN_B`/`TOKEN_ADMIN`) are deliberately opaque
+  strings, not JWTs, so this probe correctly declines against both the
+  vulnerable and hardened lab fixtures today — confirmed by running the
+  full lab suite unchanged. Adding a JWT-shaped seeded flaw to prove a
+  live bypass end-to-end is real, useful follow-on work, but a
+  self-contained unit test suite (`tests/test_jwt_signature_bypass_probe
+  .py`) already exercises the probe directly without it, so it was kept
+  out of this PR's scope rather than widening it.
+
+**Deferred.** JWT expiry testing (the other half of the original roadmap
+entry) — a live clock check, not a structural forgery, and a genuinely
+different kind of test. A JWT-shaped seeded flaw in `tests/lab/`, noted
+above.
+
+**Verified.** `ruff check .` and `mypy app` clean. New
+`tests/test_jwt_signature_bypass_probe.py` (8 tests): no usable account,
+a non-JWT credential, and an undecodable token each decline with
+`KERVY-API-000`; no control available (the real token itself is
+rejected) also declines; every forged variant rejected reports nothing;
+a forged `alg: "none"` token accepted reports `KERVY-API-004` with the
+real signing secret absent from every field; the probe stops after the
+first confirmed bypass rather than testing a second operation; a write
+operation is skipped under safe mode. `tests/test_probes.py`,
+`test_api_engine.py`, `test_api_engine_e2e.py` and `test_lab_e2e.py`
+(the real-socket lab run) re-run unchanged and all pass — the lab's
+opaque tokens correctly produce `KERVY-API-000`, not a false positive or
+a crash. Full backend suite re-run to confirm nothing else broke.
+Confirmed no `pyproject.toml`/`uv.lock` change and no Alembic migration.
