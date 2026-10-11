@@ -77,12 +77,18 @@ def deliver_notifications(limit: int = SWEEP_LIMIT) -> int:
 
 async def _notify_run(run_id: uuid.UUID) -> int:
     """Build the run's completion event, record intent, then deliver."""
-    from app.core.integrations.dispatch import event_for_finding, event_for_retest, event_for_run
+    from app.core.integrations.dispatch import (
+        event_for_finding,
+        event_for_finding_digest,
+        event_for_retest,
+        event_for_run,
+    )
     from app.models.assessment_run import AssessmentRun, RunKind
     from app.models.finding import Finding
     from app.models.retest import RetestResult, RetestVerdict
     from app.models.target import Target
 
+    settings = get_settings()
     factory = get_session_factory()
     async with factory() as db:
         run = await db.get(AssessmentRun, run_id)
@@ -143,26 +149,52 @@ async def _notify_run(run_id: uuid.UUID) -> int:
 
         # Findings first seen in this run each get their own event, so a
         # channel subscribed to `finding.critical` pages on the finding rather
-        # than on a run summary that buries it among counts.
-        new_findings = (
-            await db.execute(
-                select(Finding).where(Finding.first_run_id == run_id, Finding.last_run_id == run_id)
-            )
-        ).scalars()
-        for finding in new_findings:
+        # than on a run summary that buries it among counts — *unless* there
+        # are enough of them that doing so would just be noise: past
+        # `notify_finding_digest_threshold`, one `finding.digest` replaces
+        # the per-finding events entirely (see `EventType.FINDING_DIGEST`'s
+        # own docstring for what a channel gets instead). Below the
+        # threshold this is exactly the previous behaviour.
+        new_findings = list(
+            (
+                await db.execute(
+                    select(Finding).where(
+                        Finding.first_run_id == run_id, Finding.last_run_id == run_id
+                    )
+                )
+            ).scalars()
+        )
+        if len(new_findings) > settings.notify_finding_digest_threshold:
+            digest_counts: dict[str, int] = {}
+            for finding in new_findings:
+                key = str(getattr(finding.severity, "value", finding.severity)).lower()
+                digest_counts[key] = digest_counts.get(key, 0) + 1
             queued.extend(
                 await enqueue(
                     db,
-                    event_for_finding(
+                    event_for_finding_digest(
                         organization_id=run.organization_id,
-                        finding_id=finding.id,
-                        title=finding.title,
-                        severity=str(getattr(finding.severity, "value", finding.severity)),
-                        target_name=target_name,
                         run_id=run_id,
+                        target_name=target_name,
+                        counts=digest_counts,
                     ),
                 )
             )
+        else:
+            for finding in new_findings:
+                queued.extend(
+                    await enqueue(
+                        db,
+                        event_for_finding(
+                            organization_id=run.organization_id,
+                            finding_id=finding.id,
+                            title=finding.title,
+                            severity=str(getattr(finding.severity, "value", finding.severity)),
+                            target_name=target_name,
+                            run_id=run_id,
+                        ),
+                    )
+                )
 
         await db.commit()
         if not queued:

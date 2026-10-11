@@ -7862,3 +7862,75 @@ context did not name, and entirely when no check run id is known at
 all — and permitted only against the one named check run. Full backend
 suite re-run to confirm nothing else broke. Confirmed no
 `pyproject.toml`/`uv.lock` change and no Alembic migration.
+
+## A bounded notification digest for a run with many new findings
+
+`docs/limitations.md` named this plainly: "a run that promotes fifty new
+criticals sends fifty messages." Verified still true in the real code
+before touching anything — `app/workers/notifications.py::_notify_run`
+looped every finding first seen in the run and called `enqueue()` once
+each, with no cap anywhere in `app/core/integrations/`.
+
+**Delivered.** `EventType.FINDING_DIGEST` (`finding.digest`), a new event
+type alongside the existing `finding.created`/`finding.critical`.
+`_notify_run` now counts a run's new findings first; at or below
+`Settings.notify_finding_digest_threshold`
+(`KERVY_NOTIFY_FINDING_DIGEST_THRESHOLD`, default 10) nothing changes —
+each new finding still gets its own event, exactly as before. Over the
+threshold, it enqueues exactly **one** `finding.digest` event, built by
+the new `event_for_finding_digest()` in `app/core/integrations/
+dispatch.py`, instead of one event per finding. The digest carries
+per-severity counts of the run's new findings (mirroring
+`event_for_run`'s own highest-band severity selection and `facts` shape,
+but scoped to new findings only) and a link to the run.
+
+**Decisions.**
+
+- **This replaces the per-finding events above the threshold; it does not
+  sit alongside a truncated sample of them.** A channel subscribed only
+  to `finding.created`/`finding.critical` gets nothing for such a run's
+  new findings at all unless it also subscribes to `finding.digest` —
+  stated as a deliberate trade in both `docs/integrations.md` and
+  `docs/limitations.md`, not left for an operator to discover by a
+  message that stopped arriving. The alternative — sending the first N
+  individually and summarizing the rest — was considered and rejected:
+  it would still scale with a hostile or buggy run that promotes an
+  unbounded number of findings, which defeats the point of a *bound*.
+- **A new, separate event type, not a changed shape for the existing
+  ones.** `EventType` has no precedent for one event type's payload
+  changing shape based on volume, and a channel's subscription list is
+  the only control an organization has over what it receives — reusing
+  `finding.critical`'s type for an aggregated payload would have broken
+  that control silently. Making it a distinct, explicitly-subscribed type
+  keeps `docs/integrations.md`'s existing claim true: "an event no channel
+  subscribes to produces no delivery row at all."
+- **A deployment-wide setting, not a per-channel one.** The problem is a
+  bound on how many individual finding events one run can ever produce,
+  not a per-destination delivery rate — matching
+  `notify_allowed_webhook_hosts`'s own reasoning for living in the
+  environment rather than the database, though for a different reason
+  here (this is a volume bound, not an egress allowlist).
+- **Reused `event_for_run`'s highest-severity-band selection verbatim**
+  rather than inventing a second way to pick one severity out of a counts
+  mapping, so `min_severity` filtering behaves identically for both event
+  types.
+
+**Deferred.** Per-channel digesting (a count tracked per channel rather
+than per run) — the per-run threshold already bounds the worst case
+(one message per run, however large), and a per-channel version would
+need new state (which events a channel has already seen this run) for a
+case the per-run bound already handles. Revisit only if an operator
+actually needs some channels to keep per-finding paging below a
+different, lower threshold than others.
+
+**Verified.** `ruff check .` and `mypy app` clean. New tests in
+`tests/test_integrations.py` (`event_for_finding_digest` takes the
+highest severity present; an empty digest has no severity) and
+`tests/test_integrations_api.py` (a run over the threshold, with a
+channel subscribed only to `finding.critical` and another subscribed
+only to `finding.digest`, produces exactly one `finding.digest` delivery
+row with the correct aggregate counts and none at all for the
+per-finding-only channel). All pre-existing tests in both files re-run
+unchanged and still pass, confirming the below-threshold path is
+untouched. Confirmed no `pyproject.toml`/`uv.lock` change and no Alembic
+migration.

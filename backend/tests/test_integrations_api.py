@@ -673,6 +673,84 @@ async def test_a_finished_run_fans_out_to_subscribed_channels(
     assert (summary.event_json or {}).get("severity") == "CRITICAL"
 
 
+async def test_a_run_over_the_digest_threshold_sends_one_digest_not_many(
+    client: AsyncClient,
+    strong_password: str,
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Past `notify_finding_digest_threshold`, `_notify_run` must not send
+    one `finding.critical`/`finding.created` per new finding — that is
+    exactly the "fifty messages" limitation `docs/limitations.md` named.
+    A channel subscribed only to `finding.critical` gets nothing for this
+    run's new findings once it crosses the threshold (the documented
+    trade-off); a channel that also subscribes to `finding.digest` gets the
+    one aggregate instead."""
+    from app.models.assessment_run import AssessmentRun, RunStatus
+    from app.models.finding import Finding, FindingStatus
+    from app.models.integration import NotificationDelivery
+    from app.workers.notifications import _notify_run
+
+    monkeypatch.setenv("KERVY_NOTIFY_FINDING_DIGEST_THRESHOLD", "2")
+    get_settings.cache_clear()
+
+    org_id, headers = await _owner(client, strong_password, "digest")
+    await client.post(
+        f"/api/v1/organizations/{org_id}/notification-channels",
+        json=slack_payload(name="per-finding", events=["finding.critical"]),
+        headers=headers,
+    )
+    await client.post(
+        f"/api/v1/organizations/{org_id}/notification-channels",
+        json=slack_payload(name="digest", events=["finding.digest"]),
+        headers=headers,
+    )
+
+    target_id = await _target(client, org_id, headers)
+    run = AssessmentRun(
+        organization_id=uuid.UUID(org_id),
+        target_id=uuid.UUID(target_id),
+        status=RunStatus.COMPLETED,
+    )
+    db_session.add(run)
+    await db_session.flush()
+    db_session.add_all(
+        Finding(
+            organization_id=uuid.UUID(org_id),
+            fingerprint=f"fp-digest-{index}",
+            title=f"Finding {index}",
+            status=FindingStatus.NEW,
+            first_run_id=run.id,
+            last_run_id=run.id,
+            **_finding_fields(),
+        )
+        for index in range(3)
+    )
+    await db_session.commit()
+
+    await _notify_run(run.id)
+
+    rows = (
+        (
+            await db_session.execute(
+                select(NotificationDelivery).where(
+                    NotificationDelivery.organization_id == uuid.UUID(org_id)
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    events = sorted(row.event_type for row in rows)
+    # Exactly one digest row, never three individual finding events — the
+    # "per-finding" channel, subscribed only to finding.critical, gets
+    # nothing at all for this run's new findings once it is over threshold.
+    assert events == ["finding.digest"]
+    digest_row = next(row for row in rows if row.event_type == "finding.digest")
+    facts = (digest_row.event_json or {}).get("facts") or {}
+    assert facts.get("critical") == "3"
+
+
 async def test_a_retest_run_also_fans_out_its_own_verdict_event(
     client: AsyncClient, strong_password: str, db_session: AsyncSession
 ) -> None:

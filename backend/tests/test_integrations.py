@@ -32,6 +32,7 @@ from app.core.integrations.dispatch import (
     backoff_for,
     deliver_once,
     event_for_finding,
+    event_for_finding_digest,
     event_for_investigation,
     event_for_retest,
     event_for_run,
@@ -502,6 +503,26 @@ def test_a_critical_finding_is_its_own_event_type() -> None:
     )
     assert critical.event_type is EventType.FINDING_CRITICAL
     assert high.event_type is EventType.FINDING_CREATED
+
+
+def test_a_finding_digest_takes_the_highest_severity_actually_present() -> None:
+    event = event_for_finding_digest(
+        organization_id=ORG,
+        run_id=uuid.uuid4(),
+        target_name="acme-api",
+        counts={"critical": 3, "high": 7, "low": 2},
+    )
+    assert event.event_type is EventType.FINDING_DIGEST
+    assert event.severity == "CRITICAL"
+    assert event.facts == {"critical": 3, "high": 7, "low": 2}
+    assert "12" in event.title
+
+
+def test_an_empty_finding_digest_has_no_severity() -> None:
+    event = event_for_finding_digest(
+        organization_id=ORG, run_id=uuid.uuid4(), target_name="acme-api", counts={}
+    )
+    assert event.severity is None
 
 
 def test_a_completed_investigation_is_its_own_event_type() -> None:

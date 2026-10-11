@@ -85,6 +85,18 @@ class EventType(StrEnum):
     ASSESSMENT_FAILED = "assessment.failed"
     FINDING_CREATED = "finding.created"
     FINDING_CRITICAL = "finding.critical"
+    #: One run's new findings, aggregated into a single event, *in place of*
+    #: a `finding.created`/`finding.critical` per finding, once a run's
+    #: new-finding count passes `Settings.notify_finding_digest_threshold` —
+    #: see `app/workers/notifications.py::_notify_run`. Below the threshold,
+    #: nothing changes: each new finding still gets its own event and this
+    #: one never fires. A channel that only ever subscribes to
+    #: `finding.created`/`finding.critical` therefore gets nothing for a
+    #: run's new findings once that run is large enough to cross the
+    #: threshold — subscribing to this event type as well is how a channel
+    #: keeps hearing about such a run, as one bounded message instead of one
+    #: per finding.
+    FINDING_DIGEST = "finding.digest"
     RETEST_COMPLETED = "retest.completed"
     GATE_FAILED = "gate.failed"
     # The native AI agent (Agent Phase 6). Fired once an investigation
