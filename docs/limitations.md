@@ -113,8 +113,14 @@ to skim past in a long report.
   detection**. Nothing infers the link; a finding nobody reviewed stays
   double-counted. `docs/security-review.md` has the detail on why an invented
   heuristic here was rejected as worse than the honest gap.
-- No per-channel notification rate limiting: a run that promotes fifty new
-  criticals sends fifty messages.
+- A run whose new-finding count passes `notify_finding_digest_threshold`
+  (`KERVY_NOTIFY_FINDING_DIGEST_THRESHOLD`, default 10) sends one
+  `finding.digest` event instead of one `finding.created`/`finding.critical`
+  per finding — see `docs/integrations.md`. This is a deployment-wide bound,
+  not a per-channel one, and it is a trade, not a pure win: a channel
+  subscribed only to `finding.created`/`finding.critical` gets nothing for
+  such a run's new findings at all, unless it also subscribes to
+  `finding.digest`.
 - The server-rendered dashboard at `/app` (`docs/dashboard.md`) is read-only
   — overview, findings, runs, workflows and targets — by scope decision,
   not by section missing. It has no pagination-free cap left either:

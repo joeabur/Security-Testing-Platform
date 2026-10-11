@@ -78,6 +78,15 @@ class Settings(BaseSettings):
     notify_allowed_smtp_hosts: list[str] = Field(
         default_factory=list, alias="KERVY_NOTIFY_ALLOWED_SMTP_HOSTS"
     )
+    #: Above this many new findings in one run, `_notify_run` sends one
+    #: `finding.digest` event instead of one `finding.created`/
+    #: `finding.critical` per finding — see `EventType.FINDING_DIGEST`'s own
+    #: docstring for the subscription trade-off this makes. Deployment-wide
+    #: rather than per-channel: the point is a bound on how many individual
+    #: finding events one run can ever produce, not a per-destination limit.
+    notify_finding_digest_threshold: int = Field(
+        default=10, alias="KERVY_NOTIFY_FINDING_DIGEST_THRESHOLD"
+    )
     # Which code hosts a connection may reach beyond github.com, whose API host
     # is pinned in code. A GitHub Enterprise install's host is site-specific, so
     # it takes an operator decision — held here, not in the database, for the

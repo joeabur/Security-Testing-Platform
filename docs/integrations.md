@@ -97,6 +97,7 @@ already are.
 | `assessment.failed` | a run ended in failure |
 | `finding.created` | a finding was promoted |
 | `finding.critical` | …and it is critical |
+| `finding.digest` | a run's new findings, aggregated — see below |
 | `retest.completed` | a `RunKind.RETEST` run finished |
 | `gate.failed` | a workflow run's gate decision refused it |
 | `agent_investigation.completed` | a native-agent investigation reached `COMPLETED` |
@@ -131,6 +132,29 @@ notification is the costliest failure mode here.
 
 `finding.critical` is its own event type so a channel can page on criticals
 without also taking every low.
+
+`finding.digest` exists so a run that promotes a lot of new findings does not
+send one message per finding. `_notify_run` counts a run's new findings
+(`Finding.first_run_id == Finding.last_run_id == run_id`, the same set
+`finding.created`/`finding.critical` would otherwise fire for) and, once that
+count passes `notify_finding_digest_threshold`
+(`KERVY_NOTIFY_FINDING_DIGEST_THRESHOLD`, default 10), sends exactly **one**
+`finding.digest` event *instead of* the per-finding events — never both.
+`facts` carries the same per-severity counts shape as `assessment.completed`,
+but scoped to this run's new findings only, and `severity` is the highest
+band actually present, so a channel's `min_severity` floor still applies.
+Below the threshold nothing changes at all: every new finding still gets its
+own `finding.created`/`finding.critical`, and `finding.digest` never fires.
+
+This is a deliberate trade, not a pure improvement, and it is worth stating
+plainly: a channel subscribed only to `finding.created`/`finding.critical`
+gets **nothing** for a run's new findings once that run crosses the
+threshold — not a sample, not the first few, nothing — because the point is a
+hard bound on how many individual finding events one run can produce, and a
+partial fan-out would still scale with a hostile or buggy run that promotes
+an unbounded number of findings. A channel that wants to hear about every
+run, large or small, subscribes to `finding.digest` as well as (or instead
+of) the per-finding events.
 
 ## Delivery, retry and dead-letter
 
@@ -284,6 +308,7 @@ kervy-ai channels add --name sec-incidents --kind ticket_servicenow \
 KERVY_NOTIFY_ALLOWED_WEBHOOK_HOSTS='["siem.internal.example"]'
 KERVY_NOTIFY_ALLOWED_SMTP_HOSTS='["smtp.example.com"]'
 KERVY_PUBLIC_BASE_URL=https://kervy.example.com   # absent: no link is rendered
+KERVY_NOTIFY_FINDING_DIGEST_THRESHOLD=10          # default; see "Events" above
 ```
 
 A link is omitted rather than guessed when no base URL is set. A broken link in

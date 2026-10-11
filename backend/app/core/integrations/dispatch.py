@@ -487,6 +487,46 @@ def event_for_finding(
     )
 
 
+def event_for_finding_digest(
+    *,
+    organization_id: uuid.UUID,
+    run_id: uuid.UUID,
+    target_name: str | None,
+    counts: Mapping[str, int],
+    occurred_at: datetime | None = None,
+) -> IntegrationEvent:
+    """`finding.digest` — a run's new findings, aggregated into one event.
+
+    Sent *instead of* a `finding.created`/`finding.critical` per finding,
+    once `_notify_run` decides the run's new-finding count is over
+    `Settings.notify_finding_digest_threshold`. `counts` is keyed exactly
+    like `event_for_run`'s own (lower-case severity name), but scoped to new
+    findings only, never the whole run's — a channel reading this sees how
+    many new findings arrived and at what severities, with a link to the run
+    for the rest.
+    """
+    highest: str | None = None
+    for candidate in ("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFORMATIONAL"):
+        if counts.get(candidate.lower(), counts.get(candidate, 0)):
+            highest = candidate
+            break
+    total = sum(counts.values())
+    when = occurred_at or datetime.now(UTC)
+    return IntegrationEvent(
+        event_type=EventType.FINDING_DIGEST,
+        organization_id=organization_id,
+        occurred_at_iso=when.isoformat(),
+        title=f"{total} new findings for {target_name or 'target'}",
+        severity=highest,
+        resource_type="assessment_run",
+        resource_id=str(run_id),
+        target_name=target_name,
+        run_id=run_id,
+        facts={key: value for key, value in counts.items() if value},
+        link_path=f"runs/{run_id}",
+    )
+
+
 def event_for_retest(
     *,
     organization_id: uuid.UUID,
