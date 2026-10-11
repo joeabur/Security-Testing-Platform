@@ -38,6 +38,7 @@ from app.core.vcs.render import (
     check_run_for,
     conclusion_for,
 )
+from app.core.vcs.service import gate_findings, publishable
 
 TOKEN = "ghp_exampleexampleexampleexample1234"  # pragma: allowlist secret
 ENV = {"KERVY_TEST_GH_TOKEN": TOKEN}
@@ -60,6 +61,41 @@ def finding(**overrides: object) -> PublishableFinding:
 
 def passing() -> GateDecision:
     return evaluate([], GateConfig(fail_on=(Severity.CRITICAL,), min_confidence=Confidence.LOW))
+
+
+# --- the check run's verdict must agree with the CLI gate's -----------------
+
+
+def test_gate_findings_threads_license_bands_through_to_the_gate() -> None:
+    """`evaluate()` can only honour `forbidden_license_bands` on a pull
+    request if `gate_findings()` actually carries the band through — the
+    same consistency this module's docstring already promises for severity
+    and confidence."""
+    gated = gate_findings([finding(license_bands=("network_copyleft",))])
+    assert gated[0].license_bands == ("network_copyleft",)
+
+    decision = evaluate(gated, GateConfig(forbidden_license_bands=("network_copyleft",)))
+    assert not decision.passed
+
+
+def test_publishable_reads_license_bands_from_a_findings_mappings() -> None:
+    """There is no dedicated column for this anywhere in the findings
+    pipeline: it rides on `mappings["other"]`, the same bucket
+    `LicenseRiskEngine`'s `LICENSE-BAND:...` tag already lands in."""
+
+    class _FindingStub:
+        fingerprint = "sha256:abc"
+        title = "3 dependencies under network copyleft licences"
+        severity = Severity.LOW
+        surface = "supplychain/license/network_copyleft"
+        probe_id = "appsec.supplychain.license"
+        severity_rationale = ""
+        remediation = ""
+        first_run_id = None
+        mappings = {"other": ["LICENSE-BAND:network_copyleft"]}
+
+    result = publishable(_FindingStub(), run_id=None)  # type: ignore[arg-type]
+    assert result.license_bands == ("network_copyleft",)
 
 
 # --- policy: where a connection may point -----------------------------------

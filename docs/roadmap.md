@@ -1499,10 +1499,11 @@ vulnerability. "Is this the package you meant" has no identifier at all.
   separate engine now exists for the narrower, demonstrated case — see below.
 - **No reachability analysis** on container findings, same as the existing SCA
   engine.
-- **No licence policy configuration.** There is no way to declare "AGPL is
-  forbidden here" and have the CI gate fail on it; findings are reported and a
-  human decides. The gate already thresholds on severity, so wiring this means
-  deciding whether a policy breach is a severity or a separate gate dimension.
+- **Licence policy configuration is closed** — see "A licence policy
+  configuration for the CI gate" below. The gate already thresholded on
+  severity; this is a separate dimension, as the open question above
+  anticipated, since a `LOW`-severity licence band would never reach a
+  severity floor on its own.
 - **A floating base image tag (`FROM python:latest`) or a digest-only pin
   declares no version**, so there is nothing to compare against a support
   schedule — this engine skips both. A floating tag *is* reported elsewhere,
@@ -7588,3 +7589,99 @@ broke. Confirmed no `pyproject.toml`/`uv.lock` change, no Alembic
 migration, and no schema/API/CLI change needed — this PR adds test
 coverage and corrects two doc claims; it does not change what any engine
 reports.
+
+## A licence policy configuration for the CI gate
+
+`docs/supply-chain.md` and this file both named the same open question:
+there was no way to declare "AGPL is forbidden here" and have the gate
+fail on it, only severity thresholds (`fail_on`/`max_high`/`max_medium`)
+that a licence finding's own deliberately restrained severity
+(`strong_copyleft` is `LOW`, `weak_copyleft` is `INFORMATIONAL` — see
+"Licence risk" above) would rarely if ever reach.
+
+**Delivered.** `security-gate.yaml`'s `security_gate.forbidden_license_bands`
+— a list of `LicenseRisk` band names (`network_copyleft`, `strong_copyleft`,
+`weak_copyleft`, `proprietary_or_unknown`, plus the two that never get a
+finding at all, `permissive`/`public_domain`, accepted for completeness
+and simply never matched). A finding carrying a listed band blocks the
+build as its own independent trigger, alongside — never instead of — the
+existing severity threshold, so a `LOW`-severity `strong_copyleft` match
+blocks exactly as a `CRITICAL` finding would, with its own stated reason
+in the gate's output. `LicenseRiskEngine` now tags every finding it
+reports with the band it classified
+(`LICENSE_BAND_FRAMEWORK_PREFIX = "LICENSE-BAND:"`,
+`app/core/appsec/supplychain/licenses.py`), carried on `ScanResult.frameworks`
+the same way a CWE or OWASP mapping already is.
+
+**Decisions.**
+
+- **No schema migration, because no finding anywhere in this codebase has
+  a "which rule fired" field to key off of — confirmed by reading the
+  gate's own `GateFinding`/`Finding`/`FindingRead` shapes before assuming
+  one was needed.** `group_mappings()` (`app/core/findings/normalize.py`)
+  already files any framework reference it does not recognise a
+  namespace for under `mappings["other"]`, and that bucket already
+  survives unchanged from `ScanResult.frameworks` through to the
+  `FindingRead` API schema the CLI gate reads — so the licence band rides
+  that existing, already-generic path (`license_bands_from_mappings()`,
+  `app/core/gate/model.py`) rather than adding a column, a migration, or
+  a new API field for one feature.
+- **One shared extraction function, not three.** `evaluate()`'s own
+  `GateFinding` is built from three different places —
+  `GateFinding.from_api()` for the CLI (a JSON payload from the findings
+  API), `app/core/vcs/service.py::gate_findings()` for the pull-request
+  check run, and `app/core/workflow/result.py::gate_finding()` for a
+  custom workflow's own gate — and `vcs/service.py`'s own module
+  docstring already states the invariant this has to preserve: "the
+  check run's conclusion comes from the same `evaluate()` the CI gate
+  uses, so a pull request and a pipeline cannot disagree." A licence-band
+  finding is not an exception to that, so all three now read bands
+  through the one `license_bands_from_mappings()` function rather than
+  three separate, driftable copies — caught by checking all three call
+  sites before considering this done, not by only wiring the CLI path
+  and assuming the others inherited it for free (they do not: the
+  pull-request path reads a narrower `PublishableFinding` projection,
+  not the full API payload, and the workflow path reads ORM columns
+  directly).
+- **Independent of severity, not folded into it.** The two docs' own
+  open question ("deciding whether a policy breach is a severity or a
+  separate gate dimension") is answered explicitly: a severity threshold
+  answers "how bad is this finding," a forbidden licence band answers
+  "is this one acceptable here at all," and collapsing the second
+  question into the first would mean inventing a severity a licence
+  finding does not otherwise warrant just to make it reach a threshold.
+- **Still subject to triage.** A forbidden-band match is a second,
+  independent reason to block — not a bypass of `accepted_risk`/
+  `false_positive`/`closed` statuses or an active `ignore` entry. Those
+  checks run first in `evaluate()`'s exclusion pass, same as for every
+  other finding; a licence policy is not special permission to skip the
+  triage workflow the rest of the gate respects.
+- **A finding that trips both triggers is reported once, not twice or
+  zero times.** `evaluate()` tracks the severity-threshold and
+  forbidden-band triggers as two independent lists rather than one
+  mutating list with membership checks threaded through it — simpler to
+  read, and it avoids a found-and-fixed-before-commit bug where folding
+  them into one list made a dual-trigger finding silently miss one of
+  its two reason lines.
+
+**Deferred, stated plainly.** No CLI flag for `forbidden_license_bands`
+(unlike `fail_on`, which `kervy-ai gate --fail-on` can override) — a
+list-of-bands setting is more naturally a file-level policy than a
+per-invocation override, and every other structured setting
+(`max_medium`, `ignore`, `require_stability`) is already YAML-only with
+no CLI equivalent either.
+
+**Verified.** `ruff check .` and `mypy app kervy_cli` clean. New tests in
+`tests/test_gate.py` (forbidden band blocks at low severity; a
+non-forbidden band does not; empty config is a no-op; a settled status
+still excludes a forbidden-band finding; a dual-trigger finding reports
+once with two reasons; config parsing and its rejection of an unknown
+band name; `GateFinding.from_api`'s extraction from `mappings`),
+`tests/test_supplychain_engines.py` (the engine's own tag survives onto
+`ScanResult.frameworks`), `tests/test_workflow.py` and `tests/test_vcs.py`
+(both of the other two `GateFinding`-building paths thread the band
+through, confirmed independently of the CLI path). Full backend suite
+re-run to confirm nothing else broke. Confirmed no `pyproject.toml`/
+`uv.lock` change, no Alembic migration, and no new API endpoint needed —
+this rides entirely on the `mappings` column and endpoint every finding
+already has.

@@ -30,6 +30,7 @@ def _finding(
     status: str = "new",
     fingerprint: str = "sha256:" + "1" * 64,
     title: str = "Direct prompt injection",
+    license_bands: tuple[str, ...] = (),
 ) -> GateFinding:
     return GateFinding(
         fingerprint=fingerprint,
@@ -38,6 +39,7 @@ def _finding(
         confidence=confidence,
         stability=stability,
         status=status,
+        license_bands=license_bands,
     )
 
 
@@ -229,6 +231,82 @@ def test_gating_on_single_shot_is_possible_but_must_be_asked_for() -> None:
     assert not decision.passed
 
 
+# --- licence policy --------------------------------------------------------
+
+
+def test_a_forbidden_license_band_fails_the_build_even_at_low_severity() -> None:
+    """The whole point: `strong_copyleft` is `Severity.LOW` by design
+    (docs/supply-chain.md), so it would never reach even the default
+    `fail_on`'s floor on severity alone — an operator who names a band here
+    is making a policy decision independent of that threshold."""
+    config = GateConfig(forbidden_license_bands=("strong_copyleft",))
+    finding = _finding(severity=Severity.LOW, license_bands=("strong_copyleft",))
+
+    decision = evaluate([finding], config, today=TODAY)
+
+    assert not decision.passed
+    assert finding in decision.blocking
+    assert "forbidden licence band" in " ".join(decision.reasons)
+    assert "strong_copyleft" in " ".join(decision.reasons)
+
+
+def test_a_license_band_not_on_the_forbidden_list_does_not_fail() -> None:
+    config = GateConfig(forbidden_license_bands=("network_copyleft",))
+    finding = _finding(severity=Severity.LOW, license_bands=("weak_copyleft",))
+
+    decision = evaluate([finding], config, today=TODAY)
+
+    assert decision.passed
+
+
+def test_forbidden_license_bands_is_empty_by_default() -> None:
+    """A finding carrying a band is not blocking until an operator actually
+    names that band — existing configurations must not change behaviour."""
+    finding = _finding(severity=Severity.LOW, license_bands=("network_copyleft",))
+
+    decision = evaluate([finding], GateConfig(), today=TODAY)
+
+    assert decision.passed
+
+
+def test_a_settled_status_still_excludes_a_forbidden_band_finding() -> None:
+    """A licence policy is not a bypass of triage: a human who already
+    marked this accepted_risk or false_positive still gets the last word."""
+    config = GateConfig(forbidden_license_bands=("network_copyleft",))
+    finding = _finding(
+        severity=Severity.LOW, license_bands=("network_copyleft",), status="accepted_risk"
+    )
+
+    decision = evaluate([finding], config, today=TODAY)
+
+    assert decision.passed
+    assert decision.excluded[0].reason.startswith("status is accepted_risk")
+
+
+def test_a_critical_finding_with_a_forbidden_band_reports_one_reason_per_trigger() -> None:
+    """A finding that trips both the severity threshold and the licence
+    policy is not double-counted, but each trigger still gets its own
+    stated reason."""
+    config = GateConfig(forbidden_license_bands=("network_copyleft",))
+    finding = _finding(severity=Severity.CRITICAL, license_bands=("network_copyleft",))
+
+    decision = evaluate([finding], config, today=TODAY)
+
+    assert not decision.passed
+    assert decision.blocking == [finding]
+    assert len(decision.reasons) == 2
+
+
+def test_an_unknown_license_band_in_config_is_refused() -> None:
+    with pytest.raises(GateConfigError, match="unknown licence band"):
+        load_config("security_gate:\n  forbidden_license_bands: [agpl]\n")
+
+
+def test_forbidden_license_bands_parses_from_yaml() -> None:
+    config = load_config("security_gate:\n  forbidden_license_bands: [network_copyleft]\n")
+    assert config.forbidden_license_bands == ("network_copyleft",)
+
+
 # --- the wire shape -------------------------------------------------------
 
 
@@ -253,6 +331,29 @@ def test_a_finding_with_no_stability_is_treated_as_single_shot() -> None:
     )
     assert finding.stability == "single_shot"
     assert evaluate([finding], GateConfig(), today=TODAY).passed
+
+
+def test_a_license_band_is_read_from_the_mappings_other_bucket() -> None:
+    """There is no dedicated API field for this: `LicenseRiskEngine`'s
+    `LICENSE-BAND:...` framework reference rides on `mappings["other"]`,
+    the same bucket `group_mappings()` files any reference under that it
+    does not recognise a namespace for."""
+    finding = GateFinding.from_api(
+        {
+            "fingerprint": "sha256:" + "4" * 64,
+            "severity": "LOW",
+            "confidence": "HIGH",
+            "mappings": {"other": ["LICENSE-BAND:network_copyleft"], "cwe": ["CWE-1"]},
+        }
+    )
+    assert finding.license_bands == ("network_copyleft",)
+
+
+def test_a_finding_with_no_mappings_has_no_license_bands() -> None:
+    finding = GateFinding.from_api(
+        {"fingerprint": "sha256:x", "severity": "LOW", "confidence": "HIGH"}
+    )
+    assert finding.license_bands == ()
 
 
 def test_an_unreadable_finding_is_a_configuration_error_not_a_pass() -> None:

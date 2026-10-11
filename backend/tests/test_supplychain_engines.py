@@ -216,6 +216,11 @@ async def test_network_copyleft_is_reported_and_permissive_is_not() -> None:
     # No finding per MIT dependency: that is noise which buries the one above.
     assert "requests" not in finding.evidence
     assert "KERVY-SUPPLY-021" not in ids(results)
+    # The gate's `forbidden_license_bands` matches on this tag
+    # (`app/core/gate/model.py::_license_bands_from`), so it has to survive
+    # unchanged all the way to here, not just exist in the engine's own
+    # local variable.
+    assert finding.frameworks == ("LICENSE-BAND:network_copyleft",)
 
 
 async def test_a_licence_finding_reports_an_obligation_not_a_violation() -> None:

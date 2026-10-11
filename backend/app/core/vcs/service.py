@@ -32,7 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.audit.service import record_event
 from app.core.config import Settings, get_settings
 from app.core.gate.evaluate import evaluate
-from app.core.gate.model import GateConfig, GateDecision, GateFinding
+from app.core.gate.model import GateConfig, GateDecision, GateFinding, license_bands_from_mappings
 from app.core.integrations.dispatch import scrub
 from app.core.probes.models import Confidence, Severity
 from app.core.vcs.contract import (
@@ -75,6 +75,7 @@ def publishable(finding: Finding, run_id: uuid.UUID | None) -> PublishableFindin
         # that touched one file must not be presented as having introduced
         # everything the repository already had.
         is_new=run_id is not None and finding.first_run_id == run_id,
+        license_bands=license_bands_from_mappings(finding.mappings),
     )
 
 
@@ -87,6 +88,7 @@ def gate_findings(findings: Sequence[PublishableFinding]) -> list[GateFinding]:
             confidence=Confidence.HIGH,
             stability="deterministic",
             status="new" if finding.is_new else "confirmed",
+            license_bands=finding.license_bands,
         )
         for finding in findings
         if finding.severity in {item.value for item in Severity}

@@ -12,6 +12,7 @@ from typing import Any
 
 import yaml
 
+from app.core.appsec.supplychain.licenses import LicenseRisk
 from app.core.gate.model import (
     DEFAULT_STABILITY,
     Exclusion,
@@ -25,6 +26,8 @@ from app.core.gate.model import (
     severity_at_least,
 )
 from app.core.probes.models import Confidence, Severity
+
+_LICENSE_BANDS = frozenset(risk.value for risk in LicenseRisk)
 
 # Statuses a human has already ruled on. Re-blocking a pipeline on a finding
 # somebody accepted or marked a false positive would make the triage workflow
@@ -72,6 +75,7 @@ def load_config(raw: str) -> GateConfig:
         "min_confidence",
         "require_stability",
         "ignore",
+        "forbidden_license_bands",
     }
     unknown = sorted(set(section) - allowed)
     if unknown:
@@ -90,6 +94,7 @@ def load_config(raw: str) -> GateConfig:
         min_confidence=_confidence(section.get("min_confidence")),
         require_stability=_stability(section.get("require_stability")),
         ignores=_ignores(section.get("ignore")),
+        forbidden_license_bands=_license_bands(section.get("forbidden_license_bands")),
     )
 
 
@@ -98,7 +103,9 @@ def evaluate(
 ) -> GateDecision:
     """Decide, and say why."""
     moment = today or datetime.now(UTC).date()
-    blocking: list[GateFinding] = []
+    severity_blocking: list[GateFinding] = []
+    forbidden_band_matches: list[GateFinding] = []
+    matched_bands: set[str] = set()
     excluded: list[Exclusion] = []
     counted: dict[Severity, int] = dict.fromkeys(Severity, 0)
 
@@ -114,16 +121,39 @@ def evaluate(
         # indefensible, and someone writing that list is saying "this bad and
         # worse", not "exactly this".
         if config.fail_on and severity_at_least(finding.severity, _floor(config.fail_on)):
-            blocking.append(finding)
+            severity_blocking.append(finding)
+
+        # A forbidden licence band blocks independently of severity (§23's
+        # threshold model and an operator's licence policy are different
+        # questions — see `GateConfig.forbidden_license_bands`), so this is
+        # a second, separate trigger rather than another severity to reach.
+        # Kept as its own list rather than folded into `severity_blocking`,
+        # so a finding that happens to trip both still gets exactly one
+        # reason line per trigger, not a doubled or dropped count.
+        hit_bands = set(finding.license_bands) & set(config.forbidden_license_bands)
+        if hit_bands:
+            matched_bands |= hit_bands
+            forbidden_band_matches.append(finding)
 
     reasons: list[str] = []
-    if blocking:
-        listed = ", ".join(sorted({item.severity.value for item in blocking}))
+    if severity_blocking:
+        listed = ", ".join(sorted({item.severity.value for item in severity_blocking}))
         floor = _floor(config.fail_on).value
         reasons.append(
-            f"{len(blocking)} finding(s) at or above {floor} ({listed}) — fail_on is "
+            f"{len(severity_blocking)} finding(s) at or above {floor} ({listed}) — fail_on is "
             f"{', '.join(severity.value for severity in config.fail_on)}"
         )
+    if forbidden_band_matches:
+        reasons.append(
+            f"{len(forbidden_band_matches)} finding(s) carry a forbidden licence band "
+            f"({', '.join(sorted(matched_bands))}) — forbidden_license_bands is "
+            f"{', '.join(config.forbidden_license_bands)}"
+        )
+
+    blocking: list[GateFinding] = list(severity_blocking)
+    for finding in forbidden_band_matches:
+        if finding not in blocking:
+            blocking.append(finding)
 
     if config.max_high is not None and counted[Severity.HIGH] > config.max_high:
         reasons.append(
@@ -254,6 +284,23 @@ def _ignores(value: Any) -> tuple[Ignore, ...]:
                 expires=_date(item["expires"]),
             )
         )
+    return tuple(out)
+
+
+def _license_bands(value: Any) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    if not isinstance(value, list):
+        raise GateConfigError("forbidden_license_bands must be a list")
+    out: list[str] = []
+    for item in value:
+        text = str(item).strip().lower()
+        if text not in _LICENSE_BANDS:
+            raise GateConfigError(
+                f"unknown licence band in forbidden_license_bands: {item!r}; expected one "
+                f"of {', '.join(sorted(_LICENSE_BANDS))}"
+            )
+        out.append(text)
     return tuple(out)
 
 

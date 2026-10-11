@@ -20,6 +20,7 @@ from collections.abc import Callable
 
 from app.core.appsec.contract import EngineMeta, Pillar
 from app.core.appsec.supplychain.licenses import (
+    LICENSE_BAND_FRAMEWORK_PREFIX,
     OBLIGATIONS,
     LicenseRisk,
     classify,
@@ -199,6 +200,7 @@ class LicenseRiskEngine:
                     ),
                     probe_id=self.meta.id,
                     probe_version=self.meta.version,
+                    frameworks=(f"{LICENSE_BAND_FRAMEWORK_PREFIX}{risk.value}",),
                 )
             )
         return results
