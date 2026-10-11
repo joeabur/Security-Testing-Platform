@@ -72,7 +72,12 @@ from app.core.agent.tool_config import (
     permitted_tools,
     validate_role_override,
 )
-from app.core.agent.tools.contract import RiskLevel, ToolExecutionError, ToolNotFoundError
+from app.core.agent.tools.contract import (
+    RiskLevel,
+    ToolExecutionError,
+    ToolNotFoundError,
+    ToolRateLimitedError,
+)
 from app.core.agent.tools.registry import agent_tools, tools_by_name
 from app.core.assistant.autonomy import AutonomyMode
 from app.core.assistant.provider import ProviderError
@@ -607,6 +612,28 @@ async def call_tool(
         )
         await db.commit()
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ToolRateLimitedError as exc:
+        # Ahead of the general `ToolExecutionError` clause below, since this
+        # is a subclass of it: the caller did nothing wrong about *this*
+        # call, so 429 with `Retry-After`, matching `enforce()`'s own shape
+        # (`app/core/ratelimit/dependency.py`) — not the 409 a domain
+        # refusal gets.
+        duration_ms = int((time.monotonic() - started) * 1000)
+        await record_tool_call(
+            db,
+            ctx,
+            tool_name=tool.name,
+            risk_level=tool.risk_level,
+            status="deny",
+            duration_ms=duration_ms,
+            error_code=exc.rule_name,
+        )
+        await db.commit()
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=str(exc),
+            headers={"Retry-After": str(exc.retry_after_seconds)},
+        ) from exc
     except ToolExecutionError as exc:
         duration_ms = int((time.monotonic() - started) * 1000)
         await record_tool_call(
