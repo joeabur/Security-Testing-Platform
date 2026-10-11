@@ -20,6 +20,12 @@ from app.core.appsec.sca.pip_audit_engine import PipAuditEngine
 from app.core.appsec.secrets.engine import SecretScanEngine
 from app.core.appsec.secrets.gitleaks_engine import GitleaksEngine
 from app.core.appsec.supplychain.eol_engine import EndOfLifeRuntimeEngine
+from app.core.appsec.supplychain.freshness.engine import (
+    FreshnessGoEngine,
+    FreshnessNpmEngine,
+    FreshnessPypiEngine,
+    FreshnessRustEngine,
+)
 from app.core.appsec.supplychain.license_engine import LicenseRiskEngine
 from app.core.appsec.supplychain.malware_engine import MaliciousPackageEngine
 from app.core.appsec.supplychain.typosquat_engine import NameConfusionEngine
@@ -53,7 +59,7 @@ def appsec_engines(*, allow_advisory_lookup: bool = False) -> list[AppSecEngine]
         # is still in the history, and one that was ever pushed is compromised.
         GitleaksEngine(),
         CheckovEngine(),
-        # Supply-chain analysis. None of these reach the network, and all four
+        # Supply-chain analysis. None of these four reach the network, and all
         # answer questions an advisory database cannot: an end-of-life runtime
         # has no CVE, a licence obligation is not a vulnerability, "is this the
         # package you meant" has no advisory behind it at all, and a vendored
@@ -62,6 +68,15 @@ def appsec_engines(*, allow_advisory_lookup: bool = False) -> list[AppSecEngine]
         LicenseRiskEngine(),
         NameConfusionEngine(),
         MaliciousPackageEngine(),
+        # The one supply-chain signal that *does* reach the network: whether a
+        # dependency's resolved version was published suspiciously recently.
+        # Same disclosure consent as the OSV engines above, since this also
+        # sends a resolved dependency's name and version to a third party —
+        # here, the ecosystem's own public registry rather than osv.dev.
+        FreshnessNpmEngine(allow_advisory_lookup=allow_advisory_lookup),
+        FreshnessPypiEngine(allow_advisory_lookup=allow_advisory_lookup),
+        FreshnessGoEngine(allow_advisory_lookup=allow_advisory_lookup),
+        FreshnessRustEngine(allow_advisory_lookup=allow_advisory_lookup),
         # Filesystem mode, not `docker pull`: see the module docstring for why
         # pulling a base image is not something this engine does on its own.
         ContainerScanEngine(),
