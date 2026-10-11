@@ -145,7 +145,7 @@ impression (`docs/competitive-gap-analysis.md` has the full citations).
 | Agent security: goal hijacking | Covered — `ai.agent.goal_hijacking` (`KERVY-AI-034`), see "RAG and agent security" below |
 | Agent security: tool manipulation, memory poisoning, chain manipulation | Not covered — would need visibility into which tool was actually invoked, persisted memory, or a tool-chain's own data flow, none of which the generic `Ask` interface exposes |
 | Output security: XSS, SQL injection | Covered — see Coverage above |
-| Output security: command injection sink | Not covered — four sinks exist (html/markdown-image/template/sql); no shell sink |
+| Output security: command injection sink | Covered — five sinks exist (html/markdown-image/template/sql/shell), see Coverage above |
 
 None of these are security-boundary gaps the way the DAST egress hole was
 (`docs/egress-security.md`) — they are coverage/breadth gaps, exactly

@@ -190,6 +190,19 @@ async def test_output_handling_finding_does_not_claim_exploitability(
     assert result.confidence.value == "MEDIUM"
 
 
+async def test_output_handling_probe_detects_every_declared_sink(
+    vulnerable_results: list[ScanResult],
+) -> None:
+    """Every sink `_SINKS` declares (`app/core/probes/ai/output_handling.py`)
+    must actually be exercised and detected against the lab app — a sink
+    present in the probe's own table but absent here would mean the lab
+    app's generic echo path silently stopped covering it."""
+    result = next(r for r in vulnerable_results if r.id == "KERVY-AI-012")
+
+    for sink in ("html", "markdown_image", "template", "sql_fragment", "shell_fragment"):
+        assert sink in result.description, f"{sink} missing from {result.description!r}"
+
+
 async def test_every_run_records_how_detection_was_done(
     vulnerable_results: list[ScanResult], hardened_results: list[ScanResult]
 ) -> None:
