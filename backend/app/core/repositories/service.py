@@ -97,6 +97,7 @@ class RepositoryScopeInput:
     allowed_paths: list[str]
     excluded_paths: list[str]
     max_repo_size_mb: int
+    allow_advisory_lookup: bool = False
 
 
 def _build_repo_ref(url: str, branch: str | None) -> str:
@@ -213,6 +214,7 @@ async def create_repository(
                 # general allowlist. Adding this repository authorizes
                 # cloning from its own host, nothing wider.
                 "allowed_repo_hosts": [ref.host],
+                "allow_advisory_lookup": scope.allow_advisory_lookup,
             },
             appsec_budgets={},
         )

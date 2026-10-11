@@ -7185,3 +7185,129 @@ reachability-decoration test each in `tests/test_osv_go_engine.py` and
 tests total across the ten reachability/OSV files). Full backend suite
 re-run to confirm nothing else broke. Confirmed no `pyproject.toml`/
 `uv.lock` change was needed — no new dependency for either language.
+
+## Advisory-lookup consent, wired for real, plus direct NVD/GHSA enrichment
+
+While researching `docs/competitive-gap-analysis.md` item 20 (direct
+NVD/GHSA clients), a materially more important discovery came first: this
+session's whole body of OSV/pip-audit work above has been **dead code in
+production**. `appsec_engines(*, allow_advisory_lookup: bool = False)`
+(`app/core/appsec/registry.py`) had exactly one real call site —
+`_prepare_code_check()` in `app/workers/tasks.py` — and that call passed
+zero arguments, silently defaulting to `False`. No `RulesOfEngagement`/
+`Target`/API field existed to turn it on, so every real scan has always
+shown the `KERVY-APPSEC-000` disclosure-gap finding instead of ever
+querying `osv.dev` or pip-audit's own advisory database. This is a bug
+fix, not a feature — stated plainly rather than folded quietly into the
+enrichment work below, which would have faced the identical "nobody can
+ever turn it on" problem if wired independently.
+
+**Delivered — wiring.**
+- `allow_advisory_lookup` is now a real, operator-settable key inside
+  `code_scope` (an open-ended JSON dict on `RulesOfEngagementRecord`;
+  adding a key needed no migration, the same way `allowed_repo_hosts` and
+  `ContainerScopeIn.allow_live_pull` already work). Both real paths that
+  write `code_scope` carry it: `RepositoryCreate` → `RepositoryScopeInput`
+  → `create_repository()` (the fast path), and `CodeScopeIn` →
+  `configure_code_scope()` (the direct Rules-of-Engagement path).
+- `_prepare_code_check()` now reads `raw_scope.get("allow_advisory_lookup",
+  False)` once and passes that single value to both
+  `appsec_engines(allow_advisory_lookup=flag)` and the new
+  `CodeScanCheck(..., allow_advisory_lookup=flag)` field — the pip-audit/
+  OSV engines and the new enrichment step share one operator decision.
+- `kervy_cli repo add` gets `--allow-advisory-lookup`, mirroring
+  `--max-repo-size-mb`'s conditional-set style.
+- No frontend change: `code_scope` had no editing form in `frontend/`
+  before this pass either (only base Rules-of-Engagement fields do) —
+  API/CLI-only is the already-precedented pattern for this dict, not a
+  gap this change introduces.
+
+**Delivered — NVD/GHSA enrichment (`docs/competitive-gap-analysis.md`
+item 20).** A new `app/core/appsec/enrichment/` package, gated by the
+same now-functional `allow_advisory_lookup` flag:
+- `egress.py`: the fourth fixed-host egress context after
+  `osv/egress.py`/`assistant/egress.py`/`integrations/egress.py`/
+  `vcs/egress.py` — `NVD_HOST = "services.nvd.nist.gov"`,
+  `GHSA_HOST = "api.github.com"`, each with its own `Budgets` and a
+  `*_egress_context()` builder. Both are called **unauthenticated** —
+  confirmed via research, not assumed: NVD's CVE API 2.0 and GitHub's
+  `GET /advisories/{id}` both work without a key for public data, just at
+  a lower, still-workable rate limit.
+- `nvd_client.py` / `ghsa_client.py`: thin `GatedTransport`-based clients
+  mirroring `OsvClient`'s own shape — a typed error per client, a 404
+  treated as "nothing found" rather than an error, a non-2xx or
+  unparseable body raising.
+- `advisory_detail.py`: `enrich_findings()`, the module's entry point.
+  Dispatches on each result's primary advisory id (`frameworks[0]`, the
+  same id every `KERVY-SCA-{primary}` finding id is already built from)
+  to NVD (`CVE-` prefix) or GHSA (`GHSA-` prefix); a small in-call cache
+  dedupes a shared id across findings, bounded at
+  `MAX_ENRICHMENT_LOOKUPS = 25` distinct ids. Enrichment is **additive
+  only**: real CVSS score/vector and description are appended to
+  `description` as narrative text via `dataclasses.replace()` (`ScanResult`
+  is frozen) — `severity`/`confidence` never change, the same
+  architectural boundary every reachability pass this session has
+  preserved. A failed lookup (404, timeout, scope refusal, malformed
+  body) leaves that one finding exactly as it already was, never a crash
+  and never its own gap-finding — losing optional extra detail on an
+  already-complete finding is not the same information loss as OSV's own
+  `_query_failed` losing primary discovery.
+- `CodeScanCheck` (`app/core/orchestrator/code_check.py`) calls
+  `enrich_findings()` once, after its engine loop, over the accumulated
+  `self.scan_results` — not a second gate per engine.
+
+**Decisions.**
+- **`requests_per_second` in the new `Budgets` is documentary, not an
+  enforced throttle** — confirmed via direct inspection of
+  `BudgetTracker.reserve()`/`peek()` (`app/core/scope/budgets.py`), which
+  only ever checks `max_requests`/`max_wall_clock_minutes`/tokens/cost;
+  the same is already true of `OSV_BUDGETS`'s own
+  `requests_per_second=5.0`. A vendor 429/403 is handled as any other
+  failed lookup: skipped, not crashed on — correct because enrichment is
+  additive, never required.
+- **NVD/GHSA are enrichment-only, not a second discovery engine.** Both
+  are keyed by CVE/GHSA id, not by package+version — useful for adding
+  CVSS/description detail to a finding that already names a verified
+  advisory id, but not for discovering which CVEs apply to a dependency
+  the way `osv.dev`'s own batch endpoint does.
+- **Only CVSS v3.0/v3.1 metrics are read from NVD.** A record carrying
+  only a v2 score is a named limitation, not chased — v2's schema nests
+  `baseSeverity` differently from v3, and current CVEs overwhelmingly
+  carry v3 data.
+- **No gap-finding on an enrichment failure, unlike OSV's own
+  `_query_failed`** — a reasoned decision, not an oversight: see
+  "additive only" above.
+
+**Correction to this session's own earlier "Delivered" claims.** The
+npm/PyPI/Go/Rust/Java OSV-engine sections above were accurate about what
+was *built* — the engines, the parsers, the reachability analysis — but
+not about whether any of it could ever run in production, since the
+consent flag gating all of them had no way to be set to `True` before
+this pass. That gap is now closed by the wiring above, not by rewriting
+six already-shipped sections.
+
+**Deferred, stated plainly.** True call-graph-level reachability and
+Java reachability remain open, carried forward in
+`docs/competitive-gap-analysis.md`, unaffected by this pass.
+
+**Verified.** `ruff check .` and `mypy app kervy_cli` clean. New
+`tests/test_nvd_client.py` (16 tests, including the real-`ScopeEngine`
+"permits exactly `services.nvd.nist.gov` / refuses every other host"
+pair), `tests/test_ghsa_client.py` (14 tests, same real-scope-engine
+pair for `api.github.com`), and `tests/test_advisory_detail.py` (10
+tests: CVE- and GHSA-primary enrichment, severity/confidence unchanged,
+no-`frameworks` and unverifiable-id pass-through, a failed lookup left
+unchanged, a shared id looked up once, the `MAX_ENRICHMENT_LOOKUPS`
+bound). Extended `tests/test_appsec_engines.py` (enrichment runs once
+after the engine loop when enabled; is skipped entirely when disabled —
+the regression guard for the old default-off behavior),
+`tests/test_code_scope_api.py` and `tests/test_repositories_api.py`
+(`allow_advisory_lookup` reaches the persisted `code_scope` dict through
+both real write paths, read back via the database rather than through
+`TargetRead`/`RepositoryRead`, which do not surface this dict directly),
+and `tests/test_cli.py` (`--allow-advisory-lookup` reaches the request
+body only when passed). Full backend suite re-run to confirm nothing
+else broke. Confirmed no `pyproject.toml`/`uv.lock` change was needed —
+no new dependency for either NVD or GHSA, same plain `GatedTransport`
+OSV already uses. Confirmed no Alembic migration was needed — `code_scope`
+was already a JSON column.

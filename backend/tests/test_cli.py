@@ -408,6 +408,58 @@ def test_repo_add_posts_the_url_and_authorized_flag(profile: Profile) -> None:
     }
 
 
+@respx.mock
+def test_repo_add_passes_allow_advisory_lookup_when_set(profile: Profile) -> None:
+    """A separate consent from `--authorized`: only reaches the request
+    body when the flag is passed, mirroring `--max-repo-size-mb`'s own
+    conditional-set style."""
+    route = respx.post(f"{BASE_URL}/organizations/{ORG}/repositories").mock(
+        return_value=httpx.Response(
+            201, json={"id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "name": "Example"}
+        )
+    )
+
+    code = cli.main(
+        [
+            "repo",
+            "add",
+            "--name",
+            "Example",
+            "--url",
+            "https://example.test/org/repo.git",
+            "--authorized",
+            "--allow-advisory-lookup",
+        ]
+    )
+
+    assert code == 0
+    assert json.loads(route.calls.last.request.content)["allow_advisory_lookup"] is True
+
+
+@respx.mock
+def test_repo_add_omits_allow_advisory_lookup_when_not_set(profile: Profile) -> None:
+    route = respx.post(f"{BASE_URL}/organizations/{ORG}/repositories").mock(
+        return_value=httpx.Response(
+            201, json={"id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "name": "Example"}
+        )
+    )
+
+    code = cli.main(
+        [
+            "repo",
+            "add",
+            "--name",
+            "Example",
+            "--url",
+            "https://example.test/org/repo.git",
+            "--authorized",
+        ]
+    )
+
+    assert code == 0
+    assert "allow_advisory_lookup" not in json.loads(route.calls.last.request.content)
+
+
 def test_repo_add_without_authorized_refuses_before_any_request(profile: Profile) -> None:
     """Client-side, before the request is even built: the same requirement
     the API enforces server-side, checked here so a scripted call fails

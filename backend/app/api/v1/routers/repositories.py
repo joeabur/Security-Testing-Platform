@@ -79,6 +79,7 @@ async def add_repository(
         allowed_paths=payload.allowed_paths,
         excluded_paths=payload.excluded_paths,
         max_repo_size_mb=payload.max_repo_size_mb,
+        allow_advisory_lookup=payload.allow_advisory_lookup,
     )
     try:
         target = await create_repository(

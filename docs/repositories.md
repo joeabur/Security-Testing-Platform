@@ -52,6 +52,16 @@ Equivalent API call: `POST /organizations/{organization_id}/repositories`
 optional `languages`, `allowed_paths`/`excluded_paths` (default: everything)
 and `max_repo_size_mb` fields.
 
+`--allow-advisory-lookup` is a second, separate consent: connecting a
+repository does not by itself authorize sending its dependency and
+advisory ids to a third party (`osv.dev`, and NVD/GHSA for CVE/GHSA-id
+enrichment). Off by default — without it, pip-audit's and the OSV
+engines' own advisory lookups report a disclosure gap
+(`KERVY-APPSEC-000`) instead of ever reaching the network. Passing it
+sets `allow_advisory_lookup: true` in the stored `code_scope`, read once
+by `_prepare_code_check()` and applied to every advisory-lookup-gated
+engine and to NVD/GHSA enrichment alike, so one flag covers all of it.
+
 The same host- and scheme-allowlisting `app/core/appsec/checkout.py`
 already enforces for a target-attached repository applies here — `https`
 or `file` only, no inline credentials in the URL, and the clone is

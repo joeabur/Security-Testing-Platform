@@ -25,7 +25,7 @@ from app.core.appsec.sast.semgrep_engine import SemgrepEngine
 from app.core.appsec.secrets.gitleaks_engine import GitleaksEngine, report_path
 from app.core.appsec.tooling import tool_available
 from app.core.appsec.workspace import CodeScope, CodeScopeError, resolve_workspace
-from app.core.probes.models import Confidence, ScanResult, Severity
+from app.core.probes.models import Category, Confidence, ScanResult, Severity
 
 REPOS = Path(__file__).parent / "lab" / "repos"
 SCOPE = CodeScope(allowed_paths=("src/**", "infra/**", "requirements.txt"))
@@ -334,6 +334,93 @@ async def test_the_code_check_stops_when_the_run_halts() -> None:
 
     assert await check.run(ctx, GatedTransport()) == []
     assert check.scan_results == []
+
+
+async def test_advisory_enrichment_runs_once_after_every_engine_when_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`allow_advisory_lookup=True` enriches the accumulated results once,
+    after the engine loop — not a second gate per engine."""
+    import app.core.orchestrator.code_check as code_check_module
+    from app.core.appsec.contract import EngineMeta, Pillar
+    from app.core.orchestrator.code_check import CodeScanCheck
+    from app.core.scope.transport import GatedTransport
+    from tests.security.conftest import make_context
+
+    calls: list[list[ScanResult]] = []
+
+    async def _fake_enrich(results: list[ScanResult]) -> list[ScanResult]:
+        calls.append(results)
+        return [*results, results[0]] if results else results
+
+    monkeypatch.setattr(code_check_module, "enrich_findings", _fake_enrich)
+
+    class _OneFinding:
+        meta = EngineMeta(
+            id="appsec.test.one",
+            version="1.0.0",
+            name="One finding engine",
+            pillar=Pillar.SCA,
+            tool="none",
+            description="",
+        )
+
+        def applies_to(self, workspace: object) -> bool:
+            return True
+
+        async def run(self, workspace: object) -> list[ScanResult]:
+            return [
+                ScanResult(
+                    id="KERVY-SCA-CVE-2024-1234",
+                    title="A finding",
+                    category=Category.INFRASTRUCTURE,
+                    severity=Severity.HIGH,
+                    confidence=Confidence.HIGH,
+                    endpoint="requirements.txt",
+                    description="original",
+                    evidence="evidence",
+                    impact="impact",
+                    remediation="remediation",
+                    probe_id="test",
+                    probe_version="1",
+                )
+            ]
+
+    check = CodeScanCheck(
+        engines=[_OneFinding()],
+        workspace=_workspace("hardened"),
+        allow_advisory_lookup=True,
+    )
+
+    await check.run(make_context(), GatedTransport())
+
+    assert len(calls) == 1
+    assert len(check.scan_results) == 2  # the fake enrichment's extra copy
+
+
+async def test_advisory_enrichment_is_skipped_when_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The regression guard: `allow_advisory_lookup=False` (the default)
+    never calls enrichment at all."""
+    import app.core.orchestrator.code_check as code_check_module
+    from app.core.orchestrator.code_check import CodeScanCheck
+    from app.core.scope.transport import GatedTransport
+    from tests.security.conftest import make_context
+
+    calls: list[list[ScanResult]] = []
+
+    async def _fake_enrich(results: list[ScanResult]) -> list[ScanResult]:
+        calls.append(results)
+        return results
+
+    monkeypatch.setattr(code_check_module, "enrich_findings", _fake_enrich)
+
+    check = CodeScanCheck(engines=appsec_engines(), workspace=_workspace("vulnerable"))
+
+    await check.run(make_context(), GatedTransport())
+
+    assert calls == []
 
 
 # --- SCA normalization ---------------------------------------------------

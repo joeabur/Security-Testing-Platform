@@ -1061,4 +1061,9 @@ async def _prepare_code_check(target: Target, checkout_dir: "Path") -> CodeScanC
     )
     await clone_repository(ref, checkout_dir / "repo")
     workspace = build_workspace(target, checkout_dir / "repo")
-    return CodeScanCheck(engines=appsec_engines(), workspace=workspace)
+    allow_advisory_lookup = bool(raw_scope.get("allow_advisory_lookup", False))
+    return CodeScanCheck(
+        engines=appsec_engines(allow_advisory_lookup=allow_advisory_lookup),
+        workspace=workspace,
+        allow_advisory_lookup=allow_advisory_lookup,
+    )

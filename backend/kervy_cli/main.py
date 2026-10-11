@@ -171,6 +171,8 @@ def cmd_repo_add(args: argparse.Namespace, profile: Profile) -> ExitCode:
         body["excluded_paths"] = args.excluded_path
     if args.max_repo_size_mb:
         body["max_repo_size_mb"] = args.max_repo_size_mb
+    if args.allow_advisory_lookup:
+        body["allow_advisory_lookup"] = args.allow_advisory_lookup
     _emit(_client(profile).request("POST", f"/organizations/{org}/repositories", json_body=body))
     return ExitCode.PASS
 
@@ -1093,6 +1095,14 @@ def _parser() -> argparse.ArgumentParser:
     )
     repo_add.add_argument("--excluded-path", action="append", help="glob, repeatable")
     repo_add.add_argument("--max-repo-size-mb", type=int)
+    repo_add.add_argument(
+        "--allow-advisory-lookup",
+        action="store_true",
+        help=(
+            "separate consent to send verified advisory ids to osv.dev/NVD/GHSA "
+            "for discovery and enrichment (off by default)"
+        ),
+    )
     repo_add.set_defaults(handler=cmd_repo_add)
     repo.add_parser("list").set_defaults(handler=cmd_repo_list)
     repo_show = repo.add_parser("show")
