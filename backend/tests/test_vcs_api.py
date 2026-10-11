@@ -7,6 +7,7 @@ question someone asks after the fact.
 """
 
 import uuid
+from datetime import UTC, datetime
 
 import pytest
 from httpx import AsyncClient
@@ -16,7 +17,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.core.csrf import anon as csrf_anon
 from app.core.csrf.enforce import HEADER_NAME
+from app.core.probes.models import Category, Confidence, Severity
+from app.core.vcs.service import findings_for_run
 from app.models.audit import AuditEvent
+from app.models.finding import Finding, Stability
 from app.models.vcs import PullRequestPost, VcsConnection
 
 TOKEN = "ghp_exampleexampleexampleexample5678"  # pragma: allowlist secret
@@ -88,6 +92,39 @@ def connection_payload(**extra: object) -> dict[str, object]:
         "token_env_var": TOKEN_ENV,
         **extra,
     }
+
+
+def _finding_row(*, organization_id: uuid.UUID, run_id: uuid.UUID, fingerprint: str) -> Finding:
+    """The minimal valid row `findings_for_run` can select — real
+    findings/promotion is a different module's concern; this one only
+    needs a shape the `Finding` model accepts."""
+    now = datetime.now(UTC)
+    return Finding(
+        organization_id=organization_id,
+        fingerprint=fingerprint,
+        title="A finding",
+        category=Category.INFRASTRUCTURE,
+        probe_id="test",
+        probe_version="1",
+        surface="https://acme-api.example.test/",
+        severity=Severity.HIGH,
+        severity_rationale="7/10",
+        confidence=Confidence.HIGH,
+        stability=Stability.DETERMINISTIC,
+        risk_model="kervy-v1",
+        risk_score=7.0,
+        risk_inputs={},
+        description="d",
+        impact="i",
+        remediation="r",
+        reproduction=[],
+        mappings={},
+        mapping_versions={},
+        first_seen=now,
+        last_seen=now,
+        first_run_id=run_id,
+        last_run_id=run_id,
+    )
 
 
 async def test_a_connection_stores_no_token_only_a_variable_name(
@@ -362,6 +399,43 @@ async def test_a_failed_publish_still_leaves_a_record_and_an_audit_event(
     )
     assert listed.status_code == 200
     assert len(listed.json()) == 1
+
+
+async def test_a_duplicate_linked_finding_is_excluded_from_a_pull_request_publish(
+    client: AsyncClient, strong_password: str, db_session: AsyncSession
+) -> None:
+    """The same exclusion `app/core/reporting/build.py` already applies to a
+    run's own report: a finding a human has explicitly linked as a duplicate
+    of another must not also count twice toward a PR check run or the gate
+    it is judged by — that is the whole point of recording the link."""
+    org_id, headers = await _owner(client, strong_password, "r")
+    run_id = await _run(client, org_id, headers, db_session)
+
+    primary = _finding_row(
+        organization_id=uuid.UUID(org_id),
+        run_id=uuid.UUID(run_id),
+        fingerprint="sha256:" + "a" * 64,
+    )
+    duplicate = _finding_row(
+        organization_id=uuid.UUID(org_id),
+        run_id=uuid.UUID(run_id),
+        fingerprint="sha256:" + "b" * 64,
+    )
+    db_session.add_all([primary, duplicate])
+    await db_session.commit()
+
+    before = await findings_for_run(db_session, uuid.UUID(org_id), uuid.UUID(run_id))
+    assert {f.id for f in before} == {primary.id, duplicate.id}
+
+    link = await client.post(
+        f"/api/v1/organizations/{org_id}/findings/{duplicate.id}/duplicate",
+        json={"duplicate_of_finding_id": str(primary.id)},
+        headers=headers,
+    )
+    assert link.status_code == 200, link.text
+
+    after = await findings_for_run(db_session, uuid.UUID(org_id), uuid.UUID(run_id))
+    assert {f.id for f in after} == {primary.id}
 
 
 async def test_publishing_an_unknown_run_is_a_404_not_a_500(

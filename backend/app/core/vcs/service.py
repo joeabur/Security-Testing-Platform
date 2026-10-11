@@ -98,7 +98,15 @@ async def findings_for_run(
 ) -> list[Finding]:
     result = await db.execute(
         select(Finding).where(
-            Finding.organization_id == organization_id, Finding.last_run_id == run_id
+            Finding.organization_id == organization_id,
+            Finding.last_run_id == run_id,
+            # The same exclusion `app/core/reporting/build.py` already
+            # applies to a run's own report: a finding a human has
+            # explicitly linked as a duplicate of another
+            # (app/core/findings/service.py::link_duplicate) must not also
+            # count twice toward a PR check run or the gate it is judged
+            # by — that is the whole point of recording the link.
+            Finding.duplicate_of_finding_id.is_(None),
         )
     )
     return list(result.scalars().all())
