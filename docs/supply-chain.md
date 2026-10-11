@@ -207,10 +207,20 @@ Recorded rather than half-built:
   relationship to the Java package(s) it produces, unlike Go's
   import-path or Rust's deterministic hyphen-to-underscore crate-name
   mapping, so there is nothing to build the same kind of check on.
-* **A floating base image tag is not reported.** `FROM python:latest` and a
-  digest-only pin declare no version, so there is nothing to compare against a
-  support schedule and the EOL engine skips them. An unpinned base image is a
-  real finding of its own — it just is not this engine's.
+* **A floating base image tag is not this engine's finding, but it is
+  reported.** `FROM python:latest` and a digest-only pin both declare no
+  human-readable version, so there is nothing to compare against a support
+  schedule and the EOL engine skips them — that part was always true. What
+  was stale here was the conclusion: Checkov already runs against every
+  Dockerfile in scope (see "Container scanning" below, and
+  `app/core/appsec/iac/checkov_engine.py`), and its own built-in
+  `CKV_DOCKER_7` ("Ensure the base image uses a non latest version tag")
+  fires for exactly this — a bare `FROM python` or an explicit
+  `FROM python:latest` — confirmed live and pinned down by
+  `tests/test_checkov_engine.py`. It surfaces as `KERVY-IAC-CKV_DOCKER_7`.
+  A digest pin (`image@sha256:...`) is the opposite of floating — fully
+  reproducible — so it correctly triggers neither this check nor the EOL
+  engine's.
 * **No SBOM export from these engines** specifically; the dependency inventory
   that feeds an SBOM comes from `pip-audit`. A direct `osv.dev` query now
   also exists for npm, exactly-pinned PyPI, Go (`go.sum`), Rust
