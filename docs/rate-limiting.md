@@ -171,6 +171,39 @@ counted against.
 traffic this exists to bound, and throttling it would turn a rate limit
 into a self-inflicted outage detector.
 
+## The native agent's own tool-call budgets
+
+A tool call sits behind `api_default` like any other authenticated
+request, but a native-agent investigation can drive many of them in one
+request — a planning loop deciding its own next step, not a human clicking
+once per call. Two tighter, identity-dimension budgets exist for exactly
+that:
+
+| Rule | Budget |
+|---|---|
+| `agent_tool_call` | 60 calls / 5 min per identity |
+| `agent_sensitive_tool_call` | 10 calls / 10 min per identity |
+
+Enforced inside `Tool.invoke()` (`app/core/agent/tools/contract.py`) — the
+one place both the direct `POST .../agent/tools/{name}/call` route and
+`run_plan`'s step loop go through, so a tool declaring
+`rate_limit_rule` can never be reachable by a path that forgot to consume
+it. Keyed on `ctx.user_id`, not a client IP: `AgentContext` deliberately
+carries no HTTP request (it is reused by `run_plan`, which has none
+either), and every rule registered here is identity-only for that reason —
+`enforce()`'s own IP-deriving machinery is not reused, `limiter()` is,
+directly.
+
+A refusal raises `ToolRateLimitedError`, a `ToolExecutionError` subclass:
+the direct-call route answers **429 with `Retry-After`** (not the 409 a
+tool's own domain refusal gets), and `run_plan` stops the investigation at
+that step with `StepStatus.EXECUTION_ERROR` — the same outcome a tool's own
+refusal already produces, with no second code path to have forgotten. This
+is the control `agent_tool_call`'s own budget exists for: a runaway
+planning loop is stopped, not merely logged. A legitimate investigation —
+sixty reads in five minutes, ten sensitive actions in ten — is not the
+traffic either number is tuned against.
+
 ## Configuration
 
 | Variable | Default | Meaning |
@@ -192,17 +225,10 @@ Stated rather than implied:
   attack's shape the way `login`'s is. Giving a specific route its own
   tighter rule beyond that ceiling is a table entry in
   `app/core/ratelimit/policy.py` plus an `enforce()` call in its handler —
-  the machinery is general.
-- **Two more rules are registered but not yet wired to a route:**
-  `agent_tool_call` (60/5 min per identity) and `agent_sensitive_tool_call`
-  (10/10 min per identity), added to `policy.py` alongside the native agent's
-  tool registry ahead of the phase that calls them, the same way a policy
-  entry is meant to be added — not because a route already needs it today.
-  `docs/agent.md`'s own roadmap section lists per-tool rate limiting as still
-  deferred; nothing in `app/core/agent/runtime.py` calls `RateLimiter.check`
-  yet, so a tool's `rate_limit_rule` field is presently a declared intent, not
-  an enforced one. Do not cite this as "agent tool calls are rate limited"
-  until a route actually consumes it.
+  the machinery is general. (The native agent's `agent_tool_call`/
+  `agent_sensitive_tool_call` are the one pair of rules enforced somewhere
+  other than `enforce()` itself — see "The native agent's own tool-call
+  budgets" above.)
 - **Fixed window, not sliding.** An attacker can land up to `2 × limit`
   attempts across a window boundary. A sliding log would close that, at the
   cost of a sorted set per key and a read of every entry — which, under exactly

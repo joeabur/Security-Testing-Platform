@@ -7934,3 +7934,83 @@ per-finding-only channel). All pre-existing tests in both files re-run
 unchanged and still pass, confirming the below-threshold path is
 untouched. Confirmed no `pyproject.toml`/`uv.lock` change and no Alembic
 migration.
+
+## Wiring the native agent's per-tool rate-limit budgets
+
+`app/core/ratelimit/policy.py`'s own docstring and module comment said it
+plainly: `agent_tool_call` and `agent_sensitive_tool_call` were
+"registered ahead of need... but no route calls `check(\"agent_tool_call\",
+...)` yet." `docs/rate-limiting.md`, `docs/guardrails.md`, and
+`docs/agent.md` each separately named the same gap — a rare three-way doc
+consensus, not a stale claim one source alone might have gotten wrong.
+Confirmed in the real code before touching anything: every tool already
+carried its own `rate_limit_rule` (`app/core/agent/tools/contract.py`'s
+`Tool` dataclass), set per tool in `workflows.py`/`assets.py`/`runs.py`/
+etc., but nothing anywhere read it.
+
+**Delivered.** `Tool.invoke()` — the one call site both `run_plan`
+(`app/core/agent/runtime.py`) and the direct `POST .../tools/{name}/call`
+route already share — now consumes `self.rate_limit_rule` before calling
+the handler, when one is declared, keyed on `ctx.user_id`. A refusal
+raises the new `ToolRateLimitedError` (a `ToolExecutionError` subclass).
+`run_plan` needed no change at all: its existing
+`except (ToolNotFoundError, ToolExecutionError)` clause already catches
+the new subclass and stops the investigation with
+`StepStatus.EXECUTION_ERROR` — exactly the "a runaway loop is the thing
+worth stopping" outcome the policy's own budget exists for. The direct
+route gained one new `except` clause, ahead of its existing
+`ToolExecutionError` one, answering **429 with `Retry-After`** instead of
+the 409 a tool's own domain refusal gets.
+
+**Decisions.**
+
+- **Reused `limiter()`, not `enforce()`** (`app/core/ratelimit/
+  dependency.py`). `enforce()` requires a `Request` to derive a client IP,
+  and `AgentContext` deliberately carries no HTTP request — it is reused
+  by `run_plan`, which has none either, and its own module docstring
+  states it is a pure domain object, never persisted or tied to the HTTP
+  layer. Rather than thread a `Request` into that context for one caller's
+  convenience, both registered rules are identity-dimension-only
+  (confirmed in `policy.py`'s `POLICY` table), so `limiter().check(...,
+  client_ip="", identity=str(ctx.user_id))` never actually consults the
+  unused placeholder IP — `RateLimiter._key()` only reads `client_ip` for
+  an `IP`-dimension rule.
+- **A new exception type, not a bare `ToolExecutionError`.** Mapping a
+  rate-limit refusal to the same 409 every other domain refusal gets would
+  be the wrong HTTP status for it — this is exactly what `enforce()`
+  already answers 429 for elsewhere in this codebase, and a caller cannot
+  tell "stop retrying, your authorization lapsed" from "wait and retry" if
+  both arrive as the same exception. Making `ToolRateLimitedError` a
+  *subclass* of `ToolExecutionError` rather than a sibling was equally
+  deliberate: `run_plan`'s existing combined `except` clause needed zero
+  changes to handle it correctly, where a sibling type would have needed
+  a new clause there too.
+- **No new egress/scope-engine or RBAC change.** This sits in front of,
+  not instead of, the existing `authorize_tool`/role checks and the
+  SENSITIVE-tool approval gate — a budget bounding how often an already-
+  permitted action may run, not a new permission. `record_tool_call`'s
+  audit shape needed no change either: a 429 is recorded the same
+  `status="deny"` way a 404 or 409 already is, with `error_code` set to
+  the rule name rather than a message.
+
+**Deferred.** Nothing new — this closes exactly the gap all three docs
+already named, with no new scope opened.
+
+**Verified.** `ruff check .` and `mypy app` clean. New tests: a tool with
+no `rate_limit_rule` is never checked regardless of volume
+(`tests/test_agent_runtime.py`); `Tool.invoke()` raises
+`ToolRateLimitedError` once a tiny stand-in rule's budget is spent;
+`run_plan` stops a multi-step plan at the step that exceeds it, landing on
+`StepStatus.EXECUTION_ERROR` with the investigation `FAILED`; two
+different identities each get their own separate budget; the whole check
+is skipped when `rate_limit_enabled` is off, matching `enforce()`'s own
+honoured escape hatch. `tests/test_agent_api.py` gained the HTTP-level
+case: the direct-call route 429s with a `Retry-After` header once a tiny
+stand-in rule is exhausted. Every test swaps in a small `Rule` for speed
+rather than looping the real 60/5 min or 10/10 min budgets, the same
+reasoning `tests/security/test_rate_limit.py`'s own coarse-ceiling tests
+already use. All pre-existing tests in `test_agent_tools.py`,
+`test_agent_runtime.py`, `test_agent_api.py`, `test_agent_permissions.py`
+and `tests/security/test_rate_limit.py` re-run unchanged and still pass.
+Full backend suite re-run to confirm nothing else broke. Confirmed no
+`pyproject.toml`/`uv.lock` change and no Alembic migration.

@@ -255,8 +255,8 @@ honesty rule:
   ceiling instead (1200 req/5 min per IP, 600/5 min per identity) rather
   than RBAC alone — giving a route its own tighter budget beyond that is a
   table entry, not new machinery. The agent's own `agent_tool_call`/
-  `agent_sensitive_tool_call` policy entries are registered but not yet
-  wired to a route — `docs/rate-limiting.md`.
+  `agent_sensitive_tool_call` policy entries are enforced inside
+  `Tool.invoke()`, not via `enforce()` — `docs/rate-limiting.md`.
 - The optional AI judge, if an operator turns it on, is only as good as its
   published precision/recall — the platform does not validate that number
   for them.

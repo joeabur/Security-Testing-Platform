@@ -459,6 +459,38 @@ async def test_call_tool_404_when_the_tool_itself_cannot_find_its_target(
     assert response.status_code == 404
 
 
+async def test_call_tool_429s_once_the_identity_rate_limit_is_exhausted(
+    client: AsyncClient, strong_password: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`agent_tool_call`'s own identity budget (`app/core/ratelimit/policy.py`)
+    is enforced inside `Tool.invoke()` — the one place this direct-call
+    route and `run_plan` both go through — not just registered and never
+    consumed. A tiny rule is swapped in rather than looping the real 60/5
+    min budget's worth, the same reasoning `tests/security/test_rate_limit
+    .py`'s own coarse-ceiling tests already give for doing that."""
+    from app.core.ratelimit import policy as ratelimit_policy
+    from app.core.ratelimit.contract import Dimension, Rule
+
+    tiny = Rule(name="agent_tool_call", dimension=Dimension.IDENTITY, limit=3, window_seconds=60)
+    monkeypatch.setitem(ratelimit_policy.POLICY, "agent_tool_call", (tiny,))
+
+    org_id, target_id, headers = await _org_and_target(client, strong_password, "rl")
+
+    responses = [
+        await client.post(
+            f"/api/v1/organizations/{org_id}/agent/tools/get_asset/call",
+            json={"params": {"target_id": str(target_id)}},
+            headers=headers,
+        )
+        for _ in range(tiny.limit + 1)
+    ]
+
+    assert [response.status_code for response in responses[: tiny.limit]] == [200] * tiny.limit
+    refused = responses[tiny.limit]
+    assert refused.status_code == 429
+    assert "Retry-After" in refused.headers
+
+
 async def test_call_tool_422_for_invalid_params(client: AsyncClient, strong_password: str) -> None:
     org_id, _target_id, headers = await _org_and_target(client, strong_password, "n")
 

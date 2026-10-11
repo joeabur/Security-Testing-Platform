@@ -121,10 +121,14 @@ handler's real signature, validated on every call), `risk_level`,
 `minimum_role`, `handler`, `timeout_seconds`, `rate_limit_rule`.
 `Tool.invoke()` is the one call site every tool call passes through: it
 validates the raw argument dict against `input_model` before the handler
-ever sees it, calls the handler, and runtime-checks the result against
-`output_model` before returning it. The AI never gets a database session,
-a shell, or an HTTP client of its own — only what a registered tool
-exposes, and every tool wraps an *existing* service-layer function
+ever sees it, consumes `rate_limit_rule`'s own budget when one is declared
+(`docs/rate-limiting.md`'s "The native agent's own tool-call budgets" —
+keyed on the caller's identity, enforced before the handler runs, and
+raising `ToolRateLimitedError` rather than letting a runaway loop reach
+the handler at all), calls the handler, and runtime-checks the result
+against `output_model` before returning it. The AI never gets a database
+session, a shell, or an HTTP client of its own — only what a registered
+tool exposes, and every tool wraps an *existing* service-layer function
 in-process (the same `queue_run`, `build_report`, `trigger_from`/`start`,
 finding/asset queries the REST API itself calls), never a second HTTP hop
 back into the platform's own API.
@@ -418,6 +422,7 @@ The closed, five-table allowlist (`app/models/agent.py`):
   itself governed, and how the platform's separate AI *security testing*
   engine (attacking someone else's LLM application) differs from both.
 - `docs/roadmap.md` — the phase-by-phase build history, including what was
-  deliberately deferred (SSE streaming, per-tool rate limiting) and what a
-  later whole-system review found and fixed (`AgentTool.minimum_role_override`
-  enforcement — see the dedicated section above).
+  deliberately deferred (SSE streaming) and what a later whole-system
+  review found and fixed (`AgentTool.minimum_role_override` enforcement —
+  see the dedicated section above, and per-tool rate limiting, closed in
+  its own later section).
