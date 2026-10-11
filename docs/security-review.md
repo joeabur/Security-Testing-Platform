@@ -164,13 +164,16 @@ Stated plainly, because a review that lists only strengths is marketing.
 | No release has been cut | `release.yml` is written and structurally asserted, but has never run end to end |
 | No container image signing | Images are scanned; none is published, so none is signed |
 | No runtime-protection measurement | Claimed WAF/RASP controls are recorded and explicitly marked "not tested" |
-| A duplicate-linked finding still appears in a PR check run | `findings_for_run` (`app/core/vcs/service.py`) carries no filter on `duplicate_of_finding_id`; only a run's own report excludes it. See `docs/pull-requests.md` |
 
-Three rows that stood here through Phase 15 have been removed because the gaps
-were closed, not because they got quieter: container, licence and end-of-life
-scanning landed with the Aikido-parity engines; DAST landed in Phase 15 (with
-its own, narrower gap now listed above); and `mapping_versions` is populated
-from pinned framework editions as of Phase 13.
+Four rows that stood here through earlier phases have been removed because
+the gaps were closed, not because they got quieter: container, licence and
+end-of-life scanning landed with the Aikido-parity engines; DAST landed in
+Phase 15 (with its own, narrower gap now listed above); `mapping_versions`
+is populated from pinned framework editions as of Phase 13; and
+`findings_for_run` (`app/core/vcs/service.py`) now carries the same
+`duplicate_of_finding_id.is_(None)` filter the run's own report already
+applied (`app/core/reporting/build.py`), so a human-linked duplicate no
+longer counts twice toward a PR check run or the gate it is judged by.
 
 ### Malware scanning of dependencies
 

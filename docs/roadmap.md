@@ -7433,3 +7433,33 @@ change was needed — plain `GatedTransport`, same as every other registry
 client in this codebase. Confirmed no Alembic migration, schema, API, or
 CLI change was needed — this rides entirely on the `allow_advisory_lookup`
 plumbing the previous pass finished wiring end-to-end.
+
+## A duplicate-linked finding no longer counts twice toward a PR check run
+
+`docs/security-review.md`'s own gap table named this plainly:
+`findings_for_run` (`app/core/vcs/service.py`) carried no filter on
+`duplicate_of_finding_id`, so a finding a human had explicitly linked as
+a duplicate of another (`app/core/findings/service.py::link_duplicate`)
+still reached the PR check-run annotations and the gate evaluation
+(`evaluate()`, via `gate_findings()`) that decides whether the check run
+fails — the one place this exclusion existed anywhere in the codebase was
+a run's own report (`app/core/reporting/build.py`), confirmed via a full
+grep of `duplicate_of_finding_id` across `app/`.
+
+**Delivered.** `findings_for_run` now carries the same
+`Finding.duplicate_of_finding_id.is_(None)` filter the report's own query
+already applies, with the same comment explaining why. No other change
+needed: `publish()`'s own gate evaluation and check-run construction
+already operate on whatever `findings_for_run` returns, so filtering at
+the source closes both paths at once.
+
+**Verified.** `ruff check .` and `mypy app` clean. New
+`tests/test_vcs_api.py::test_a_duplicate_linked_finding_is_excluded_from_a_pull_request_publish`
+— two findings inserted directly against a real run, confirmed both are
+returned by `findings_for_run`, one is linked as a duplicate through the
+real `/findings/{id}/duplicate` endpoint, and `findings_for_run` is
+called again to confirm only the primary remains. `tests/test_vcs_api.py`
+(16 tests) and `tests/test_vcs.py` re-run to confirm nothing else broke.
+Full backend suite re-run. Confirmed no `pyproject.toml`/`uv.lock`
+change, no Alembic migration, and no schema/API/CLI change needed — this
+is a one-line query filter.
