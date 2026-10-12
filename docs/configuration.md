@@ -200,8 +200,10 @@ whatever `KERVY_PUBLIC_BASE_URL` is set to.
   owner's account has registered, with `KERVY_PLATFORM_OWNER_BOOTSTRAP_EMAIL`
   set — a deployment with zero platform owners has no way to grant one
   through the API itself (`POST /platform/owners` is platform-owner-only).
-- Separate database credentials for the app role; consider revoking `UPDATE` and
-  `DELETE` on `audit_logs` at the database level. The application never issues
-  them, but defence in depth here is cheap (tracked in `docs/roadmap.md`).
+- Separate database credentials for the app role. `UPDATE`/`DELETE` on
+  `audit_logs` are enforced at the database level (migration `fc7a77b3611c`
+  — a trigger, not just a `REVOKE`, since the runtime role is this table's
+  owner in every deployment this project documents and an owner can
+  `GRANT` a revoked privilege back to themselves).
 - Every credential variable present in the **worker's** environment.
 - Allowlists (`KERVY_NOTIFY_*`, `KERVY_VCS_ALLOWED_HOSTS`) set to the minimum.

@@ -13,11 +13,13 @@ class AuditEvent(UUIDPrimaryKeyMixin, Base):
     """Append-only audit log, mirrored from the hash-chained file log.
 
     Per docs/BUILD_SPEC.md §6.2 and §28: application code only ever inserts
-    rows here — it must never update or delete one. That invariant is
-    enforced by never exposing an update/delete path in the audit service
-    (app/audit/service.py), not by a database trigger in Phase 1; a
-    database-level enforcement (e.g. REVOKE UPDATE/DELETE for the app role)
-    is tracked in docs/roadmap.md for hardening in Phase 12.
+    rows here — it must never update or delete one. `app.audit.service` has
+    no such path at all, and the database itself refuses one too: migration
+    `fc7a77b3611c` installs a `BEFORE UPDATE OR DELETE` trigger on
+    `audit_logs` that raises, closing the gap a plain `REVOKE` alone would
+    leave open (the runtime role is this table's owner in every deployment
+    this project documents, and an owner can `GRANT` a revoked privilege
+    back to themselves — a trigger has no such escape hatch, by any role).
 
     `seq` is a real autoincrementing integer (unlike the UUID primary key)
     so the hash chain has an unambiguous, monotonic ordering to chain over.

@@ -51,6 +51,7 @@ being true. Most are both.
 | 35 | An organization cannot widen what the native agent may do below its code-defined floor | `AgentTool.minimum_role_override` can only *raise* a tool's required role, never lower it — `validate_role_override` refuses a write that would drop it below the code default, and `effective_minimum_role` takes `max(code default, org override)` even if a stored row somehow bypassed that guard; `AgentTool.enabled` and the effective minimum are both re-checked by `run_plan` on every step, including one resumed after an approval pause, not only when the plan was first built — `app/core/agent/tool_config.py`, `app/core/agent/runtime.py` |
 | 36 | Firing a real exploit requires two different people, not one role check twice | `ExploitationFire` starts `awaiting_approval` on `POST .../exploitation-fires`; `approve_fire` refuses with `409` if the approver is the same `user_id` as the requester, regardless of role — a lone Security Engineer (or Owner) cannot request and approve their own fire — `app/core/pentest/exploitation_service.py`, `app/models/exploitation.py` |
 | 37 | Every route under `/api/v1`, not only login and registration, is bounded against a scripted loop | `app.main`'s `api_rate_limit_middleware` applies a coarse `api_default` ceiling (IP always, identity when a bearer JWT's subject decodes for free) ahead of every route's own dependencies, covering any route added later the same way the CSRF middleware beside it already covers every route's CSRF check — `docs/rate-limiting.md` |
+| 38 | The audit log cannot be altered or deleted, by any role or any caller, once written | Migration `fc7a77b3611c` installs a `BEFORE UPDATE OR DELETE` trigger on `audit_logs` that raises, backed by `REVOKE UPDATE, DELETE` as defense in depth — a trigger, not a plain `REVOKE` alone, because the runtime role is this table's owner in every deployment this project documents, and an owner can `GRANT` a revoked privilege back to themselves; a trigger has no such escape hatch for any role — `alembic/versions/fc7a77b3611c_audit_log_append_only_enforcement.py` |
 
 ## The habit behind the tests
 
@@ -90,8 +91,6 @@ control itself would never see in production.
   allowlist is the control.
 - **SMTP is adjudicated, not carried.** The engine clears the relay host; it
   does not see the socket.
-- **Append-only is by construction, not by grant.** Revoking `UPDATE`/`DELETE`
-  on `audit_logs` at the database level is recommended and not enforced.
 - **Evidence is unencrypted at rest.**
 - **Rate limiting covers `login`/`register` and, since 2FA, social OAuth
   login and password reset shipped, `login/2fa`, `oauth_callback`, and

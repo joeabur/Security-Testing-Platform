@@ -29,10 +29,10 @@ Deferred out of Phase 1, with reasons:
   (`docs/BUILD_SPEC.md` §23) is a Phase 11 supply-chain hardening item;
   fabricating an unverified SHA here would risk silently breaking CI, which
   is worse than a correctly-behaving version tag pending that pass.
-- **Audit log table's append-only invariant is enforced by application code
-  only** — no database-level `REVOKE UPDATE, DELETE` on the `audit_logs`
-  table yet for the app's database role. Tracked for Phase 11 hardening
-  alongside the rest of the security review.
+- ~~Audit log table's append-only invariant is enforced by application code
+  only~~ — closed by a later migration (`fc7a77b3611c`, see the dated
+  section near the end of this file): a `BEFORE UPDATE OR DELETE` trigger
+  now enforces it at the database level, for any role.
 - **Docker image builds were not verified end-to-end in this build
   environment** — `docker compose config` validates the compose file's
   syntax and service graph, and the Dockerfiles were reviewed by hand, but
@@ -8158,3 +8158,74 @@ check does not alter any existing response code or ordering.
 `tests/security/test_rate_limit.py` re-run unchanged and still passes.
 Full backend suite re-run to confirm nothing else broke. Confirmed no
 `pyproject.toml`/`uv.lock` change and no Alembic migration.
+
+## Database-level append-only enforcement for the audit log
+
+Named consistently, in six places, since Phase 1: `app/models/audit.py`'s
+own docstring, this file's own Phase 1 entry (corrected above), and
+`docs/configuration.md`, `docs/deployment.md`, `docs/security-model.md`
+and `docs/threat-model.md` each separately said the same thing — the
+append-only invariant was enforced only by `app.audit.service` never
+exposing an update or delete path, not by the database. Confirmed still
+open before writing anything: no migration up to the previous head
+(`a2f6c1d9b4e7`) issued a `REVOKE` or a trigger on `audit_logs`, and no
+code anywhere calls anything but `record_event()`.
+
+**Delivered.** Migration `fc7a77b3611c`: a `BEFORE UPDATE OR DELETE`
+trigger on `audit_logs` that raises (`audit_logs_block_mutation()`), plus
+`REVOKE UPDATE, DELETE ON audit_logs FROM PUBLIC` alongside it. Verified
+live against the real test database, as `postgres` (this sandbox's own
+runtime role, which is also this table's owner): a raw `INSERT` still
+succeeds; a raw `UPDATE` and a raw `DELETE` each fail with the trigger's
+own message. Verified the downgrade too — drops cleanly and
+`alembic upgrade head` re-applies without error.
+
+**Decisions.**
+
+- **A trigger, not just the `REVOKE` the docs had been naming for five
+  years of elapsed project time.** `b2e6f4a91c7d`'s own docstring already
+  had to reckon with this exact fact for Row-Level Security: the runtime
+  database role, in every deployment this project documents, *is* the
+  table's owner — it is the role the migrations themselves run as. An
+  owner's own `REVOKE` on their own table is not self-binding; Postgres
+  lets an owner `GRANT` a revoked privilege back to themselves at will,
+  so a `REVOKE`-only approach would protect nothing in the one
+  configuration this project actually documents and tests against. A
+  `BEFORE` trigger has no such escape hatch: it fires on every
+  `UPDATE`/`DELETE` attempt regardless of who is making it. Confirmed
+  live, not assumed — the manual verification above ran as `postgres`
+  specifically because that is the role RLS is already documented
+  (guarantee #26's own footnote) to exempt unconditionally, making it
+  the one role where "does this actually still protect anything" was
+  worth asking before claiming the guarantee.
+- **The `REVOKE` is kept anyway**, as the cheap, zero-cost defense-in-depth
+  layer the docs already named wanting — it costs an attacker, or a bug,
+  one extra step in any deployment where the runtime role is *not* the
+  table owner, even though the trigger is what makes the guarantee real
+  everywhere, including the one documented configuration where the
+  `REVOKE` alone would not.
+- **A new numbered guarantee, not folded into an existing one.**
+  `docs/security-model.md` guarantee #38 — RLS (#26) guards row
+  *visibility*; this guards mutation *type*; the two are orthogonal and
+  were kept as separate, independently-verifiable claims rather than one
+  guarantee quietly covering two different mechanisms.
+
+**Deferred.** Nothing new — this closes exactly the gap all five other
+docs already named, with no new scope opened. The RLS migration's own
+still-open follow-up (a null-aware policy for `audit_logs`'s nullable
+`organization_id`, named in `b2e6f4a91c7d`'s own docstring) is a separate,
+orthogonal gap — row visibility, not mutation type — left exactly where
+it already was.
+
+**Verified.** `ruff check .` clean. New `tests/test_audit_log.py` (3
+tests, against the real Postgres test database): a raw `UPDATE` against
+`audit_logs` raises with the trigger's own message; a raw `DELETE` does
+too; `record_event()`'s own normal insert path is completely unaffected.
+Confirmed manually, live, that the trigger fires even for the `postgres`
+superuser role this sandbox's own test database runs as — the one role
+RLS is documented to exempt unconditionally, and exactly the role this
+migration needed to prove itself against rather than assume. Migration
+upgrade/downgrade/upgrade round-trip verified directly with `alembic
+upgrade head` / `alembic downgrade -1` / `alembic upgrade head`,
+independent of the test suite. Full backend suite re-run to confirm
+nothing else broke. Confirmed no `pyproject.toml`/`uv.lock` change.
