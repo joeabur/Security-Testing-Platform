@@ -32,12 +32,32 @@ TABLE = {
     "page_backed_stale": FrameworkVersion(
         version="AI 100-1 (2023)", retrieved="2024-01-01", source="nist.gov/itl/ai-rmf"
     ),
+    # Hosted on github.com, like `repo_backed`, but explicitly excluded from
+    # mechanical checking (`_NOT_MECHANICALLY_CHECKABLE`) because its
+    # upstream repository publishes no tags or releases — ships editions as
+    # branches instead. Must fall through to the by-date manual-review path
+    # like a page-backed framework, not sit forever in "could not be read".
+    "owasp_llm_2026": FrameworkVersion(
+        version="2026 edition",
+        retrieved="2026-09-17",
+        source="github.com/GenAI-Security-Project/GenAI-LLM-Top10",
+    ),
 }
 
 
 def test_only_repository_backed_frameworks_are_checked_mechanically() -> None:
     keys = {item.key for item in checkable(TABLE)}
     assert keys == {"repo_backed"}
+
+
+def test_a_github_hosted_framework_with_no_tags_is_not_mechanically_checkable() -> None:
+    """`owasp_llm_2026`'s repository hosts the edition but ships it as
+    branches, never a tag or a release — `checkable()` would otherwise
+    treat any `github.com` source as tag-comparable and report this one
+    "could not be read" every single week, forever."""
+    report = compare({}, frameworks=TABLE, today=TODAY)
+    assert "owasp_llm_2026" not in report.unknown
+    assert "owasp_llm_2026" in report.current
 
 
 def test_a_matching_upstream_version_is_current() -> None:
@@ -51,6 +71,22 @@ def test_a_moved_upstream_version_is_drift() -> None:
     assert report.drifted == {"repo_backed": ("v2026.09", "v2026.12")}
     assert report.needs_attention
     assert "Upstream has moved" in report.as_markdown()
+
+
+def test_a_non_version_tag_name_is_unknown_not_drift() -> None:
+    """`OWASP/ASVS`'s GitHub "latest" release is tagged literally `latest`,
+    not a version — confirmed live via `git ls-remote --tags`. Trusting
+    that string would report every pinned repo-backed framework as
+    "drifted to latest" the moment its own `latest` tag was anything but
+    a real version. A string with no digit in it cannot be a version, so
+    it must land in `unknown` ("a gap in this check"), never `drifted`
+    ("upstream has moved") — the workflow's own fetch step is fixed
+    separately to prefer a real version-shaped tag, but this is the
+    second, independently testable line of defense."""
+    report = compare({"repo_backed": "latest"}, frameworks=TABLE, today=TODAY)
+    assert report.drifted == {}
+    assert "repo_backed" in report.unknown
+    assert "latest" in report.unknown["repo_backed"]
 
 
 def test_a_failed_lookup_is_never_reported_as_current() -> None:
