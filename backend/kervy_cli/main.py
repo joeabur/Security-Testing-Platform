@@ -190,13 +190,24 @@ def cmd_repo_show(args: argparse.Namespace, profile: Profile) -> ExitCode:
 
 def cmd_repo_scan(args: argparse.Namespace, profile: Profile) -> ExitCode:
     org = _org(args, profile)
-    _emit(
-        _client(profile).request(
-            "POST",
-            f"/organizations/{org}/repositories/{args.repository}/scan",
-            json_body={"safe_mode": not args.unsafe},
-        )
+    client = _client(profile)
+    if args.dry_run:
+        # A dry run must not create anything, so it reports what would be
+        # scanned rather than queueing work — same shape as `scan --dry-run`,
+        # but a repository has no "surface" endpoint to call instead: its
+        # own detail (languages, allowed/excluded paths, max size) is what
+        # would actually be exercised, not a discovered attack surface.
+        _emit(client.request("GET", f"/organizations/{org}/repositories/{args.repository}"))
+        return ExitCode.PASS
+
+    run = client.request(
+        "POST",
+        f"/organizations/{org}/repositories/{args.repository}/scan",
+        json_body={"safe_mode": not args.unsafe},
     )
+    if args.wait:
+        run = _await_run(client, org, str(run["run_id"]), args.timeout)
+    _emit(run)
     return ExitCode.PASS
 
 
@@ -1115,6 +1126,11 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="disable safe mode; the API decides what that permits, not the CLI",
     )
+    repo_scan.add_argument(
+        "--dry-run", action="store_true", help="show what would be scanned, queue nothing"
+    )
+    repo_scan.add_argument("--wait", action="store_true")
+    repo_scan.add_argument("--timeout", type=float, default=1800.0)
     repo_scan.set_defaults(handler=cmd_repo_scan)
     repo_remove = repo.add_parser("remove")
     repo_remove.add_argument("repository")

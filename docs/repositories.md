@@ -70,14 +70,20 @@ allowlisted to exactly the host the repository names, not a general list.
 ## Scanning one
 
 ```
-kervy-ai repo scan <repository-id>
+kervy-ai repo scan <repository-id> [--wait] [--timeout SECONDS] [--dry-run]
 ```
 
 Queues an `AssessmentRun` against the connected repository's `Target`,
 through the same `queue_run` every other scan uses — it shows up in
 `kervy-ai runs list`, has the same audit trail, and its findings promote
 into the same `Finding` rows the findings board and remediation/retest
-workflow already work with.
+workflow already work with. `--wait` (`--timeout`, default 1800s) polls the
+run to a terminal state before exiting, same as `kervy-ai scan --wait` for a
+full target. `--dry-run` queues nothing and instead prints the repository's
+own scan-relevant detail — there is no `/surface` endpoint for a repository
+the way a live target has one, so this reports what *would* be scanned
+(languages, allowed/excluded paths, max size) rather than a discovered
+attack surface.
 
 ## Listing, reading, removing
 

@@ -485,6 +485,66 @@ def test_repo_scan_posts_safe_mode_from_the_unsafe_flag(profile: Profile) -> Non
 
 
 @respx.mock
+def test_repo_scan_dry_run_gets_the_repository_and_posts_nothing(profile: Profile) -> None:
+    """Same contract `scan --dry-run` already has: nothing is queued. A
+    repository has no `/surface` endpoint the way a live target does, so
+    this reports the repository's own scan-relevant detail instead."""
+    repo = "44444444-4444-4444-4444-444444444444"
+    get_route = respx.get(f"{BASE_URL}/organizations/{ORG}/repositories/{repo}").mock(
+        return_value=httpx.Response(200, json={"id": repo, "name": "example"})
+    )
+    post_route = respx.post(f"{BASE_URL}/organizations/{ORG}/repositories/{repo}/scan").mock(
+        return_value=httpx.Response(200, json={"run_id": RUN, "status": "queued"})
+    )
+
+    code = cli.main(["repo", "scan", repo, "--dry-run"])
+
+    assert code == 0
+    assert get_route.called
+    assert not post_route.called
+
+
+@respx.mock
+def test_repo_scan_wait_polls_until_the_run_is_terminal(profile: Profile) -> None:
+    repo = "44444444-4444-4444-4444-444444444444"
+    respx.post(f"{BASE_URL}/organizations/{ORG}/repositories/{repo}/scan").mock(
+        return_value=httpx.Response(200, json={"run_id": RUN, "status": "queued"})
+    )
+    respx.get(f"{BASE_URL}/organizations/{ORG}/runs/{RUN}").mock(
+        side_effect=[
+            httpx.Response(200, json={"id": RUN, "status": "running"}),
+            httpx.Response(200, json={"id": RUN, "status": "completed"}),
+        ]
+    )
+
+    code = cli.main(["repo", "scan", repo, "--wait", "--timeout", "10"])
+
+    assert code == 0
+
+
+@respx.mock
+def test_repo_scan_wait_times_out_rather_than_hanging_forever(
+    profile: Profile, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = "44444444-4444-4444-4444-444444444444"
+    respx.post(f"{BASE_URL}/organizations/{ORG}/repositories/{repo}/scan").mock(
+        return_value=httpx.Response(200, json={"run_id": RUN, "status": "queued"})
+    )
+    respx.get(f"{BASE_URL}/organizations/{ORG}/runs/{RUN}").mock(
+        return_value=httpx.Response(200, json={"id": RUN, "status": "running"})
+    )
+    # The run never finishes within the window, verified without a real
+    # wait: the deadline comparison in `_await_run` sees the same clock
+    # `time.sleep` is faked not to actually advance, so a tiny `--timeout`
+    # alone is what trips it.
+    monkeypatch.setattr(cli.time, "sleep", lambda _seconds: None)
+
+    code = cli.main(["repo", "scan", repo, "--wait", "--timeout", "0"])
+
+    assert code == int(ExitCode.CONFIG_ERROR)
+
+
+@respx.mock
 def test_repo_remove_deletes(profile: Profile) -> None:
     repo = "44444444-4444-4444-4444-444444444444"
     route = respx.delete(f"{BASE_URL}/organizations/{ORG}/repositories/{repo}").mock(
