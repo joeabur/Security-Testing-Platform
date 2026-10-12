@@ -247,14 +247,17 @@ the shorter path (`docs/repositories.md` has the full design):
 
 ```bash
 kervy-ai repo add --name "$REPO_NAME" --url "$REPO_URL" --branch "$BRANCH" --authorized
-kervy-ai repo scan "$REPOSITORY_ID" --wait   # not yet supported; see below
+kervy-ai repo scan "$REPOSITORY_ID" --wait
 ```
 
 `repo add`/`repo scan` need `security_engineer` — no admin step, because
 adding a repository is its own consent (`--authorized`) rather than a claim
-someone else has to sign off on. `repo scan` does not yet support `--wait`
-or `--dry-run` the way `scan` does for a full target; poll `kervy-ai runs
-show "$RUN_ID"` for now.
+someone else has to sign off on. `repo scan` supports `--wait`
+(`--timeout`, default 1800s) and `--dry-run`, the same shapes `scan` has for
+a full target — `--dry-run` reports the repository's own scan-relevant
+detail (languages, allowed/excluded paths, max size) rather than a
+discovered attack surface, since a repository has no `/surface` endpoint
+the way a live target does; queues nothing either way.
 
 ## AI-drafted text
 

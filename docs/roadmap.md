@@ -8487,3 +8487,49 @@ current password and saw the error, then the correct one and saw "Password
 changed.", then confirmed `GET /auth/me` still answered `200` afterward —
 proving the session genuinely survived its own password's rotation, not
 just that the endpoint returned 200.
+
+## `kervy-ai repo scan` gets `--wait`/`--dry-run`/`--timeout`
+
+`docs/cicd.md` named this plainly: *"`repo scan` does not yet support
+`--wait` or `--dry-run` the way `scan` does for a full target; poll `kervy-ai
+runs show` for now."* Confirmed still open before touching anything:
+`cmd_repo_scan` (`backend/kervy_cli/main.py`) and its argparse block took
+only `repository` and `--unsafe` — no `--wait`, `--dry-run`, or `--timeout`,
+unlike `scan`/`cmd_scan`, which already has all three and already uses the
+shared `_await_run()` poller.
+
+**Delivered.** `cmd_repo_scan` now mirrors `cmd_scan`'s own shape exactly:
+`--dry-run` makes a `GET /repositories/{id}` call and queues nothing;
+`--wait` (with `--timeout`, default 1800s matching `scan`'s own default)
+passes the queued run's id into the existing `_await_run()` unchanged.
+
+**Decisions.**
+
+- **`--dry-run` reports the repository's own detail, not a "surface."** A
+  live target's `--dry-run` calls its `/surface` endpoint (discovered attack
+  surface); a repository has no equivalent concept — there is nothing to
+  discover before a static code scan the way there is before probing a live
+  endpoint. Reusing `GET /repositories/{id}` (the same call `repo show`
+  already makes) reports what the scan *would* exercise — languages,
+  allowed/excluded paths, max size — which is the closest honest analogue,
+  rather than inventing a new "surface" concept for repositories just to
+  keep the flag's two implementations symmetric.
+- **`_await_run()` needed zero changes.** It was already generic over
+  `org`/`run_id`/`timeout`, with no assumption about what queued the run —
+  a repository scan's `AssessmentRun` is read back through the exact same
+  `GET /organizations/{org}/runs/{run_id}` route any other run uses.
+  `RepositoryScanResult`'s field is `run_id`, not `id` (confirmed against
+  `app/schemas/repository.py` before wiring it — `cmd_scan`'s own `run["id"]`
+  line would have been the wrong key to copy verbatim here).
+
+**Deferred.** Nothing new — this closes exactly the gap `docs/cicd.md`
+already named, with no new scope opened.
+
+**Verified.** `ruff check .` / `mypy kervy_cli` clean. New tests in
+`tests/test_cli.py`: `--dry-run` calls the repository GET and never the scan
+POST; `--wait` polls `GET /runs/{id}` until a terminal status (mocked with
+`respx`'s `side_effect`, no real wait); `--wait` with an already-expired
+`--timeout` and a run that never reaches a terminal status exits
+`ExitCode.CONFIG_ERROR` rather than hanging, with `time.sleep` patched out
+so the test itself does not actually wait. Full `tests/test_cli.py` (64
+tests) re-run and passes.
