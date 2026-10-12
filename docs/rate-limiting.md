@@ -204,6 +204,38 @@ planning loop is stopped, not merely logged. A legitimate investigation —
 sixty reads in five minutes, ten sensitive actions in ten — is not the
 traffic either number is tuned against.
 
+## The inbound webhook's own budget
+
+`POST /webhooks/workflows/{id}` and `POST /webhooks/github/workflows/{id}`
+(`docs/workflows.md`) have no session or JWT — an HMAC signature is the
+only check — so every delivery already costs a signature verification and
+a Redis replay-guard round trip before being refused for any other
+reason. `api_default`'s coarse ceiling covers this route like any other
+under `/api/v1`, but 1200/5 min per IP is far too generous for an
+endpoint this cheap to flood and this unauthenticated:
+
+| Rule | Budget |
+|---|---|
+| `webhook_inbound` (per IP) | 120 deliveries / 5 min |
+| `webhook_inbound` (per workflow) | 30 deliveries / 5 min |
+
+Both dimensions matter, for a reason distinct from `login`'s own
+IP-plus-identity pairing: IP alone is bypassable by a botnet, and the
+*workflow* dimension bounds a flood aimed at one leaked or guessed
+webhook URL regardless of how many source addresses it comes from.
+`workflow_id` is a path parameter, not a secret — keying a budget on it
+needs no secret to be useful, the same way `enforce()`'s identity
+dimension is just a bucket label, not a confidentiality boundary.
+
+Enforced as the very first line of both route handlers
+(`app/api/v1/routers/webhooks.py`), before the body is read, before the
+workflow is loaded, and before the signature is checked — the point is to
+stop paying that cost once the budget is spent, not to refuse politely
+after already paying it. Every delivery counts, success or failure, the
+same reasoning `agent_tool_call`'s own budget already gives: the cost is
+paid regardless of outcome, so this is a volume bound, not a guess to
+forgive.
+
 ## Configuration
 
 | Variable | Default | Meaning |

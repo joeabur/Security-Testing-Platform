@@ -40,6 +40,7 @@ from pydantic import ValidationError
 from app.auth.dependencies import DbSession
 from app.core.config import get_settings
 from app.core.integrations import github_signing, signing
+from app.core.ratelimit import dependency as ratelimit
 from app.core.workflow import service as workflow_service
 from app.core.workflow.contract import TriggerKind
 from app.core.workflow.replay_guard import (
@@ -140,6 +141,11 @@ async def _trigger_and_respond(
 async def receive_workflow_webhook(
     workflow_id: uuid.UUID, request: Request, db: DbSession
 ) -> dict[str, str]:
+    # Before anything else: no session or JWT authenticates this route, so
+    # a flood costs a signature check and a Redis round trip each before
+    # being refused for any other reason — see `policy.py`'s own "Choosing
+    # the numbers" for why this budget exists on top of `api_default`'s.
+    await ratelimit.enforce(request, "webhook_inbound", identity=str(workflow_id))
     body = await request.body()
     signature = request.headers.get(signing.SIGNATURE_HEADER)
     timestamp = request.headers.get(signing.TIMESTAMP_HEADER)
@@ -166,6 +172,7 @@ async def receive_workflow_webhook(
 async def receive_github_workflow_webhook(
     workflow_id: uuid.UUID, request: Request, db: DbSession
 ) -> dict[str, str]:
+    await ratelimit.enforce(request, "webhook_inbound", identity=str(workflow_id))
     body = await request.body()
     signature = request.headers.get(github_signing.SIGNATURE_HEADER)
     delivery = request.headers.get(github_signing.DELIVERY_HEADER)
@@ -207,9 +214,7 @@ async def receive_github_workflow_webhook(
         # not a code change) — accepted, not an error, nothing to trigger.
         return {"workflow_run_id": "", "status": "ignored"}
 
-    return await _trigger_and_respond(
-        db, workflow, payload, actor=f"webhook:github:{workflow.id}"
-    )
+    return await _trigger_and_respond(db, workflow, payload, actor=f"webhook:github:{workflow.id}")
 
 
 def _github_payload_to_trigger(event: str, raw: dict[str, Any]) -> InboundWebhookTrigger | None:

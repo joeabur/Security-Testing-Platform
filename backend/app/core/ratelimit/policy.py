@@ -43,6 +43,24 @@ to the tools that touch the platform or a target, separate from the general
 tool-call budget above so a busy investigation reading findings never
 counts against the much smaller number of sensitive actions it may need.
 
+**Inbound webhook deliveries, per IP: 120 per 5 minutes; per workflow: 30
+per 5 minutes.** The route has no session or JWT to authenticate the
+caller — an HMAC signature is the only check — so every delivery already
+costs a signature verification and a Redis replay-guard round trip before
+being refused for any other reason. `api_default`'s own coarse ceiling
+already covers this route like any other under `/api/v1`, but 1200/5 min
+is far too generous for a specifically unauthenticated, per-request-costly
+endpoint — the same "an attack-specific budget on top of the general
+ceiling" reasoning `login`/`register` already get. Both dimensions matter
+here for a reason distinct from login's: IP alone is bypassable by a
+botnet, and the *workflow* dimension bounds a flood aimed at one leaked or
+guessed webhook URL regardless of how many source addresses it comes
+from — `workflow_id` is a path parameter, not a secret, but keying a
+budget on it needs no secret to be useful. Every delivery counts, success
+or failure, the same reasoning `agent_tool_call`'s own budget already
+gives: the cost is paid regardless of outcome, so this is a volume bound,
+not a guess to forgive.
+
 **Every other route, per IP: 1200 requests per 5 minutes.** Everything above
 this line is a tight, attack-specific budget for one endpoint; this is the
 coarse ceiling `app.main`'s `api_rate_limit_middleware` applies to the rest
@@ -112,6 +130,17 @@ AGENT_TOOL_CALL_IDENTITY = Rule(
 AGENT_SENSITIVE_TOOL_CALL_IDENTITY = Rule(
     name="agent_sensitive_tool_call", dimension=Dimension.IDENTITY, limit=10, window_seconds=10 * 60
 )
+# IP: bounds how many deliveries, to any workflow's webhook URL, one source
+# can cost this server before even its signature is checked.
+WEBHOOK_INBOUND_IP = Rule(
+    name="webhook_inbound", dimension=Dimension.IP, limit=120, window_seconds=5 * 60
+)
+# "Identity" here is a workflow id, not a person — the same key shape, keyed
+# on something that happens not to be secret, bounding a flood aimed at one
+# specific webhook URL regardless of how many addresses it comes from.
+WEBHOOK_INBOUND_WORKFLOW = Rule(
+    name="webhook_inbound", dimension=Dimension.IDENTITY, limit=30, window_seconds=5 * 60
+)
 
 # A coarse ceiling over the whole `/api/v1` surface, applied by
 # `app.main`'s `api_rate_limit_middleware` rather than a per-route `enforce`
@@ -149,6 +178,7 @@ POLICY: dict[str, tuple[Rule, ...]] = {
     "oauth_callback": (OAUTH_CALLBACK_IP,),
     "agent_tool_call": (AGENT_TOOL_CALL_IDENTITY,),
     "agent_sensitive_tool_call": (AGENT_SENSITIVE_TOOL_CALL_IDENTITY,),
+    "webhook_inbound": (WEBHOOK_INBOUND_IP, WEBHOOK_INBOUND_WORKFLOW),
     "api_default": (API_DEFAULT_IP, API_DEFAULT_IDENTITY),
 }
 
