@@ -50,6 +50,19 @@ MANUAL_REVIEW_DAYS = 365
 #: mechanically checkable; everything else is a page somebody has to read.
 _GITHUB = re.compile(r"github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)")
 
+#: Hosted on github.com but not actually checkable there — a `github.com`
+#: source means "has tags/releases to compare" for `owasp_asvs`,
+#: `mitre_atlas` and `mitre_attack`, but `GenAI-Security-Project/GenAI-LLM-Top10`
+#: (`owasp_llm_2026`) ships its editions as long-lived branches
+#: (`release-candidate-1`, `update/LLM03-supply-chain-2026-refresh`, ...),
+#: never a git tag or a GitHub Release (confirmed live: `git ls-remote --tags`
+#: against it returns nothing). Treating it as mechanically checkable made
+#: this check report "could not be read" every single week forever — a
+#: permanent gap dressed up as a transient one. Keyed here instead, so it
+#: falls through to the same by-date manual-review path `owasp_asi_2026`,
+#: `owasp_api_2023`, `nist_ai_rmf` and `nist_ssdf` already use.
+_NOT_MECHANICALLY_CHECKABLE: frozenset[str] = frozenset({"owasp_llm_2026"})
+
 
 @dataclass(frozen=True)
 class Checkable:
@@ -140,6 +153,8 @@ def checkable(frameworks: Mapping[str, FrameworkVersion] | None = None) -> list[
     table = frameworks if frameworks is not None else FRAMEWORKS
     found: list[Checkable] = []
     for key, entry in table.items():
+        if key in _NOT_MECHANICALLY_CHECKABLE:
+            continue
         match = _GITHUB.search(entry.source)
         if match:
             found.append(
@@ -200,6 +215,16 @@ def compare(
         upstream = observed.get(key)
         if not upstream:
             report.unknown[key] = "upstream lookup returned no version"
+        elif not re.search(r"\d", upstream):
+            # A real version string always has a digit in it somewhere.
+            # `OWASP/ASVS`'s GitHub "latest" release is tagged literally
+            # `latest`, not a version — trusting that literally would
+            # report every pinned edition as "drifted to latest" forever.
+            # The workflow's own fetch step now prefers a version-shaped
+            # tag over this, but this is kept as a second, independently
+            # testable line of defense against the same footgun recurring
+            # for some other repository later.
+            report.unknown[key] = f"upstream returned a non-version tag name: {upstream!r}"
         elif _version_core(upstream) == _version_core(entry.version):
             report.current[key] = entry.version
         else:

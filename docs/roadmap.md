@@ -8229,3 +8229,99 @@ upgrade/downgrade/upgrade round-trip verified directly with `alembic
 upgrade head` / `alembic downgrade -1` / `alembic upgrade head`,
 independent of the test suite. Full backend suite re-run to confirm
 nothing else broke. Confirmed no `pyproject.toml`/`uv.lock` change.
+
+## Two real bugs in the weekly framework-drift check itself
+
+The `framework-drift` workflow (`docs/BUILD_SPEC.md` §23, §27) filed
+[issue #70](https://github.com/joeabur/Security-Testing-Platform/issues/70)
+("Framework version drift (2026-10-05)") flagging two things. Investigated
+both live rather than taking the issue at face value, since the check that
+watches for drift can itself drift from reality.
+
+**`owasp_asvs` was a false positive, not real drift.** The issue reported
+pinned `5.0.0` vs. upstream `latest`. Confirmed live with `git ls-remote
+--tags https://github.com/OWASP/ASVS`: the repository's actual tags are
+`latest`, `v4.0.1`, `v4.0.1_release`, `v4.0.2_release`, `v4.0.3_release`,
+`v5.0.0_release` — `OWASP/ASVS`'s GitHub "latest" *Release* is itself
+tagged literally `latest`, not a version. The workflow's fetch step
+trusted `releases/latest`'s `tag_name` unconditionally, so it read
+`latest` as the "upstream version" and never looked any further. The real
+latest edition is `v5.0.0_release` (`5.0.0`), which matches the pin
+exactly — there was no drift at all.
+
+**`owasp_llm_2026` cannot be mechanically checked, permanently, not
+transiently.** The issue reported "could not be read." Confirmed live:
+`git ls-remote --tags https://github.com/GenAI-Security-Project/GenAI-LLM-Top10`
+returns nothing — the repository has no tags and no releases at all; its
+editions ship as long-lived branches (`release-candidate-1`,
+`update/LLM03-supply-chain-2026-refresh`, ...) instead.
+`scripts.framework_drift.checkable()` decided mechanical-checkability
+purely from "does the source URL match `github.com/owner/repo`," which is
+true here even though this particular repository has nothing to compare
+against — so this framework was destined to report "could not be read"
+every Monday, forever, which is a permanent modeling gap dressed up as a
+transient lookup failure.
+
+**Fixed both, in `backend/scripts/framework_drift.py`:**
+
+- A new `_NOT_MECHANICALLY_CHECKABLE` set excludes `owasp_llm_2026` from
+  `checkable()` even though its source is a `github.com` URL, so it falls
+  through to the same by-date manual-review path `owasp_asi_2026`,
+  `owasp_api_2023`, `nist_ai_rmf` and `nist_ssdf` already use (checked
+  against its retrieval date, not against a lookup it cannot be asked to
+  make).
+- `compare()` now treats an observed value with no digit in it as
+  `unknown` ("upstream returned a non-version tag name"), never as
+  `drifted` — a real version string always has a digit somewhere, and
+  `latest` does not, so it can never legitimately mean "upstream moved."
+- `.github/workflows/framework-drift.yml`'s fetch step now discards a
+  `releases/latest` `tag_name` that has no digit in it and falls back to
+  the tags listing, filtered to digit-containing tags and sorted with
+  `sort -V` (not `tags[0]`, which for `OWASP/ASVS` returns `latest` itself
+  — confirmed live that the tags API's own default order is not a version
+  order). This is what actually makes `owasp_asvs` resolve to
+  `v5.0.0_release` instead of `latest` going forward; the `compare()`
+  change above is a second, independently testable line of defense in
+  case some other repository's `latest` release tag recurs before the
+  fetch step catches it.
+
+**Decisions.**
+
+- **The digit-shape safeguard lives in the testable Python layer, the
+  tag-selection fix lives in the YAML fetch step** — matching this
+  module's own stated architecture (`framework_drift.py`'s docstring:
+  "the fetching happens here, not in the checker... this module does the
+  part worth testing"). Picking the *right* tag among several candidates
+  is a selection decision made with data only the live fetch has; deciding
+  whether a candidate even looks like a version is a pure function, and
+  is tested as one.
+- **`owasp_llm_2026`'s exclusion is keyed by name, not inferred from
+  "has no tags right now."** A repository that currently has no tags could
+  add one next week; inferring exclusion from a live, possibly-transient
+  fact would make this check's own behavior non-deterministic run to run.
+  The exclusion is a statement about how this specific upstream project
+  manages its editions (via branches), re-evaluated by a human if that
+  ever changes, not something the script should guess from one failed
+  lookup.
+- **Closed issue #70 with a comment explaining both findings** rather than
+  leaving it for the next Monday's run to silently stop reproducing it —
+  an issue that goes quiet without comment looks exactly like one nobody
+  looked at.
+
+**Deferred.** Nothing new.
+
+**Verified.** `ruff check .` / `mypy app kervy_cli scripts` clean. New
+tests in `tests/test_framework_drift.py`: a `github.com`-hosted but
+untagged framework lands in `current` (manual, by date), never `unknown`;
+a non-digit observed value (`"latest"`) lands in `unknown`, never
+`drifted`. `git ls-remote --tags` run live against both real upstream
+repositories to confirm the stated facts (`OWASP/ASVS`'s tag list, and
+`GenAI-Security-Project/GenAI-LLM-Top10`'s complete absence of tags).
+Simulated the fixed fetch step's own tag-selection pipeline
+(`grep '[0-9]' | sort -V | tail -1`) directly against `OWASP/ASVS`'s real
+tag list and confirmed it picks `v5.0.0_release`, not `latest`. Ran
+`compare()` against the real `FRAMEWORKS` table with that corrected
+observation and confirmed the report comes back fully clean — no drift,
+no manual review due, nothing unreadable. `yaml.safe_load` plus `bash -n`
+confirm the updated workflow file parses and its embedded script has no
+syntax errors.

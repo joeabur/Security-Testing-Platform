@@ -81,9 +81,21 @@ jobs:
             if out="$(gh api "repos/$repo/releases/latest" --jq .tag_name 2>/dev/null)"; then
               version="$out"
             fi
-            if [ -z "$version" ] || [ "$version" = "null" ]; then
+            # A release's own tag is not always version-shaped: OWASP/ASVS's
+            # "latest" GitHub Release is tagged literally `latest`, not a
+            # version, which made this step trust "latest" as ASVS's current
+            # upstream version and report drift against it every week. A
+            # real version always has a digit in it, so a candidate with
+            # none is discarded and the tags fallback below runs instead.
+            if [ -z "$version" ] || [ "$version" = "null" ] || ! printf '%s' "$version" | grep -q '[0-9]'; then
               version=""
-              if out="$(gh api "repos/$repo/tags?per_page=1" --jq '.[0].name' 2>/dev/null)"; then
+              # Among tags that contain a digit (never a bare "latest"),
+              # the highest by version-aware sort order — GitHub's tags
+              # listing is not sorted by version, so `tags[0]` is not
+              # reliably the newest one; confirmed live against
+              # OWASP/ASVS, whose tags include "latest" ahead of every
+              # real version tag in the API's own default order.
+              if out="$(gh api "repos/$repo/tags?per_page=100" --jq '.[].name' 2>/dev/null | grep '[0-9]' | sort -V | tail -1)"; then
                 version="$out"
               fi
             fi
