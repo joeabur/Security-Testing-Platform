@@ -8230,6 +8230,86 @@ upgrade head` / `alembic downgrade -1` / `alembic upgrade head`,
 independent of the test suite. Full backend suite re-run to confirm
 nothing else broke. Confirmed no `pyproject.toml`/`uv.lock` change.
 
+## A null-aware Row-Level Security policy for the audit log
+
+`b2e6f4a91c7d`'s own docstring named `audit_logs` as deliberately excluded
+from Row-Level Security, not an oversight: `organization_id` is nullable
+— platform-level events (login, register, logout, 2FA, forgot-password,
+platform-owner grant/revoke) have none — and a plain equality policy would
+either hide those rows from everyone or reject them outright. Left for a
+follow-up migration at the time; this closes it. Confirmed still open
+before writing anything: `audit_logs` carried no RLS policy at all (`SELECT
+* FROM pg_policies WHERE tablename = 'audit_logs'` returned nothing), and
+real platform-level writes with `organization_id = NULL` are live in
+`app/api/v1/routers/auth.py` and `app/api/v1/routers/platform.py` today —
+none of those routes call `require_membership`/`set_tenant_context`, so
+none of them have any `kervy.org_id` context at all.
+
+**Delivered.** Migration `631ae06041d2`: `ENABLE`/`FORCE ROW LEVEL
+SECURITY` on `audit_logs`, with a `tenant_isolation` policy whose `USING`
+and `WITH CHECK` clauses are identical and null-aware — a session with no
+org context (`kervy.org_id` unset) may see and insert only rows with
+`organization_id IS NULL`; a session scoped to an organization may see and
+insert only that organization's own rows, never the platform-level ones
+and never another organization's.
+
+**Decisions.**
+
+- **Not a reuse of the other 23 tables' plain equality clause.** Confirmed
+  live, before settling on the null-aware form, that the naive reuse
+  (`organization_id = NULLIF(current_setting('kervy.org_id', true),
+  '')::uuid` on both `USING` and `WITH CHECK`) breaks every platform-level
+  write outright: with `kervy.org_id` unset, `current_setting(...,
+  true)` is `''`, `NULLIF('', '')::uuid` is `NULL`, and `organization_id =
+  NULL` is never true even when `organization_id` is itself `NULL` — every
+  `/auth/login`, `/auth/register`, `/auth/logout`, 2FA, password-reset, and
+  platform-owner grant/revoke insert would be rejected by `WITH CHECK` on
+  any correctly non-superuser-provisioned deployment, and every existing
+  platform-level row would silently vanish from `SELECT` under `USING`.
+  Reusing the obvious table-list pattern here would have been the actual
+  regression, not an improvement.
+- **A session scoped to an organization cannot write or read platform-level
+  rows either** — the policy is symmetric, not "organizations are
+  restricted, platform is exempt." Verified live (below) that an org-A-scoped
+  insert attempting `organization_id = NULL` is rejected exactly like one
+  forged as org B.
+- **A new numbered guarantee, not folded into #26.** `docs/security-model.md`
+  guarantee #26 already covers RLS generally; this is the same mechanism
+  extended to the one table that needed a different clause, not a new kind
+  of guarantee — `docs/security-model.md`'s guarantee #26 row and
+  `docs/deployment.md`'s table count are updated instead of adding a #39.
+
+**Deferred.** Nothing new — this was already the one other open item the
+RLS migration's own docstring named, with no new scope introduced.
+
+**Verified.** `ruff check .` / `mypy app` clean. Migration
+upgrade/downgrade/upgrade round-trip verified directly with `alembic
+upgrade head` / `alembic downgrade -1` / `alembic upgrade head`, independent
+of the test suite. Live verification against a dedicated non-superuser,
+`FORCE`-owned role (not this project's own `postgres`-superuser test
+role, which RLS exempts unconditionally — the same blind spot
+"The habit behind the tests" in `docs/security-model.md` already named
+once before), all run inside one transaction and rolled back so it left no
+trace on the test database:
+  - No org context, insert `organization_id = NULL` → succeeds.
+  - No org context, insert `organization_id = <org A>` → rejected.
+  - Org A context, insert `organization_id = <org A>` → succeeds.
+  - Org A context, insert `organization_id = <org B>` → rejected.
+  - Org A context, insert `organization_id = NULL` → rejected.
+  - Org A context, `SELECT` → only org A's rows, never platform or org B.
+  - No org context, `SELECT` → only platform rows, never org A or org B.
+
+  New tests in `tests/test_audit_log.py`: `record_event()` still inserts
+  normally with `organization_id` both `None` and set to a real
+  organization; a `pg_policies`/`pg_class` shape check confirms
+  `ENABLE`/`FORCE ROW LEVEL SECURITY` and the expected null-aware clause
+  text are actually installed post-migration — the one piece of this
+  migration the suite's own superuser role can check, since it cannot
+  exercise real enforcement itself. `tests/test_integrations_api.py`,
+  `tests/test_agent_api.py`, `tests/test_auth.py`, `tests/test_organizations.py`
+  re-run unchanged and pass. Full backend suite re-run to confirm nothing
+  else broke. Confirmed no `pyproject.toml`/`uv.lock` change.
+
 ## Two real bugs in the weekly framework-drift check itself
 
 The `framework-drift` workflow (`docs/BUILD_SPEC.md` §23, §27) filed
