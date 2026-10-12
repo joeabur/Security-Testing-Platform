@@ -191,26 +191,38 @@ top of one.
 
 ### Evidence storage — the one place "just add replicas" doesn't apply
 
-**Stated accurately rather than aspirationally:** `EVIDENCE_ROOT`
-(`app/core/config.py`) is a plain filesystem path.
-`app/core/evidence/store.py` writes bundles and a hash-chained manifest
-directly to `Path` objects — there is no object-storage backend in the
-code today. Two ways to scale this, in order of effort:
+`EVIDENCE_ROOT` (`app/core/config.py`) is a plain filesystem path, and
+`EVIDENCE_BACKEND` (default `local`) picks which backend
+`app/core/evidence/store.py` writes bundles and the hash-chained manifest
+through (`app/core/evidence/backends.py`). Two ways to scale this, in
+order of effort:
 
 1. **Shared network filesystem, no code change.** Mount the same network
    volume (EFS, Filestore, Azure Files, or equivalent) at `EVIDENCE_ROOT`
-   on every API and worker replica. This is a direct drop-in — the API and
-   worker already assume evidence is "shared across replicas — both read
-   it" (`docs/deployment.md`); a network filesystem is what makes that true
-   once they're on different hosts. This is the honest, minimal-risk path
-   and what this reference architecture assumes by default.
-2. **Object storage (S3/GCS-backed), a real code change.** Would mean
-   adding a storage backend behind `app/core/evidence/store.py`'s
-   read/write/verify interface that speaks to a bucket instead of a
-   `Path`, keeping the same content-addressing and hash-chain semantics.
-   Worth doing if network-filesystem cost or operational overhead becomes
-   the bottleneck, but it is new work, not configuration — don't plan a
-   deployment assuming it exists until it's built.
+   on every API and worker replica, `EVIDENCE_BACKEND` left at its `local`
+   default. This is a direct drop-in — the API and worker already assume
+   evidence is "shared across replicas — both read it"
+   (`docs/deployment.md`); a network filesystem is what makes that true
+   once they're on different hosts.
+2. **Object storage (`EVIDENCE_BACKEND=s3`), no shared volume at all.**
+   `S3Backend` (`app/core/evidence/backends.py`) speaks to an
+   S3-compatible bucket (`EVIDENCE_S3_BUCKET`, optionally
+   `EVIDENCE_S3_PREFIX`) instead of a `Path`, keeping the same
+   content-addressed bundles and hash-chained manifest the local backend
+   produces — a bundle is still named by its digest, and
+   `EvidenceStore.verify()` behaves identically against either backend.
+   The one structural difference is the manifest: S3 has no atomic
+   append, so each chain entry is its own small object keyed by its
+   sequence number (`<run_id>/manifest/<sequence>.json`) rather than one
+   growing file, which sidesteps the read-modify-write race a single
+   shared manifest object would otherwise have under concurrent writers.
+   Credentials and region come from `boto3`'s own standard chain (an
+   instance profile, environment variables, or `~/.aws/config`) — nothing
+   AWS-specific is read from `app/core/config.py`. Requires the `cloud`
+   extra (`boto3`) installed on every worker. Worth reaching for once
+   network-filesystem cost or operational overhead becomes the
+   bottleneck; the local backend with a shared volume remains this
+   reference architecture's default.
 
 Whichever storage layer, the guarantees that already exist keep holding:
 never a public URL, served only through the authenticated API
@@ -430,9 +442,11 @@ Stated the same way `docs/deployment.md` states its own gaps:
 - **No tested Helm chart, Terraform module, or Kubernetes manifests** — the
   YAML above is illustrative, not shipped, not exercised against a real
   cluster.
-- **No object-storage-backed evidence store exists in the code.** The
-  network-filesystem path is the only scale-out option that needs zero
-  code changes; object storage is future work, named as such above.
+- **The S3 evidence backend has not been exercised against a real
+  bucket.** `S3Backend` is tested against a fake client
+  (`tests/test_evidence_backends.py`), the same way `app/core/cloud/
+  providers/aws.py`'s S3 inventory already is — nobody has pointed it at
+  a live AWS account from this repository.
 - **No autoscaler ships with the repository.** KEDA/queue-depth scaling is
   described as a pattern, not provided as a configuration file.
 - **No multi-region or disaster-recovery design.** "Run more replicas" and

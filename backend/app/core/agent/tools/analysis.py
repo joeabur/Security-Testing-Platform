@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import json
 import uuid
-from pathlib import Path
 
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -26,7 +25,7 @@ from app.core.assistant.autonomy import AutonomyMode
 from app.core.assistant.provider import ProviderError, ProviderNotConfiguredError
 from app.core.assistant.service import AIService, FindingView
 from app.core.config import get_settings
-from app.core.evidence.store import EvidenceError, EvidenceStore
+from app.core.evidence.store import EvidenceError, EvidenceStore, build_evidence_store
 from app.models.finding import Finding
 from app.models.organization import Role
 
@@ -37,8 +36,7 @@ MAX_EVIDENCE_CHARS = 4000
 
 
 def _evidence_store() -> EvidenceStore:
-    settings = get_settings()
-    return EvidenceStore(Path(settings.evidence_root), key=settings.evidence_encryption_key_bytes)
+    return build_evidence_store(get_settings())
 
 
 def _evidence_text(finding: Finding) -> str:

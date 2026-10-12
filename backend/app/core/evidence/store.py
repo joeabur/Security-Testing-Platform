@@ -26,24 +26,36 @@ plaintext bytes and fail (`EvidenceError` / a verify problem) rather than
 silently returning garbage. There is no migration tool to re-encrypt
 existing bundles in place — the key is meant to be set before a deployment
 starts collecting evidence, not switched on mid-run.
+
+**Where the bytes actually go is a separate concern, in `backends.py`.**
+This module only ever asks a `StorageBackend` for "does this digest
+exist", "write these bytes", "give me the manifest lines" — never a path
+or an S3 key directly — so the hash-chain logic below is identical whether
+`root` is a local directory (`LocalFilesystemBackend`, still the default)
+or a bucket (`S3Backend`, `docs/scaling-architecture.md`'s "object storage
+is future work" gap).
 """
 
 import hashlib
 import json
-import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
+from app.core.config import Settings
+
+# Re-exported explicitly (`as`) rather than left to implicit re-export:
+# every call site outside this package imports `EvidenceError` from here,
+# not from `backends`, and mypy's `--no-implicit-reexport` needs the `as`
+# to treat that as this module's own public name rather than an unused
+# import.
+from app.core.evidence.backends import EvidenceError as EvidenceError
+from app.core.evidence.backends import LocalFilesystemBackend, S3Backend, StorageBackend
 from app.core.evidence.bundle import EvidenceBundle, secret_kinds
 from app.core.evidence.crypto import DecryptionError, decrypt, encrypt
 
 # The first entry's "previous" value. A fixed, documented starting point,
 # so a chain of length one is still verifiable.
 CHAIN_GENESIS = "sha256:" + "0" * 64
-
-
-class EvidenceError(RuntimeError):
-    """Storage refused to write, or verification failed."""
 
 
 @dataclass(frozen=True)
@@ -68,20 +80,21 @@ class VerificationResult:
 
 
 class EvidenceStore:
-    def __init__(self, root: Path, *, key: bytes | None = None) -> None:
+    def __init__(
+        self,
+        root: Path | None = None,
+        *,
+        key: bytes | None = None,
+        backend: StorageBackend | None = None,
+    ) -> None:
         #: `None` means bundles are written and read as plaintext — the
         #: default, and the only option before encryption at rest existed.
-        self._root = root
+        if backend is None:
+            if root is None:
+                raise ValueError("EvidenceStore requires either root or backend")
+            backend = LocalFilesystemBackend(root)
+        self._backend = backend
         self._key = key
-
-    def run_dir(self, run_id: str) -> Path:
-        return self._root / run_id
-
-    def _bundles_dir(self, run_id: str) -> Path:
-        return self.run_dir(run_id) / "bundles"
-
-    def _manifest_path(self, run_id: str) -> Path:
-        return self.run_dir(run_id) / "manifest.jsonl"
 
     def write(self, run_id: str, bundle: EvidenceBundle) -> str:
         """Store a bundle and extend the chain. Returns its digest."""
@@ -99,25 +112,22 @@ class EvidenceStore:
             )
 
         digest = bundle.digest()
-        bundles = self._bundles_dir(run_id)
-        bundles.mkdir(parents=True, exist_ok=True)
-        path = bundles / f"{digest.removeprefix('sha256:')}.json"
 
         # Content-addressed, which makes a re-write idempotent: the same
         # bundle written twice — a retried write, or a probe that records its
-        # observation on two code paths — is one file and one chain entry.
+        # observation on two code paths — is one object and one chain entry.
         #
         # `created_at` is part of the content, so two *separate* observations
         # of an identical exchange remain two bundles. That is deliberate:
         # they are two trials, and collapsing them would quietly understate
         # what the measurement was based on.
-        if path.exists():
+        if self._backend.bundle_exists(run_id, digest):
             return digest
         # Content addressing and the chain both key off the *plaintext*
-        # digest — encryption is something that happens to the bytes on
-        # disk, not a second identity for the same observation.
+        # digest — encryption is something that happens to the bytes in
+        # storage, not a second identity for the same observation.
         on_disk = encrypt(payload, key=self._key) if self._key else payload
-        path.write_bytes(on_disk)
+        self._backend.write_bundle(run_id, digest, on_disk)
 
         entries = self.read_manifest(run_id)
         previous = entries[-1].chain if entries else CHAIN_GENESIS
@@ -130,28 +140,23 @@ class EvidenceStore:
             probe_id=bundle.probe_id,
             created_at=bundle.created_at,
         )
-        with self._manifest_path(run_id).open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(entry.__dict__, sort_keys=True) + "\n")
+        self._backend.append_manifest_entry(
+            run_id, sequence, json.dumps(entry.__dict__, sort_keys=True)
+        )
         return digest
 
     def read_manifest(self, run_id: str) -> list[ManifestEntry]:
-        path = self._manifest_path(run_id)
-        if not path.exists():
-            return []
-        entries: list[ManifestEntry] = []
-        for line in path.read_text(encoding="utf-8").splitlines():
-            if line.strip():
-                entries.append(ManifestEntry(**json.loads(line)))
-        return entries
+        return [
+            ManifestEntry(**json.loads(line))
+            for line in self._backend.read_manifest_lines(run_id)
+            if line.strip()
+        ]
 
     def read(self, run_id: str, digest: str) -> bytes:
         """Plaintext bytes, regardless of whether this store is configured
         with a key — a caller should never need to know that to read a
         bundle back."""
-        path = self._bundles_dir(run_id) / f"{digest.removeprefix('sha256:')}.json"
-        if not path.exists():
-            raise EvidenceError(f"no evidence bundle {digest} for run {run_id}")
-        on_disk = path.read_bytes()
+        on_disk = self._backend.read_bundle(run_id, digest)
         if not self._key:
             return on_disk
         try:
@@ -163,7 +168,8 @@ class EvidenceStore:
         """Check every link and every bundle's content against its name.
 
         Both halves matter: the chain catches a removed or reordered entry,
-        and re-hashing the file catches one whose bytes were edited in place.
+        and re-hashing the stored bytes catches one whose content was edited
+        in place.
         """
         entries = self.read_manifest(run_id)
         problems: list[str] = []
@@ -183,11 +189,10 @@ class EvidenceStore:
             if entry.chain != expected:
                 problems.append(f"entry {index}: chain value does not match its inputs")
 
-            path = self._bundles_dir(run_id) / f"{entry.digest.removeprefix('sha256:')}.json"
-            if not path.exists():
+            if not self._backend.bundle_exists(run_id, entry.digest):
                 problems.append(f"entry {index}: bundle {entry.digest} is missing")
             else:
-                on_disk = path.read_bytes()
+                on_disk = self._backend.read_bundle(run_id, entry.digest)
                 if self._key:
                     try:
                         plaintext = decrypt(on_disk, key=self._key)
@@ -201,7 +206,7 @@ class EvidenceStore:
                 if actual != entry.digest:
                     problems.append(
                         f"entry {index}: bundle content does not match its digest "
-                        "(the file was modified after it was written)"
+                        "(it was modified after it was written)"
                     )
             previous = entry.chain
 
@@ -210,15 +215,34 @@ class EvidenceStore:
     def purge(self, run_id: str) -> int:
         """Delete a run's evidence for real.
 
-        §13 says "performs a genuine delete". Removing the directory rather
-        than marking rows hidden is the difference between a retention
-        promise that is kept and one that is described. The manifest goes
-        with it: a chain over deleted bundles would verify as broken forever
-        and tell a reader nothing useful.
+        §13 says "performs a genuine delete". Removing it rather than
+        marking rows hidden is the difference between a retention promise
+        that is kept and one that is described. The manifest goes with it:
+        a chain over deleted bundles would verify as broken forever and
+        tell a reader nothing useful.
         """
-        directory = self.run_dir(run_id)
-        if not directory.exists():
+        if not self._backend.run_exists(run_id):
             return 0
-        count = len(list(self._bundles_dir(run_id).glob("*.json")))
-        shutil.rmtree(directory)
+        count = self._backend.count_bundles(run_id)
+        self._backend.delete_run(run_id)
         return count
+
+
+def build_evidence_store(settings: Settings) -> EvidenceStore:
+    """The one place that turns configuration into a store.
+
+    Three call sites (`app/workers/tasks.py`, `app/core/agent/tools/
+    analysis.py`, `app/api/v1/routers/reports.py`) built an `EvidenceStore`
+    by hand before this existed, each repeating `Path(settings.evidence_root)`
+    and the encryption key. A second storage choice should mean editing this
+    function once, not three call sites that can silently drift apart.
+    """
+    key = settings.evidence_encryption_key_bytes
+    if settings.evidence_backend == "s3":
+        if not settings.evidence_s3_bucket:
+            raise EvidenceError("EVIDENCE_BACKEND=s3 requires EVIDENCE_S3_BUCKET to be set")
+        backend: StorageBackend = S3Backend(
+            settings.evidence_s3_bucket, prefix=settings.evidence_s3_prefix
+        )
+        return EvidenceStore(backend=backend, key=key)
+    return EvidenceStore(Path(settings.evidence_root), key=key)

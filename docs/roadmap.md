@@ -8533,3 +8533,108 @@ POST; `--wait` polls `GET /runs/{id}` until a terminal status (mocked with
 `ExitCode.CONFIG_ERROR` rather than hanging, with `time.sleep` patched out
 so the test itself does not actually wait. Full `tests/test_cli.py` (64
 tests) re-run and passes.
+
+## Object-storage-backed evidence store (`EVIDENCE_BACKEND=s3`)
+
+`docs/scaling-architecture.md` named this plainly: *"No object-storage-
+backed evidence store exists in the code. The network-filesystem path is
+the only scale-out option that needs zero code changes; object storage is
+future work, named as such above."* Confirmed still open before touching
+anything: `app/core/evidence/store.py`'s `EvidenceStore` called
+`pathlib.Path`/`shutil.rmtree` directly in every method — `write`, `read`,
+`read_manifest`, `verify`, `purge` — with no storage abstraction anywhere
+in the package, and `app/core/config.py` had exactly one setting
+(`EVIDENCE_ROOT`, a filesystem path) governing where evidence went.
+
+**Delivered.** A new `app/core/evidence/backends.py` defines a
+`StorageBackend` protocol (`bundle_exists`/`write_bundle`/`read_bundle`/
+`append_manifest_entry`/`read_manifest_lines`/`run_exists`/
+`count_bundles`/`delete_run`) and two implementations: `LocalFilesystemBackend`
+(exactly what `EvidenceStore` always did to `Path`/`shutil`, moved here
+unchanged) and `S3Backend` (new). `EvidenceStore` now delegates every
+method to a `StorageBackend` instead of touching a path directly;
+`EvidenceStore(root)` still works exactly as before (constructs a
+`LocalFilesystemBackend(root)` under the hood), and a new
+`EvidenceStore(backend=...)` form takes any backend directly. A new
+`build_evidence_store(settings)` factory in the same module is now the one
+place that turns `Settings` into a store — `app/workers/tasks.py`,
+`app/core/agent/tools/analysis.py`, and `app/api/v1/routers/reports.py`
+each used to construct `EvidenceStore(Path(settings.evidence_root),
+key=...)` by hand; all three now call the factory instead. Two new
+settings, `EVIDENCE_BACKEND` (`local` default, or `s3`) and
+`EVIDENCE_S3_BUCKET`/`EVIDENCE_S3_PREFIX`, select the backend.
+
+**Decisions.**
+
+- **The manifest is one S3 object per chain entry, not one growing
+  object.** S3 has no atomic append. Two probes finishing at nearly the
+  same moment would each read the current manifest object, add a line,
+  and put it back — and the second write to land would silently overwrite
+  the first's entry, with neither call failing. `S3Backend` sidesteps this
+  structurally rather than adding a lock: each manifest entry is written
+  to its own key, `<prefix><run_id>/manifest/<sequence:08d>.json`, which
+  turns "append" back into the same collision-free `put_object` the
+  bundle files already are. `EvidenceStore.write()` already knows the next
+  sequence number before it writes (`len(existing entries)`), so this
+  needed no new counter, lock service, or conditional-write dance — just
+  threading `sequence` through `append_manifest_entry`, which
+  `LocalFilesystemBackend` ignores (a local append needs no address of its
+  own) and `S3Backend` uses as the key. Zero-padding means a lexicographic
+  key listing already comes back in sequence order.
+- **Credentials and region are never a constructor argument on
+  `S3Backend`.** Unlike `app/core/cloud/providers/aws.py`'s AWS provider,
+  which resolves a credential the *operator being assessed* supplied for
+  *their own* account, this bucket belongs to the Kervy deployment itself
+  — configured once by whoever runs the platform. `S3Backend` relies on
+  `boto3`'s own standard credential and region chain (an instance
+  profile, `AWS_ACCESS_KEY_ID`/`AWS_DEFAULT_REGION`, or
+  `~/.aws/config`), the same way any other AWS SDK call this deployment's
+  own environment would, rather than inventing a second, narrower
+  credential model for one client.
+- **`EvidenceError` is now defined in `backends.py`, re-exported from
+  `store.py`.** Every existing call site and test imports it from
+  `app.core.evidence.store`, so the re-export uses `import ... as
+  EvidenceError` rather than a plain import — this project's mypy config
+  enables `--no-implicit-reexport`, which would otherwise flag it as not
+  part of `store.py`'s public surface.
+- **`EvidenceStore(root)` stays backward compatible; `root` became
+  optional, not removed.** `__init__` now accepts `root: Path | None =
+  None` plus an optional `backend:` keyword, constructing
+  `LocalFilesystemBackend(root)` when no backend is given and raising
+  `ValueError` if neither is. Every existing caller (three production call
+  sites, sixteen in `tests/test_evidence.py`) still calls
+  `EvidenceStore(some_path, key=...)` unchanged.
+- **boto3 is not installed on this worker" is an `EvidenceError`, not an
+  import crash** — the `cloud` extra already makes `boto3` optional
+  platform-wide (`app/core/cloud/providers/aws.py` established this
+  pattern first); `S3Backend` imports it lazily inside each method and
+  raises the same typed error `app/core/evidence/store.py` already uses
+  for every other storage failure, rather than letting an `ImportError`
+  surface raw.
+
+**Deferred.** Nothing new — this closes exactly the gap
+`docs/scaling-architecture.md` already named, with no new scope opened.
+Dependency-confusion-style per-target credential handling, encryption-key
+rotation, and a tested live-AWS deployment are all explicitly out of scope
+here, same as before this landed.
+
+**Verified.** `ruff check .` / `mypy app` clean. All 27 existing tests in
+`tests/test_evidence.py` pass unchanged against the refactored
+`EvidenceStore` — proving the local backend's on-disk layout (including
+the two tests that edit `manifest.jsonl`/a bundle file directly by path)
+is byte-for-byte identical to before. New `tests/test_evidence_backends.py`
+(18 tests, `S3Backend` exercised via a fake client mirroring
+`test_cloud_aws.py`'s own pattern, never a real AWS account): a bundle
+round-trips through S3; a missing bundle is an `EvidenceError`; manifest
+entries read back in sequence order regardless of the order they were
+written in; `run_exists`/`count_bundles` are correct and don't conflate
+bundle and manifest objects; `delete_run` removes only that run's objects,
+leaving a different run (and a different `EVIDENCE_S3_PREFIX`) untouched;
+a missing `boto3` is an `EvidenceError`; the same tamper tests
+`test_evidence.py` runs against the local backend (editing a stored
+bundle, deleting a manifest entry) reproduced against `S3Backend` and
+still caught; encryption at rest works unchanged through either backend;
+`build_evidence_store` selects the right backend from `Settings` and
+refuses `EVIDENCE_BACKEND=s3` with no bucket configured.
+`tests/test_config.py` and `tests/test_cloud_aws.py` re-run unchanged and
+pass.
