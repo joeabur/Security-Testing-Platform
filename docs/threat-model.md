@@ -135,9 +135,12 @@ Stated rather than hidden; the full list with verification notes is in
 - **SMTP is adjudicated but not carried by the gated transport.** The scope
   engine clears the relay host; it does not see the socket. `smtplib` is pinned
   statically to one module.
-- **The audit log is append-only by construction, not by database grant.** The
-  service has no update or delete path; revoking `UPDATE`/`DELETE` at the
-  database level is recommended in `docs/configuration.md` and not yet enforced.
+- **The audit log is append-only both by construction and by the database
+  itself.** `app.audit.service` has no update or delete path, and migration
+  `fc7a77b3611c` backs that with a `BEFORE UPDATE OR DELETE` trigger that
+  raises — enforced regardless of the caller's role, unlike a plain
+  `REVOKE`, which the runtime role (this table's owner in every deployment
+  this project documents) could otherwise `GRANT` back to itself.
 - **Evidence is stored unencrypted at rest under `EVIDENCE_ROOT` by
   default**, relying on filesystem permissions and whatever the deployment
   provides. `KERVY_EVIDENCE_ENCRYPTION_KEY` (`docs/configuration.md`) turns

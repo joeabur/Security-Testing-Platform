@@ -64,9 +64,12 @@ redacted but real exchanges with a customer's system.
 ## Database
 
 - Separate credentials for the application role.
-- Consider `REVOKE UPDATE, DELETE ON audit_logs` for the app role. The
-  application never issues them, so revoking costs nothing and turns a
-  by-construction guarantee into an enforced one.
+- `audit_logs` is append-only at the database level (migration
+  `fc7a77b3611c`): a `BEFORE UPDATE OR DELETE` trigger raises, and `REVOKE
+  UPDATE, DELETE` is applied alongside it as cheap defense in depth. The
+  trigger is what makes the guarantee real regardless of role — unlike a
+  `REVOKE` alone, it does not depend on the runtime role being anything
+  other than this table's owner.
 - Migrations are forward and backward tested; run `alembic upgrade head` as a
   deploy step, before the new code serves traffic.
 - **The runtime database role must not be a superuser, and must not own the
