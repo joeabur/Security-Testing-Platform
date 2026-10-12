@@ -14,6 +14,7 @@ most likely to matter first in a real deployment.
 | `POST /auth/login/2fa` | per identity | 10 / 15 min |
 | `GET /auth/oauth/{provider}/callback` | per IP | 30 / hour |
 | `POST /auth/forgot-password` | per IP | 10 / hour |
+| `POST /auth/change-password` | per identity | 10 / 15 min |
 
 `login/2fa` is keyed on the *user id* the already-verified challenge names
 (`app/auth/security.py`'s `TotpChallenge`, decoded before this budget is
@@ -22,6 +23,14 @@ charged), not on anything attacker-supplied — a six-digit TOTP code is only
 purpose, because a correct password should not buy unlimited guesses at the
 second factor. It clears on a correct code the same way `login`'s own
 identity bucket clears on a correct password.
+
+`change-password` is the one identity-keyed budget here whose caller is
+already authenticated — `current_user.id` from the session itself, not
+anything resolved by a lookup the budget has to go first to avoid leaking.
+Same shape and window as `login`'s own identity bucket: it bounds how many
+guesses a live, stolen session can make at the one secret this route checks
+(the current password) before the account's real owner notices, and clears
+on a correct guess the same way.
 
 `forgot-password` and the OAuth callback are IP-only, for a reason distinct
 from "the per-IP budget is enough": neither has an identity to key a second

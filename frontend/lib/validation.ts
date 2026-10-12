@@ -44,6 +44,21 @@ export const resetPasswordSchema = z
   });
 export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
 
+export const changePasswordSchema = z
+  .object({
+    current_password: z.string().min(1, "Enter your current password"),
+    new_password: z
+      .string()
+      .min(12, "Password must be at least 12 characters")
+      .max(200, "Password is too long"),
+    confirm_password: z.string().min(1, "Confirm your new password"),
+  })
+  .refine((value) => value.new_password === value.confirm_password, {
+    message: "Passwords do not match",
+    path: ["confirm_password"],
+  });
+export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
+
 // A 6-digit TOTP code or an 8-character recovery code (the digest-only
 // TotpRecoveryCode shape backend/app/models/totp_recovery_code.py mints) —
 // `_verify_totp_or_recovery_code` accepts either, so this input does too.

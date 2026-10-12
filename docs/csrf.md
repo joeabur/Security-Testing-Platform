@@ -181,4 +181,7 @@ mailed to that address plus a new password. A forged request to either
 achieves nothing a direct call to the same endpoint would not already
 achieve, because there is no victim session for either one to ride.
 `logout-all`, by contrast, **is** cookie-authenticated and is not exempt —
-see `docs/revocation.md`.
+see `docs/revocation.md`. `change-password` is the same case for the same
+reason: it reads the session cookie to identify the caller and mutates a
+real credential, so a forged request would achieve something a direct call
+could not — it stays in neither exemption list, same as `logout-all`.
