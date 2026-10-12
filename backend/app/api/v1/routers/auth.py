@@ -37,6 +37,7 @@ from app.models.totp_recovery_code import digest_of as recovery_digest_of
 from app.models.user import User
 from app.models.user_session import UserSession
 from app.schemas.auth import (
+    ChangePasswordRequest,
     ForgotPasswordRequest,
     LoginRequest,
     OAuthProvidersRead,
@@ -328,6 +329,81 @@ async def logout_all(response: Response, current_user: CurrentUser, db: DbSessio
     settings = get_settings()
     response.delete_cookie(settings.session_cookie_name, path="/")
     response.delete_cookie(csrf_enforce.COOKIE_NAME, path="/")
+
+
+@router.post("/change-password", response_model=TokenResponse)
+async def change_password(
+    payload: ChangePasswordRequest,
+    request: Request,
+    response: Response,
+    current_user: CurrentUser,
+    db: DbSession,
+) -> TokenResponse:
+    """Already logged in, knows the old password — the case
+    `docs/revocation.md` names `logout-all` as standing in for, until this
+    existed. Unlike `/auth/reset-password` (proves control of the email
+    inbox, not this browser), this proves the browser already holds a
+    working session *and* the current password, so it is trusted to walk
+    away with a fresh one rather than being sent back to `/login`.
+
+    Every other session is revoked the same `tokens_valid_after` + bulk
+    `UserSession` way `logout-all` and `reset-password` both do — a
+    password change is exactly the kind of event that should not leave a
+    stale session alive elsewhere. The token used to make *this* request
+    is revoked too (it is just as stale as any other the instant the
+    password changes) and replaced transparently with a new one, so this
+    browser is not logged out by its own password change.
+    """
+    await ratelimit.enforce(request, "change_password", identity=str(current_user.id))
+
+    if current_user.password_hash is None or not verify_password(
+        payload.current_password, current_user.password_hash
+    ):
+        await record_event(
+            db,
+            action="auth.change_password",
+            resource_type="user",
+            resource_id=str(current_user.id),
+            result="deny",
+            user_id=current_user.id,
+            ip_address=request.client.host if request.client else None,
+            metadata={
+                "reason": "no_local_password"
+                if current_user.password_hash is None
+                else "invalid_current_password"
+            },
+        )
+        await db.commit()
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Current password is incorrect")
+
+    # The current password is correct, so the budget clears here — same as
+    # every other "the secret this route guards was just proven" path.
+    await ratelimit.clear(request, "change_password", identity=str(current_user.id))
+
+    now = datetime.now(UTC)
+    current_user.password_hash = hash_password(payload.new_password)
+    current_user.tokens_valid_after = now
+    await db.execute(
+        update(UserSession)
+        .where(UserSession.user_id == current_user.id, UserSession.revoked_at.is_(None))
+        .values(revoked_at=now)
+    )
+
+    token = create_access_token(subject=current_user.id)
+    await _record_session(db, user_id=current_user.id, token=token, request=request)
+    await record_event(
+        db,
+        action="auth.change_password",
+        resource_type="user",
+        resource_id=str(current_user.id),
+        result="allow",
+        user_id=current_user.id,
+        ip_address=request.client.host if request.client else None,
+    )
+    await db.commit()
+
+    _set_session_cookie(response, token)
+    return TokenResponse(access_token=token, user=UserRead.model_validate(current_user))
 
 
 @router.get("/me", response_model=UserRead)

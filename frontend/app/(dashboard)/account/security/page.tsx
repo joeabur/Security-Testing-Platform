@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 
+import { ChangePasswordForm } from "@/components/account/change-password-form";
 import { TwoFactorSettings } from "@/components/account/two-factor-settings";
 import { serverApiFetch } from "@/lib/api-server";
 import type { User } from "@/lib/types";
@@ -17,6 +18,7 @@ export default async function AccountSecurityPage() {
           Manage how you sign in to {user.email}.
         </p>
       </div>
+      <ChangePasswordForm />
       <TwoFactorSettings initialEnabled={user.totp_enabled} />
     </div>
   );

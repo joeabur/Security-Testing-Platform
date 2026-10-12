@@ -107,6 +107,14 @@ LOGIN_2FA_IDENTITY = Rule(
 FORGOT_PASSWORD_IP = Rule(
     name="forgot_password", dimension=Dimension.IP, limit=10, window_seconds=60 * 60
 )
+# The caller is already authenticated here, so — unlike LOGIN — identity is
+# free to key on directly rather than something a budget has to be built
+# around disclosing. Same shape and window as LOGIN_IDENTITY: bounding
+# guesses at the one secret this route checks (the current password),
+# keyed on the account being guessed against, not the IP making the guess.
+CHANGE_PASSWORD_IDENTITY = Rule(
+    name="change_password", dimension=Dimension.IDENTITY, limit=10, window_seconds=15 * 60
+)
 # Bounds how many token-exchange calls an IP can force this server to make
 # against a provider with a bad `code` — each attempt costs a real outbound
 # request even when it is certain to fail. Higher than REGISTER_IP: a
@@ -175,6 +183,7 @@ POLICY: dict[str, tuple[Rule, ...]] = {
     "register": (REGISTER_IP,),
     "login_2fa": (LOGIN_2FA_IDENTITY,),
     "forgot_password": (FORGOT_PASSWORD_IP,),
+    "change_password": (CHANGE_PASSWORD_IDENTITY,),
     "oauth_callback": (OAUTH_CALLBACK_IP,),
     "agent_tool_call": (AGENT_TOOL_CALL_IDENTITY,),
     "agent_sensitive_tool_call": (AGENT_SENSITIVE_TOOL_CALL_IDENTITY,),

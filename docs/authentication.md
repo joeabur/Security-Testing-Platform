@@ -107,6 +107,27 @@ trusting with a cookie yet, so they are sent back to `/login`. It also sets
 exactly the "I think this account was compromised" case that mechanism exists
 for (`docs/revocation.md`).
 
+## Change password
+
+`POST /auth/change-password` — the self-service case, already signed in and
+holding the current password, distinct from the "forgot it" case above.
+Requires `current_password` and verifies it against the account's hash before
+doing anything; a wrong guess or an OAuth-only account (no local password at
+all) both answer `400`, rate limited per account (`change_password`,
+`docs/rate-limiting.md`) so a stolen-but-live session cannot be used to brute
+force the one secret this route checks.
+
+On success it does the same `tokens_valid_after` + bulk `UserSession` cutover
+every other credential-changing route in this family uses — but unlike
+`reset-password`, the caller is not sent back to `/login`: this request
+already proved both a working session *and* the current password, so it is
+trusted to keep going. The token used to make the request is revoked like
+every other (it is just as stale as any other token the instant the password
+changes) and transparently replaced — the response is a fresh
+`TokenResponse`, same shape `/auth/login` returns, with a new session cookie
+set alongside it so the calling browser is never logged out by its own
+password change.
+
 ## API keys
 
 For CI, where a standing credential lives in a runner and is the most exposed
