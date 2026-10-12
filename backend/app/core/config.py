@@ -56,6 +56,20 @@ class Settings(BaseSettings):
     # deployment by default, and there is no public download URL for it.
     evidence_root: str = Field(default="var/evidence", alias="EVIDENCE_ROOT")
 
+    # "local" (the default, unchanged from before this setting existed)
+    # keeps bundles on this filesystem at `evidence_root`. "s3" writes to an
+    # object store instead (docs/scaling-architecture.md's "no object-
+    # storage-backed evidence store" gap). Credentials and region are never
+    # read from here — `app/core/evidence/backends.py::S3Backend` relies on
+    # boto3's own standard credential chain (an instance profile, env vars,
+    # or `~/.aws/config`), the same way any other AWS SDK call this
+    # deployment's own environment makes would.
+    evidence_backend: Literal["local", "s3"] = Field(default="local", alias="EVIDENCE_BACKEND")
+    evidence_s3_bucket: str | None = Field(default=None, alias="EVIDENCE_S3_BUCKET")
+    # A key prefix, not a filesystem path — "" (the default) writes at the
+    # bucket's root.
+    evidence_s3_prefix: str = Field(default="", alias="EVIDENCE_S3_PREFIX")
+
     # --- plugins (docs/BUILD_SPEC.md §16) ---------------------------------
     # Off unless an operator points at a configuration file that names the
     # packages allowed to load. `pip install` must not be what decides which

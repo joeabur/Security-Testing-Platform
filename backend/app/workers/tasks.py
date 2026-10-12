@@ -36,7 +36,7 @@ from app.core.container.service import record_tool_invocations
 from app.core.dast.contract import DastTarget
 from app.core.domain.contract import DomainTarget
 from app.core.domain.service import promote_discovered_subdomains
-from app.core.evidence.store import EvidenceError, EvidenceStore
+from app.core.evidence.store import EvidenceError, build_evidence_store
 from app.core.findings.service import promote_run_results
 from app.core.orchestrator.ai_check import AiSecurityCheck
 from app.core.orchestrator.checks import Check, Endpoint, ReachabilityCheck
@@ -195,8 +195,7 @@ def _store_evidence(run_id: uuid.UUID, result: ScanResult) -> str | None:
     """
     if result.evidence_bundle is None:
         return None
-    settings = get_settings()
-    store = EvidenceStore(Path(settings.evidence_root), key=settings.evidence_encryption_key_bytes)
+    store = build_evidence_store(get_settings())
     try:
         return store.write(str(run_id), result.evidence_bundle)
     except (EvidenceError, OSError) as exc:

@@ -208,9 +208,12 @@ agent's paused-approval session store, the inbound-webhook replay guard,
 the OAuth login flow's anti-CSRF state token, and the 2FA login-challenge
 store — nine independent Redis-backed stores, each with its own stated fail
 direction (most fail closed; the rate limiter deliberately fails open); the
-filesystem under `EVIDENCE_ROOT` for evidence bundles. Evidence is
-deliberately not in object storage by default and has no public URL — it is
-the most sensitive artifact the platform holds.
+filesystem under `EVIDENCE_ROOT` for evidence bundles by default
+(`EVIDENCE_BACKEND=local`), or an S3-compatible bucket
+(`EVIDENCE_BACKEND=s3`, `app/core/evidence/backends.py::S3Backend`) for a
+deployment that scales workers across machines with no shared filesystem.
+Either way, evidence has no public URL — it is the most sensitive artifact
+the platform holds.
 
 See `docs/decisions/` for the ADRs behind storage, queue, naming
 (including the Aegis → Kervy rebrand, ADR 0006), licence, and the

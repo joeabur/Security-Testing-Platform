@@ -20,7 +20,10 @@ that disables scope enforcement** — that is deliberate and permanent.
 | `KERVY_RATE_LIMIT_PEPPER` | falls back to `JWT_SECRET` | HMAC pepper for identity-based rate-limit bucket keys, so the counter store never holds a plaintext email |
 | `KERVY_CSRF_ENABLED` | `true` | See `docs/csrf.md` |
 | `KERVY_CSRF_SECRET` | falls back to `JWT_SECRET` | Signs the session-bound CSRF token |
-| `EVIDENCE_ROOT` | `var/evidence` | A path, not a URL. Evidence never leaves the deployment by default |
+| `EVIDENCE_ROOT` | `var/evidence` | A path, not a URL. Used when `EVIDENCE_BACKEND=local` (the default). Evidence never leaves the deployment by default |
+| `EVIDENCE_BACKEND` | `local` | `local` (filesystem, `EVIDENCE_ROOT`) or `s3` (`app/core/evidence/backends.py::S3Backend`, `docs/scaling-architecture.md`). Credentials and region come from `boto3`'s own standard chain, never from this configuration |
+| `EVIDENCE_S3_BUCKET` | unset | Required when `EVIDENCE_BACKEND=s3`; refused at the point a store is built if absent |
+| `EVIDENCE_S3_PREFIX` | `""` (bucket root) | A key prefix, not a filesystem path. Only read when `EVIDENCE_BACKEND=s3` |
 | `KERVY_EVIDENCE_ENCRYPTION_KEY` | unset (plaintext) | Base64, 32 bytes (AES-256). One static key, no rotation — set before a deployment starts collecting evidence, not partway through |
 | `KERVY_WEBHOOK_SECRET_ENCRYPTION_KEY` | unset (workflow webhook automation disabled) | Base64, 32 bytes (AES-256). Not optional-encryption like the evidence key above — a webhook secret must never sit in Postgres in cleartext, so absent means a workflow's inbound webhook cannot be enabled at all, rather than being stored unencrypted |
 | `KERVY_TOTP_ENCRYPTION_KEY` | unset (2FA disabled platform-wide) | Base64, 32 bytes (AES-256). A TOTP shared secret is exactly as sensitive as a webhook secret — absent, `POST /auth/2fa/setup` refuses outright rather than storing one unencrypted; there is no per-organization opt-out once set |

@@ -18,7 +18,6 @@ before returning bytes.
 import re
 import uuid
 from enum import StrEnum
-from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
@@ -27,7 +26,7 @@ from sqlalchemy.orm import selectinload
 from app.audit.service import record_event
 from app.auth.dependencies import DbSession, require_membership
 from app.core.config import get_settings
-from app.core.evidence.store import EvidenceError, EvidenceStore
+from app.core.evidence.store import EvidenceError, EvidenceStore, build_evidence_store
 from app.core.reporting.build import build_report, report_filename, to_canonical_json
 from app.core.reporting.render import (
     PdfUnavailableError,
@@ -85,8 +84,7 @@ _EXTENSIONS = {
 
 def get_evidence_store() -> EvidenceStore:
     """The evidence store, as a dependency so a test can point it elsewhere."""
-    settings = get_settings()
-    return EvidenceStore(Path(settings.evidence_root), key=settings.evidence_encryption_key_bytes)
+    return build_evidence_store(get_settings())
 
 
 async def _load_run_and_target(
