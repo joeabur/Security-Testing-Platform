@@ -52,7 +52,10 @@ async def test_the_wrong_current_password_is_refused_and_changes_nothing(
 
     response = await client.post(
         "/api/v1/auth/change-password",
-        json={"current_password": "not-the-real-password", "new_password": "Another-Strong-9"},
+        json={
+            "current_password": "not-the-real-password",  # pragma: allowlist secret
+            "new_password": "Another-Strong-9",  # pragma: allowlist secret
+        },
         headers=headers,
     )
     assert response.status_code == 400
@@ -70,7 +73,10 @@ async def test_a_correct_change_rotates_the_hash_and_reissues_the_caller_a_fresh
 
     response = await client.post(
         "/api/v1/auth/change-password",
-        json={"current_password": strong_password, "new_password": "A-Brand-New-Password-9"},
+        json={
+            "current_password": strong_password,
+            "new_password": "A-Brand-New-Password-9",  # pragma: allowlist secret
+        },
         headers=old_headers,
     )
     assert response.status_code == 200, response.text
@@ -98,7 +104,10 @@ async def test_a_correct_change_rotates_the_hash_and_reissues_the_caller_a_fresh
 
     new_password_login = await client.post(
         "/api/v1/auth/login",
-        json={"email": "cp-ok@example.test", "password": "A-Brand-New-Password-9"},
+        json={
+            "email": "cp-ok@example.test",
+            "password": "A-Brand-New-Password-9",  # pragma: allowlist secret
+        },
         headers=await _anon_headers(client),
     )
     assert new_password_login.status_code == 200
@@ -137,7 +146,10 @@ async def test_every_other_session_is_revoked_not_only_the_one_that_asked(
 
     change = await client.post(
         "/api/v1/auth/change-password",
-        json={"current_password": strong_password, "new_password": "Yet-Another-Strong-9"},
+        json={
+            "current_password": strong_password,
+            "new_password": "Yet-Another-Strong-9",  # pragma: allowlist secret
+        },
         headers={"Authorization": f"Bearer {token_a}"},
     )
     assert change.status_code == 200
@@ -166,7 +178,10 @@ async def test_an_oauth_only_account_with_no_local_password_gets_a_400_not_a_500
 
     response = await client.post(
         "/api/v1/auth/change-password",
-        json={"current_password": "anything-at-all", "new_password": "Does-Not-Matter-9"},
+        json={
+            "current_password": "anything-at-all",  # pragma: allowlist secret
+            "new_password": "Does-Not-Matter-9",  # pragma: allowlist secret
+        },
         headers={"Authorization": f"Bearer {token}"},
     )
     assert response.status_code == 400
@@ -183,7 +198,10 @@ async def test_repeated_wrong_guesses_are_eventually_refused_with_retry_after(
     for _ in range(30):
         response = await client.post(
             "/api/v1/auth/change-password",
-            json={"current_password": "definitely-wrong", "new_password": "Irrelevant-Pass-9"},
+            json={
+                "current_password": "definitely-wrong",  # pragma: allowlist secret
+                "new_password": "Irrelevant-Pass-9",  # pragma: allowlist secret
+            },
             headers=headers,
         )
         if response.status_code == 429:
@@ -220,7 +238,10 @@ async def test_a_cookie_authenticated_request_without_a_csrf_token_is_refused(
     # Cookie-authenticated, no CSRF header at all.
     response = await client.post(
         "/api/v1/auth/change-password",
-        json={"current_password": strong_password, "new_password": "Would-Be-Fine-9"},
+        json={
+            "current_password": strong_password,
+            "new_password": "Would-Be-Fine-9",  # pragma: allowlist secret
+        },
         cookies={get_settings().session_cookie_name: session_cookie},
     )
     assert response.status_code == 403
