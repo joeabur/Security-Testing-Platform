@@ -92,3 +92,12 @@ class ForgotPasswordRequest(BaseModel):
 class ResetPasswordRequest(BaseModel):
     token: str
     new_password: str = Field(min_length=12, max_length=200)
+
+
+class ChangePasswordRequest(BaseModel):
+    """`POST /auth/change-password` — already logged in, knows the old
+    password. Distinct from `ResetPasswordRequest`, which proves control of
+    the account's email inbox instead and carries no `current_password`."""
+
+    current_password: str
+    new_password: str = Field(min_length=12, max_length=200)

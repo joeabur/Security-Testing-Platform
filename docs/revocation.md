@@ -13,6 +13,7 @@ real session/token management; this closes it.
 |---|---|---|---|---|
 | Per-token revocation | `POST /auth/logout` | one token | Redis, TTL = token's own remaining lifetime | No — bounded loss, see below |
 | Per-user cutoff | `POST /auth/logout-all` | every token ever issued to that user | Postgres (`users.tokens_valid_after`) | Yes |
+| Per-user cutoff, on a credential change | `POST /auth/change-password` | every token except a fresh one minted in the same request | Postgres (`users.tokens_valid_after`) | Yes |
 | Per-token revocation, by name | `DELETE /auth/sessions/{id}` | one token, chosen from a list rather than only "this one" | Same deny-list as `/auth/logout` | No — same bounded loss |
 | Per-token revocation, by an org admin | `DELETE /organizations/{organization_id}/members/{member_id}/sessions/{id}` | one token belonging to a fellow organization member, not the caller | Same deny-list as `/auth/logout` | No — same bounded loss |
 
@@ -134,15 +135,20 @@ stale page" requirement to justify carrying the exemption).
   hours later by default. The durable `logout-all` cutoff is not affected by
   this, which is the whole reason it lives in Postgres.
 - **A self-service password *change* flow (already logged in, know the old
-  password) does not exist yet** to hang a "revoke everything on password
-  change" rule from — `logout-all` was, and remains, the deliberate stand-in
-  for that case specifically.
+  password) now exists**: `POST /auth/change-password`
+  (`docs/authentication.md` §"Change password"). It is the third shape in
+  this family, distinct from both of the other two — `logout-all` kills
+  sessions but changes no credential; `reset-password` changes the
+  credential but proves control of an email inbox, not this browser, and
+  deliberately does not start a session. `change-password` proves the
+  opposite (a browser already holding a working session *and* the current
+  password), so instead of being sent back to `/login`, the caller walks
+  away with a fresh token transparently — every *other* session is still
+  revoked the same `tokens_valid_after` + bulk `UserSession` way the other
+  two use.
 
-  What now exists is the different case: `POST /auth/reset-password`
-  (`docs/authentication.md` §"Forgot / reset password"), reached only by
-  someone who has proven control of the account's email inbox, not the
-  browser making the request. It sets `tokens_valid_after` and bulk-revokes
-  every row in `user_sessions` — the exact same two writes `logout-all`
-  makes — because a password reset *is* the "I think this account was
-  compromised" case this mechanism exists for, whether or not the person
-  hitting "forgot password" is still signed in anywhere.
+  `POST /auth/reset-password` (`docs/authentication.md` §"Forgot / reset
+  password"), reached only by someone who has proven control of the
+  account's email inbox, not the browser making the request, still does
+  the same two writes `logout-all` does and still sends the caller back to
+  `/login` — that shape is unchanged.

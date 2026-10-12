@@ -8405,3 +8405,85 @@ observation and confirmed the report comes back fully clean — no drift,
 no manual review due, nothing unreadable. `yaml.safe_load` plus `bash -n`
 confirm the updated workflow file parses and its embedded script has no
 syntax errors.
+
+## A self-service "change password" flow
+
+`docs/revocation.md` named this precisely: *"A self-service password
+**change** flow (already logged in, know the old password) does not exist
+yet to hang a 'revoke everything on password change' rule from —
+`logout-all` was, and remains, the deliberate stand-in for that case
+specifically."* Confirmed still open before writing anything: no route,
+schema, or frontend component existed anywhere (`grep -rn
+"change.password|change_password" backend/app/` and the frontend
+equivalent both came back empty). The only two ways to set a new password
+were `/auth/reset-password` (proves control of an email inbox, not this
+browser) and `/auth/logout-all` (kills sessions, changes nothing) — a
+person who typed their current password correctly and simply wanted to
+rotate it had no path that did not route through email.
+
+**Delivered.** `POST /auth/change-password`
+(`backend/app/api/v1/routers/auth.py`): verifies `current_password`
+against the stored hash, rate limited per account (`change_password`,
+`docs/rate-limiting.md`, same shape and window as `login`'s own identity
+budget), then rotates the hash, sets `tokens_valid_after`, and bulk-revokes
+every `UserSession` row — the identical cutover `/auth/logout-all` and
+`/auth/reset-password` already use. Unlike `reset-password`, the caller is
+not sent back to `/login`: a fresh token is minted in the same request and
+returned as an ordinary `TokenResponse` with a new session cookie set
+alongside it, so the browser that just proved it holds a working session
+and the current password keeps one. A frontend form
+(`frontend/components/account/change-password-form.tsx`) is mounted on the
+existing account security page, next to `TwoFactorSettings`.
+
+**Decisions.**
+
+- **A third shape, not a reuse of either existing one.** `logout-all` kills
+  sessions but changes no credential. `reset-password` changes the
+  credential but proves control of an email inbox, not this browser, and
+  deliberately does not start a session. `change-password` proves the
+  browser already holds both a working session and the current password,
+  so it is the one route in this family trusted to keep the caller signed
+  in through a credential change rather than ending the session.
+- **Rate limited per identity, not per IP** — the caller is already
+  authenticated when this route runs, so `current_user.id` is free to key
+  on directly without the "don't disclose via the budget" problem
+  `login`/`forgot-password` have before their own DB lookup. Same limit and
+  window as `LOGIN_IDENTITY` (10 / 15 min): it bounds how many guesses a
+  live, possibly-stolen session can make at the one secret this route
+  checks.
+- **Not added to `EXEMPT_PATHS`/`ANONYMOUS_CSRF_PATHS`**
+  (`app/core/csrf/enforce.py`) — it reads the session cookie and mutates a
+  real credential, the same two facts that keep `logout-all` out of both
+  lists (`docs/csrf.md`). No code change was needed there; the route is
+  simply left out, and the default cookie-authenticated-write check
+  applies.
+- **A new numbered guarantee** (`docs/security-model.md` #39) rather than
+  folding into #25 (session revocation) or #32 (reset-password) — this is
+  its own claim (old password required, every *other* session dies, the
+  caller's own session survives) even though the mechanism underneath is
+  shared.
+
+**Deferred.** Nothing new — this closes exactly the one gap
+`docs/revocation.md` named, with no new scope opened.
+
+**Verified.** `ruff check .` / `mypy app kervy_cli` clean. New
+`tests/test_change_password.py` (bearer-token end-to-end, mirroring
+`tests/security/test_revocation.py`'s own style): a wrong current password
+is refused and changes nothing; a correct one rotates the hash, the
+request's own token dies and a fresh one returned in the response works
+immediately, and the old password no longer signs in while the new one
+does; every *other* open session (one this request never learned the jti
+of) is revoked too; an OAuth-only account with no local password gets
+`400`, not `500`; repeated wrong guesses are eventually refused with
+`Retry-After`; a cookie-authenticated request with no CSRF header is
+refused with `403`, proving the route was not accidentally exempted.
+`tests/security/test_revocation.py`, `tests/security/test_rate_limit.py`,
+`tests/test_password_reset.py`, `tests/test_auth.py` re-run unchanged and
+pass (75 tests). Frontend: `eslint`, `tsc --noEmit`, `vitest run` (62
+tests), and `next build` all clean. Verified end to end in a real browser
+(Playwright against local `uvicorn`/`next dev` servers, not just the test
+suite): registered a fresh account, submitted the form with a wrong
+current password and saw the error, then the correct one and saw "Password
+changed.", then confirmed `GET /auth/me` still answered `200` afterward —
+proving the session genuinely survived its own password's rotation, not
+just that the endpoint returned 200.
