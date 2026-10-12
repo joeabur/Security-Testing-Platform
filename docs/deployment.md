@@ -76,11 +76,13 @@ redacted but real exchanges with a customer's system.
   application's tables without `FORCE ROW LEVEL SECURITY`.** Migration
   `b2e6f4a91c7d` enables Postgres Row-Level Security (`docs/security-model.md`
   guarantee #26) and sets `FORCE`, which closes the table-owner exemption on its
-  original 14 tables; five later migrations each added RLS to their own new
-  tenant-scoped table or tables the same way, bringing the current total to 22
-  tables (summed from each migration's own table list in
-  `backend/alembic/versions/`, not hand-counted against a live database).
-  Every one of them needs the same non-superuser
+  original 14 tables; several later migrations each added RLS to their own new
+  tenant-scoped table or tables the same way, and `631ae06041d2` added a
+  null-aware variant to `audit_logs` (whose nullable `organization_id` needed a
+  different clause than the rest — see `docs/security-model.md` guarantee #26),
+  bringing the current total to 24 tables (confirmed live against
+  `pg_policies`, not hand-counted from migration files). Every one of them
+  needs the same non-superuser
   role below — but Postgres exempts a **superuser** from RLS
   unconditionally, with no override available from inside the database. If the
   role the application connects as is a superuser (true of the default
