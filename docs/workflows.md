@@ -248,11 +248,16 @@ Stated rather than implied:
   shape, and only GitHub's was built, matching the fact that GitHub is
   also the only VCS provider this platform posts check runs back to
   (`docs/pull-requests.md`).
-* **No CLI for any workflow operation.** `kervy-ai` has no `workflow`
-  subcommand group at all yet, scheduling and webhooks included.
-* **No rate limit on the inbound webhook.** `app.core.ratelimit`'s
-  per-route policies are each a route's own dependency, and this endpoint
-  has none — a flood of requests still costs an HMAC verification and a
-  Redis round-trip each before being refused. Deferred rather than adding
-  a new policy without the same deliberate "which window, which key, which
-  fail direction" review every existing one already got.
+* ~~No CLI for any workflow operation.~~ `kervy-ai workflow` has a full
+  subcommand group (list/show/create/update/delete/trigger/runs/
+  webhook-secret/approve/reject) hitting the same routes below.
+* ~~No rate limit on the inbound webhook.~~ `app.main`'s general
+  `api_default` ceiling already covered this route like any other under
+  `/api/v1`, but it is a coarse 1200/5 min — far too generous for a route
+  with no session or JWT, where a flood still costs an HMAC verification
+  and a Redis round-trip each before being refused. A dedicated,
+  attack-specific `webhook_inbound` budget (`docs/rate-limiting.md`) now
+  sits in front of both receivers, keyed on both the caller's IP and the
+  target workflow, so a flood is refused before paying that cost — the
+  same "an attack-specific budget on top of the general ceiling" reasoning
+  `login`/`register` already get.

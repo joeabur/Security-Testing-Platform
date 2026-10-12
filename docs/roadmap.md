@@ -8094,3 +8094,67 @@ operation is skipped under safe mode. `tests/test_probes.py`,
 opaque tokens correctly produce `KERVY-API-000`, not a false positive or
 a crash. Full backend suite re-run to confirm nothing else broke.
 Confirmed no `pyproject.toml`/`uv.lock` change and no Alembic migration.
+
+## A dedicated rate-limit budget for the inbound webhook
+
+`docs/workflows.md`'s own "What is not built" section named this
+plainly: the inbound webhook had no rate limit of its own, so a flood
+still cost an HMAC verification and a Redis round trip each before being
+refused. Checked carefully before picking it, because the doc's literal
+wording ("has none") was itself half-stale: `app.main`'s
+`api_rate_limit_middleware` already applies the general `api_default`
+ceiling to every route under `/api/v1`, webhooks included — confirmed by
+reading the middleware's own path check. The real, still-open gap was
+narrower than the doc said: `api_default`'s 1200/5 min per IP is a
+*coarse* ceiling sized for the whole authenticated API, not an
+attack-specific budget for one unauthenticated, cheaply-floodable route —
+exactly the gap `login`/`register` already closed for their own corner of
+the API, which this route never got its equivalent of.
+
+**Delivered.** A new `webhook_inbound` policy entry
+(`app/core/ratelimit/policy.py`): 120 deliveries/5 min per IP, 30/5 min
+per workflow id. Enforced as the first line of both
+`receive_workflow_webhook` and `receive_github_workflow_webhook`
+(`app/api/v1/routers/webhooks.py`), before the request body is even read
+— reusing `app.core.ratelimit.dependency.enforce()` exactly as every
+authenticated route already does, no new machinery.
+
+**Decisions.**
+
+- **Two dimensions, for a different reason than `login`'s own pairing.**
+  IP alone is bypassable by a botnet, as always; the *workflow*
+  dimension here specifically bounds a flood aimed at one leaked or
+  guessed webhook URL regardless of how many source addresses it comes
+  from. `workflow_id` is a path parameter, not a secret, but
+  `identity_key()`'s own peppered-HMAC bucket shape needs no secret to
+  be worth using — it is still one bucket per workflow rather than one
+  shared bucket every workflow's traffic would otherwise collide into.
+- **Every delivery counts, success or failure** — the same reasoning
+  `agent_tool_call`'s own budget already gives, restated here because
+  the cost this budget exists to bound (HMAC + Redis round trip) is paid
+  identically whether the signature turns out to be valid or not.
+- **Also corrected, in the same doc section:** "No CLI for any workflow
+  operation" — `kervy-ai workflow` already has a full subcommand group.
+  A second stale claim found while reading the section this PR was about
+  to edit, not a new area of investigation; fixed rather than left for a
+  future "we already built this" surprise.
+
+**Deferred.** Nothing new — this closes exactly the gap
+`docs/workflows.md` already named, narrowed to what was actually still
+open once the `api_default` claim was checked against the real
+middleware rather than taken at face value.
+
+**Verified.** `ruff check .` and `mypy app kervy_cli` clean. New tests in
+`tests/test_workflow_automation.py` (5): both the native and GitHub
+receivers 429 with `Retry-After` once a tiny stand-in rule's budget is
+spent; two different workflow ids each get their own separate budget;
+the over-budget request never reaches `signing.verify` at all (asserted
+via a call-counting monkeypatch), proving the check runs before the
+costly work, not after; `rate_limit_enabled=False` bypasses it entirely,
+matching every other route's honoured escape hatch. Every pre-existing
+test in the file (signature, replay, `ping`, push/PR mapping, cross-
+scheme rejection) re-run unchanged and still passes — confirmed the new
+check does not alter any existing response code or ordering.
+`tests/security/test_rate_limit.py` re-run unchanged and still passes.
+Full backend suite re-run to confirm nothing else broke. Confirmed no
+`pyproject.toml`/`uv.lock` change and no Alembic migration.

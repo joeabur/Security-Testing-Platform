@@ -223,9 +223,7 @@ async def test_dispatch_advances_next_run_at_and_enqueues_only_due_workflows(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     org_id, target_id, headers = await _setup(client, strong_password, "d")
-    due_id = await _create_scheduled_workflow(
-        client, org_id, target_id, headers, name="due"
-    )
+    due_id = await _create_scheduled_workflow(client, org_id, target_id, headers, name="due")
     not_due_id = await _create_scheduled_workflow(
         client, org_id, target_id, headers, name="not-due"
     )
@@ -551,9 +549,7 @@ async def test_webhook_requires_signature_headers(
         )
     ).json()["id"]
 
-    response = await _post_webhook(
-        client, workflow_id, b'{"kind": "repository_change"}', {}
-    )
+    response = await _post_webhook(client, workflow_id, b'{"kind": "repository_change"}', {})
     assert response.status_code == 401
 
 
@@ -624,9 +620,7 @@ async def test_webhook_rejects_a_bad_signature(client: AsyncClient, strong_passw
     _secret, _url = await _enable_webhook(client, org_id, workflow_id, headers)
     body = json.dumps({"kind": "repository_change"}).encode("utf-8")
 
-    response = await _post_webhook(
-        client, workflow_id, body, _signed_headers("wrong-secret", body)
-    )
+    response = await _post_webhook(client, workflow_id, body, _signed_headers("wrong-secret", body))
     assert response.status_code == 401
 
 
@@ -745,9 +739,9 @@ async def _post_github_webhook(
     )
 
 
-_PUSH_BODY = json.dumps(
-    {"ref": "refs/heads/main", "after": "b" * 40, "deleted": False}
-).encode("utf-8")
+_PUSH_BODY = json.dumps({"ref": "refs/heads/main", "after": "b" * 40, "deleted": False}).encode(
+    "utf-8"
+)
 
 
 async def test_github_webhook_requires_delivery_and_event_headers(
@@ -872,13 +866,11 @@ async def test_github_webhook_a_branch_deletion_push_triggers_nothing(
         )
     ).json()["id"]
     secret, _url = await _enable_webhook(client, org_id, workflow_id, headers)
-    body = json.dumps(
-        {"ref": "refs/heads/gone", "after": "0" * 40, "deleted": True}
-    ).encode("utf-8")
-
-    response = await _post_github_webhook(
-        client, workflow_id, body, _github_headers(secret, body)
+    body = json.dumps({"ref": "refs/heads/gone", "after": "0" * 40, "deleted": True}).encode(
+        "utf-8"
     )
+
+    response = await _post_github_webhook(client, workflow_id, body, _github_headers(secret, body))
     assert response.status_code == 202
     assert response.json()["status"] == "ignored"
 
@@ -1031,3 +1023,176 @@ async def test_a_github_secret_does_not_verify_the_native_webhook_and_vice_versa
         _github_headers(secret, _PUSH_BODY),
     )
     assert github_signed_for_native.status_code == 401
+
+
+# --- webhook rate limiting ---------------------------------------------------
+#
+# A tiny stand-in rule is swapped in for `webhook_inbound`'s real entry
+# (`app/core/ratelimit/policy.py`) rather than looping the real 30/5 min
+# budget's worth — the same "the wiring, not the specific numbers, is what
+# this proves" reasoning `tests/security/test_rate_limit.py`'s own coarse-
+# ceiling tests already use. `_fresh_rate_limit_store` is autouse
+# (`tests/conftest.py`), so every test here starts with an empty counter.
+
+
+def _tiny_webhook_rule(monkeypatch: pytest.MonkeyPatch, *, limit: int = 2) -> None:
+    from app.core.ratelimit import policy as ratelimit_policy
+    from app.core.ratelimit.contract import Dimension, Rule
+
+    tiny = Rule(
+        name="webhook_inbound", dimension=Dimension.IDENTITY, limit=limit, window_seconds=60
+    )
+    monkeypatch.setitem(ratelimit_policy.POLICY, "webhook_inbound", (tiny,))
+
+
+async def test_webhook_429s_once_the_per_workflow_rate_limit_is_exhausted(
+    client: AsyncClient, strong_password: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _tiny_webhook_rule(monkeypatch, limit=2)
+    org_id, target_id, headers = await _setup(client, strong_password, "rl1")
+    workflow_id = (
+        await client.post(
+            f"/api/v1/organizations/{org_id}/workflows",
+            json={"name": "rl-native", "target_id": target_id},
+            headers=headers,
+        )
+    ).json()["id"]
+    secret, _url = await _enable_webhook(client, org_id, workflow_id, headers)
+
+    # A distinct `ref` per call, not a reused body: the same signature twice
+    # would be rejected as a replay before the third call ever got a chance
+    # to prove the *rate limit*, not the replay guard, is what refused it.
+    responses = []
+    for index in range(3):
+        body = json.dumps({"kind": "repository_change", "ref": f"refs/heads/rl-{index}"}).encode(
+            "utf-8"
+        )
+        responses.append(
+            await _post_webhook(client, workflow_id, body, _signed_headers(secret, body))
+        )
+
+    assert [response.status_code for response in responses[:2]] == [202, 202]
+    assert responses[2].status_code == 429
+    assert "Retry-After" in responses[2].headers
+
+
+async def test_github_webhook_429s_once_the_per_workflow_rate_limit_is_exhausted(
+    client: AsyncClient, strong_password: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _tiny_webhook_rule(monkeypatch, limit=2)
+    org_id, target_id, headers = await _setup(client, strong_password, "rl2")
+    workflow_id = (
+        await client.post(
+            f"/api/v1/organizations/{org_id}/workflows",
+            json={"name": "rl-github", "target_id": target_id},
+            headers=headers,
+        )
+    ).json()["id"]
+    secret, _url = await _enable_webhook(client, org_id, workflow_id, headers)
+
+    responses = [
+        await _post_github_webhook(
+            client, workflow_id, _PUSH_BODY, _github_headers(secret, _PUSH_BODY)
+        )
+        for _ in range(3)
+    ]
+
+    assert [response.status_code for response in responses[:2]] == [202, 202]
+    assert responses[2].status_code == 429
+    assert "Retry-After" in responses[2].headers
+
+
+async def test_two_workflows_have_separate_webhook_rate_limit_budgets(
+    client: AsyncClient, strong_password: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _tiny_webhook_rule(monkeypatch, limit=1)
+    org_id, target_id, headers = await _setup(client, strong_password, "rl3")
+    first_id = (
+        await client.post(
+            f"/api/v1/organizations/{org_id}/workflows",
+            json={"name": "rl-first", "target_id": target_id},
+            headers=headers,
+        )
+    ).json()["id"]
+    second_id = (
+        await client.post(
+            f"/api/v1/organizations/{org_id}/workflows",
+            json={"name": "rl-second", "target_id": target_id},
+            headers=headers,
+        )
+    ).json()["id"]
+    first_secret, _ = await _enable_webhook(client, org_id, first_id, headers)
+    second_secret, _ = await _enable_webhook(client, org_id, second_id, headers)
+    body = json.dumps({"kind": "repository_change"}).encode("utf-8")
+
+    first_spent = await _post_webhook(client, first_id, body, _signed_headers(first_secret, body))
+    first_over = await _post_webhook(client, first_id, body, _signed_headers(first_secret, body))
+    second_ok = await _post_webhook(client, second_id, body, _signed_headers(second_secret, body))
+
+    assert first_spent.status_code == 202
+    assert first_over.status_code == 429
+    # The second workflow's own budget is untouched by the first's.
+    assert second_ok.status_code == 202
+
+
+async def test_webhook_rate_limit_is_consumed_before_signature_verification(
+    client: AsyncClient, strong_password: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The whole point: a flood must not cost a signature check once the
+    budget is spent."""
+    calls = 0
+    real_verify = signing.verify
+
+    def _counting_verify(*args: object, **kwargs: object) -> bool:
+        nonlocal calls
+        calls += 1
+        return real_verify(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(signing, "verify", _counting_verify)
+    _tiny_webhook_rule(monkeypatch, limit=1)
+    org_id, target_id, headers = await _setup(client, strong_password, "rl4")
+    workflow_id = (
+        await client.post(
+            f"/api/v1/organizations/{org_id}/workflows",
+            json={"name": "rl-ordering", "target_id": target_id},
+            headers=headers,
+        )
+    ).json()["id"]
+    secret, _url = await _enable_webhook(client, org_id, workflow_id, headers)
+    body = json.dumps({"kind": "repository_change"}).encode("utf-8")
+    signed = _signed_headers(secret, body)
+
+    first = await _post_webhook(client, workflow_id, body, signed)
+    second = await _post_webhook(client, workflow_id, body, signed)
+
+    assert first.status_code == 202
+    assert second.status_code == 429
+    # The second, over-budget request never reached signature verification.
+    assert calls == 1
+
+
+async def test_webhook_rate_limiting_can_be_disabled(
+    client: AsyncClient, strong_password: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _tiny_webhook_rule(monkeypatch, limit=1)
+    monkeypatch.setattr(get_settings(), "rate_limit_enabled", False)
+    org_id, target_id, headers = await _setup(client, strong_password, "rl5")
+    workflow_id = (
+        await client.post(
+            f"/api/v1/organizations/{org_id}/workflows",
+            json={"name": "rl-disabled", "target_id": target_id},
+            headers=headers,
+        )
+    ).json()["id"]
+    secret, _url = await _enable_webhook(client, org_id, workflow_id, headers)
+
+    responses = []
+    for index in range(3):
+        body = json.dumps({"kind": "repository_change", "ref": f"refs/heads/rl-{index}"}).encode(
+            "utf-8"
+        )
+        responses.append(
+            await _post_webhook(client, workflow_id, body, _signed_headers(secret, body))
+        )
+
+    assert all(response.status_code == 202 for response in responses)
